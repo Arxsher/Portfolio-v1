@@ -1,0 +1,355 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@100..800&display=swap');
+
+@import "tailwindcss";
+
+/* Geist Font Face Declarations */
+@font-face {
+  font-family: "Geist";
+  src: url("/fonts/Geist-Light.woff2") format("woff2");
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Geist";
+  src: url("/fonts/Geist-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Geist";
+  src: url("/fonts/Geist-Medium.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Geist";
+  src: url("/fonts/Geist-SemiBold.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Geist";
+  src: url("/fonts/Geist-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Geist Mono Font */
+@font-face {
+  font-family: "Geist Mono";
+  src: url("/fonts/GeistMono-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  src: url("/fonts/GeistMono-Medium.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@layer base {
+  :root {
+    --background: 0 0% 0%;
+    --foreground: 0 0% 98%;
+    --card: 0 0% 4%;
+    --card-foreground: 0 0% 98%;
+    --muted: 0 0% 45%;
+    --muted-foreground: 0 0% 45%;
+    --border: 0 0% 13%;
+    --accent: 0 0% 100%;
+    --line: 0 0% 17%;
+    --line-hover: 0 0% 25%;
+    --line-accent: 0 0% 32%;
+  }
+
+  [data-theme='light'] {
+    --background: 0 0% 100%; /* Pure White from Docs */
+    --foreground: 0 0% 0%;   /* Absolute Black */
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 0%;
+    --muted: 0 0% 40%;
+    --muted-foreground: 0 0% 40%;
+    --border: 0 0% 92%;
+    --accent: 12 92% 63%;   /* OpenClaw Coral #F06543 */
+    --line: 0 0% 94%;
+    --line-hover: 0 0% 90%;
+    --line-accent: 12 92% 63%;
+  }
+
+  /* LIGHT MODE HERO TITLE - JETBRAINS MONO */
+  html[data-theme='light'] .hero-name {
+    font-size: 2.25rem !important;
+    font-weight: 500 !important;
+    letter-spacing: -0.02em !important;
+    font-family: 'JetBrains Mono', monospace !important;
+  }
+
+  html[data-theme='light'] .light-greeting {
+    display: inline-block !important;
+    margin-right: 0.5rem !important;
+    font-family: 'JetBrains Mono', monospace !important;
+  }
+
+  html[data-theme='light'] .name-primary {
+    color: hsl(var(--accent)) !important;
+  }
+
+  /* TERMINAL CURSOR STYLE */
+  html[data-theme='light'] .terminal-cursor {
+    background-color: hsl(var(--accent)) !important;
+    box-shadow: 0 0 8px hsla(var(--accent), 0.4) !important;
+  }
+
+  @keyframes terminal-blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+  }
+
+  .terminal-cursor {
+    animation: terminal-blink 1s step-end infinite;
+  }
+
+  /* DOCS PAGES ONLY - JETBRAINS MONO */
+  html[data-theme='light'] aside *,
+  html[data-theme='light'] main .prose *,
+  html[data-theme='light'] main h1,
+  html[data-theme='light'] main h2,
+  html[data-theme='light'] main h3,
+  html[data-theme='light'] main p,
+  html[data-theme='light'] main li,
+  html[data-theme='light'] main span:not(.hero-name *) {
+    font-family: 'JetBrains Mono', monospace !important;
+  }
+
+  /* HOME PAGE - FORCED GEIST (RESETS LIGHT THEME OVERRIDES) */
+  html[data-theme='light'] #work *,
+  html[data-theme='light'] #bento * {
+    font-family: 'Geist', sans-serif !important;
+  }
+
+  html[data-theme='light'] #work .text-mono,
+  html[data-theme='light'] #bento .text-mono,
+  html[data-theme='light'] #bento .font-mono {
+    font-family: 'Geist Mono', monospace !important;
+  }
+
+  /* Custom theme utility classes */
+  .text-theme-foreground {
+    color: hsl(var(--foreground));
+  }
+  .text-theme-muted {
+    color: hsl(var(--muted-foreground));
+  }
+  .text-theme-accent {
+    color: hsl(var(--accent));
+  }
+
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    @apply font-sans antialiased;
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+    cursor: none;
+  }
+
+  @media (min-width: 768px) {
+    body {
+      font-size: 16px;
+    }
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  ::selection {
+    background-color: #FEF2F0 !important;
+    color: #F06543 !important;
+  }
+
+  [data-theme='dark'] ::selection {
+    background-color: transparent !important;
+    color: hsl(var(--accent)) !important;
+  }
+}
+
+@media (min-width: 768px) {
+  * {
+    cursor: none !important;
+  }
+}
+
+.cursor-dot {
+  pointer-events: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 8px;
+  height: 8px;
+  background-color: #fafafa;
+  border-radius: 50%;
+  z-index: 9999;
+  mix-blend-mode: difference;
+}
+
+.cursor-outline {
+  pointer-events: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 32px;
+  height: 32px;
+  border: 1px solid #fafafa;
+  border-radius: 50%;
+  z-index: 9998;
+  opacity: 0.5;
+  mix-blend-mode: difference;
+}
+
+.spotify-popup,
+.spotify-popup *,
+.spotify-popup iframe {
+  cursor: auto !important;
+}
+
+@layer components {
+  .text-large {
+    font-size: 20px;
+    line-height: 1.3;
+    letter-spacing: -0.02em;
+  }
+
+  @media (min-width: 768px) {
+    .text-large {
+      font-size: 24px;
+    }
+  }
+
+  .text-base {
+    font-size: 14px;
+    line-height: 1.5;
+    letter-spacing: -0.01em;
+  }
+
+  @media (min-width: 768px) {
+    .text-base {
+      font-size: 16px;
+    }
+  }
+
+  .text-mono {
+    font-family: "Geist Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    letter-spacing: 0;
+  }
+
+  @media (min-width: 768px) {
+    .text-mono {
+      font-size: 14px;
+    }
+  }
+
+  .grid-container {
+    width: 100%;
+    max-width: 1000px;
+    margin-left: auto;
+    margin-right: auto;
+    padding-left: 1rem;
+    padding-right: 1rem;
+    position: relative;
+  }
+
+  @media (min-width: 768px) {
+    .grid-container {
+      padding-left: 3rem;
+      padding-right: 3rem;
+    }
+  }
+
+   .line-h {
+     height: 1px;
+     background: hsl(var(--line));
+     width: 100%;
+   }
+
+   .line-v {
+     width: 1px;
+     background: hsl(var(--line));
+     height: 100%;
+   }
+
+  .line-dot {
+    width: 4px;
+    height: 4px;
+    background: hsl(var(--line-accent));
+    border-radius: 50%;
+  }
+}
+
+/* Availability dot animation - green pulse */
+@keyframes availability-dot {
+  0%, 100% {
+    background-color: #34d399;
+    box-shadow: 0 0 8px 2px rgba(52, 211, 153, 0.8), 0 0 16px 4px rgba(52, 211, 153, 0.4);
+  }
+  50% {
+    background-color: #10b981;
+    box-shadow: 0 0 12px 3px rgba(16, 185, 129, 1), 0 0 20px 6px rgba(16, 185, 129, 0.6);
+  }
+}
+
+@keyframes availability-glow {
+  0%, 100% {
+    background-color: rgba(52, 211, 153, 0.5);
+  }
+  50% {
+    background-color: rgba(16, 185, 129, 0.7);
+  }
+}
+
+@keyframes availability-ping {
+  0% {
+    transform: scale(1);
+    opacity: 0.8;
+    background-color: rgba(52, 211, 153, 0.5);
+  }
+  100% {
+    transform: scale(2.5);
+    opacity: 0;
+    background-color: rgba(52, 211, 153, 0.2);
+  }
+}
+
+.animate-availability-dot {
+  animation: availability-dot 2s ease-in-out infinite;
+}
+
+.animate-availability-glow {
+  animation: availability-glow 2s ease-in-out infinite;
+}
+
+.animate-availability-ping {
+  animation: availability-ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+html {
+  scroll-behavior: smooth;
+}
