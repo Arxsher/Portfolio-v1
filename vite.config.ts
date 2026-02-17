@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url"
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 export default defineConfig({
-  base: "/Portfolio-v1/",
+  base: "/",  // Changed from "/Portfolio-v1/" to "/"
   plugins: [
     react(),
     // GitHub Pages: serve SPA for all routes (404.html loads the app)
