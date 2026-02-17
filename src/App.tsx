@@ -54,6 +54,12 @@ export default function App() {
           animate={{ opacity: 1 }}
           transition={{ duration: 0.8, ease: [0.25, 0.1, 0.25, 1.0] }}
         >
+          <span
+            className="fixed bottom-4 left-4 md:left-8 text-mono text-xs text-[hsl(var(--muted-foreground))] select-none pointer-events-none z-50 hidden md:inline"
+            aria-hidden
+          >
+            ~/.Press L
+          </span>
           <Routes>
             <Route 
               path="/" 

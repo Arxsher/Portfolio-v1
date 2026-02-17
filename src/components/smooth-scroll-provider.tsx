@@ -23,7 +23,15 @@ export function SmoothScrollProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const sections = ["hero", "work", "across-the-web"]
 
-    // Create IntersectionObserver
+    // When near bottom of page, always highlight Elsewhere (section can be short)
+    const checkBottom = () => {
+      const scrollBottom = window.scrollY + window.innerHeight
+      const docHeight = document.documentElement.scrollHeight - 80
+      if (scrollBottom >= docHeight) {
+        setCurrentSection("across-the-web")
+      }
+    }
+
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
@@ -41,17 +49,20 @@ export function SmoothScrollProvider({ children }: { children: ReactNode }) {
       },
     )
 
-    // Observe all sections
     sections.forEach((sectionId) => {
       const element = document.getElementById(sectionId)
       if (element) observer.observe(element)
     })
+
+    window.addEventListener("scroll", checkBottom, { passive: true })
+    checkBottom()
 
     return () => {
       sections.forEach((sectionId) => {
         const element = document.getElementById(sectionId)
         if (element) observer.unobserve(element)
       })
+      window.removeEventListener("scroll", checkBottom)
     }
   }, [])
 

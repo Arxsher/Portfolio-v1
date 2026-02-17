@@ -372,10 +372,8 @@ export function BentoSection() {
 
             <div className="space-y-2">
               {[
-                { title: "AWS Lambda InvalidEntrypoint Debugging", date: "Nov 28, 2025" },
-                { title: "AWS CDK Credentials Hell", date: "Nov 26, 2025" },
-                { title: "Hello World", date: "Oct 19, 2025" },
-                { title: "Stop Burning CPU on Dead FastAPI Streams", date: "Jul 06, 2025" },
+                { title: "Toward AGI: Scaling Laws and Emergent Capabilities", date: "ongoing" },
+                { title: "Alignment, Agency, and the Long-Term Future of AI", date: "ongoing" },
               ].map((post, index) => (
                 <div key={index} className="flex items-center justify-between text-xs py-1 border-b border-[hsl(var(--line))] last:border-0 group cursor-pointer">
                   <span className="text-[hsl(var(--muted-foreground))] group-hover:text-[hsl(var(--foreground))] transition-colors truncate mr-4">

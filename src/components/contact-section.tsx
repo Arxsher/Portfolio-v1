@@ -10,9 +10,7 @@ const links = [
   { label: "GitHub", value: "Arxsher", href: "https://github.com/Arxsher" },
   { label: "LinkedIn", value: "Arxsher", href: "https://linkedin.com/in/Arxsher" },
   { label: "Instagram", value: "@Arxsher", href: "https://instagram.com/kvnull" },
-  { label: "Layers", value: "Arxsher", href: "https://layers.to/Arxsher" },
-  { label: "Substack", value: "@Arxsher", href: "https://substack.com/@Arxsher" },
-  { label: "Contra", value: "Arxsher", href: "https://contra.com/Arxsher" },
+  { label: "Spotify", value: "Arxsher", href: "https://open.spotify.com/user/arxsher" },
 ]
 
 export function ContactSection() {
