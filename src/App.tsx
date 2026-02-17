@@ -46,7 +46,7 @@ function HomePage() {
 
 export default function App() {
   return (
-    <Router>
+    <Router basename="/Portfolio-v1">
       <SmoothScrollProvider>
         <motion.main
           className="min-h-screen relative"
