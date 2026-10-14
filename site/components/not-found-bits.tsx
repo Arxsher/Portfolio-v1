@@ -3,8 +3,6 @@
 // Client-only pieces of app/not-found.tsx.
 
 import { useSyncExternalStore } from "react";
-import { Mail } from "@/components/icons";
-import { openCommand } from "@/lib/command";
 
 const noop = () => () => {};
 
@@ -19,17 +17,16 @@ export function MissingPath() {
     return <>this address</>;
   }
   return (
-    <code className="rounded-[6px] bg-control px-1.5 py-0.5 font-mono text-[13px] break-all text-primary">
-      {decodeURIComponent(path)}
+    <code className="rounded-[6px] bg-well px-1.5 py-0.5 font-mono text-[13px] break-all text-primary">
+      {readable(path)}
     </code>
   );
 }
 
-export function SayHiButton({ className }: { className: string }) {
-  return (
-    <button type="button" className={className} onClick={() => openCommand("say-hi")}>
-      <Mail size={15} />
-      Say hi
-    </button>
-  );
+function readable(path: string): string {
+  try {
+    return decodeURIComponent(path);
+  } catch {
+    return path;
+  }
 }

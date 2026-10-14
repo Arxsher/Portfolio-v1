@@ -13,24 +13,37 @@ import { syncTheme, toggleTheme, useResolvedTheme } from "@/lib/theme";
 
 type Crumb = { label: string; href?: string };
 
-/** First URL segment → breadcrumb label. Add new top-level routes here. */
+/** First URL segment → breadcrumb label. Only real routes belong here (an
+    unknown one renders the 404 page); add new top-level routes as they land. */
 const SECTIONS: Record<string, string> = {
   projects: "work",
   writing: "writing",
   guestbook: "guestbook",
-  lab: "lab",
 };
 
+const NOT_FOUND: Crumb[] = [{ label: "page not found" }];
+
+function decode(part: string): string {
+  try {
+    return decodeURIComponent(part);
+  } catch {
+    return part;
+  }
+}
+
+// Any unknown address gets the same single crumb, whatever its depth: the
+// exported 404.html is rendered once (as /_not-found) and then hydrates on
+// every missing URL, so its markup must not depend on the path.
 function crumbsFor(pathname: string, names: Record<string, string>): Crumb[] {
-  const parts = pathname.split("/").filter(Boolean).map((part) => decodeURIComponent(part));
+  const parts = pathname.split("/").filter(Boolean).map(decode);
   if (parts.length === 0) return [];
-  const [first, second] = parts;
-  if (first.startsWith("preview-")) return [{ label: first.slice("preview-".length) }];
+  const [first, second, ...rest] = parts;
   const section = SECTIONS[first];
-  if (!section) return [{ label: "page not found" }];
+  if (!section || rest.length > 0) return NOT_FOUND;
   if (!second) return [{ label: section }];
   const name = names[`${first}/${second}`];
-  return [{ label: section, href: `/${first}/` }, { label: name ?? "page not found" }];
+  if (!name) return NOT_FOUND;
+  return [{ label: section, href: `/${first}/` }, { label: name }];
 }
 
 export function Header({
@@ -49,11 +62,11 @@ export function Header({
 
   return (
     <header className="flex items-center justify-between gap-4">
-      <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5 text-[15px]">
+      <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-x-1.5 text-[15px]">
         <Link
           href="/"
           aria-current={atHome ? "page" : undefined}
-          className="-ms-2 flex shrink-0 items-center gap-2 rounded-[12px] px-2 py-1.5 font-medium text-primary outline-none transition-[background-color,scale] duration-150 ease-out hover:bg-control focus-visible:outline-2 focus-visible:outline-primary active:scale-[0.96]"
+          className="-ms-2 inline-flex shrink-0 items-center gap-2 rounded-pill px-2 py-1.5 font-medium text-primary transition-[scale,background-color] duration-150 ease-out hover:bg-well active:scale-[0.96] focus-ring"
         >
           <Logo className="size-4 text-primary" />
           {handle}
@@ -71,7 +84,7 @@ export function Header({
               {crumb.href && !last ? (
                 <Link
                   href={crumb.href}
-                  className="shrink-0 rounded-[8px] px-1 text-secondary outline-none transition-colors duration-150 hover:text-primary focus-visible:outline-2 focus-visible:outline-primary"
+                  className="shrink-0 rounded-[8px] px-1 text-secondary transition-colors duration-150 hover:text-primary focus-ring"
                 >
                   {crumb.label}
                 </Link>
@@ -103,7 +116,7 @@ function ThemeToggle() {
       onClick={toggleTheme}
       aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
       title={dark ? "Light mode" : "Dark mode"}
-      className="relative -me-2 flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-[12px] text-secondary outline-none transition-[background-color,color,scale] duration-150 ease-out hover:bg-control hover:text-primary focus-visible:outline-2 focus-visible:outline-primary active:scale-[0.96]"
+      className="relative -me-2 flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-[12px] text-secondary transition-[background-color,color,scale] duration-150 ease-out hover:bg-well hover:text-primary active:scale-[0.96] focus-ring"
     >
       {/* Which icon shows is decided by the `dark` class in CSS, so the
           right one is visible before hydration. */}

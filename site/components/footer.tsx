@@ -26,7 +26,7 @@ export function Footer() {
               href={credit.href}
               target="_blank"
               rel="noopener noreferrer"
-              className="rounded-[6px] text-tertiary/70 outline-none transition-colors duration-150 ease-out hover:text-secondary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+              className="rounded-[6px] text-tertiary transition-colors duration-150 ease-out hover:text-primary focus-ring"
             >
               {credit.label}
             </a>

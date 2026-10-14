@@ -16,7 +16,7 @@ export function SignItButton() {
     <button
       type="button"
       onClick={() => openCommand("guestbook")}
-      className="inline-flex h-9 cursor-pointer items-center rounded-[12px] bg-btn px-4 text-[14px] font-medium text-btn-fg outline-none transition-[opacity,scale] duration-150 ease-out hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary active:scale-[0.96]"
+      className="inline-flex h-9 cursor-pointer items-center rounded-[12px] bg-ink px-4 text-[14px] font-medium text-on-ink transition-[opacity,scale] duration-150 ease-out hover:opacity-90 active:scale-[0.96] focus-ring"
     >
       Sign it
     </button>
@@ -44,7 +44,7 @@ export function GuestbookWall() {
           ? ["Not open yet", "The guestbook isn't connected yet. Signatures will show up here once it is."]
           : ["No signatures yet", "Leave the first note and it will sit right here."];
     return (
-      <div className="mt-12 flex min-h-[220px] flex-col items-center justify-center rounded-[24px] border border-dashed border-border-strong px-6 py-10 text-center">
+      <div className="mt-12 flex min-h-[220px] flex-col items-center justify-center rounded-[24px] border border-dashed border-line-firm px-6 py-10 text-center">
         <p className="text-[15px] font-medium text-primary">{title}</p>
         <p className="mt-1.5 max-w-[42ch] text-[14px] leading-[1.5] text-pretty text-tertiary">{body}</p>
       </div>

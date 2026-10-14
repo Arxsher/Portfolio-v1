@@ -10,6 +10,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowUpRight } from "@/components/icons";
+import { ProjectViews } from "@/components/project-views";
 import { projects, site, type Project } from "@/content/site";
 import { cn } from "@/lib/cn";
 
@@ -44,7 +45,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
       siteName: site.name,
       title: `${project.name} • ${site.name}`,
       description,
-      images: [{ url: site.ogImage, width: 1200, height: 675, alt: site.metaTitle }],
+      images: [{ url: site.ogImage, ...site.ogImageSize, alt: site.metaTitle }],
     },
     twitter: {
       card: "summary_large_image",
@@ -75,15 +76,21 @@ function monthIso(value: string): string | undefined {
 /** Words that mean the same thing in the meta line ("In progress", "wip"). */
 const SAME_AS: Record<string, string> = { wip: "inprogress" };
 
+/** Statuses too common to be worth a mention. */
+const QUIET_STATUSES = new Set(["verified"]);
+
+/** One quiet item: the date, plus the status only when it says something
+    ("In progress"), never the same words twice. The category is left out;
+    the tags at the end of the write-up already cover it. */
 function metaItems(project: Project): string[] {
   const seen = new Set<string>();
   const items: string[] = [];
-  for (const value of [project.date, project.category, project.status]) {
+  for (const value of [project.date, project.status]) {
     const text = value?.trim();
     if (!text) continue;
     const key = text.toLowerCase().replace(/[^a-z0-9]/g, "");
     const canonical = SAME_AS[key] ?? key;
-    if (seen.has(canonical)) continue;
+    if (seen.has(canonical) || QUIET_STATUSES.has(canonical)) continue;
     seen.add(canonical);
     items.push(text);
   }
@@ -100,17 +107,32 @@ type TocEntry = { id: string; label: string };
 const TOC_IDS = ["overview", "key-features", "architecture"] as const;
 const timelineName = (id: string) => `--toc-${id}`;
 
-// An entry is "current" while its part of the page crosses a reading line
-// 35% down the viewport. The first part counts from the moment the page
-// loads. Each <li> runs an animation over its part's view timeline that sets
-// --toc-on: 1; the link styles answer to a style query so they still ease in
-// with ordinary transitions. Browsers without scroll-driven animations get a
-// plain list.
+/** Distance from the top of a <Part> to its heading: pt-14 + the 2px rule + mt-14. */
+const PART_HEAD_OFFSET = "114px";
+
+// An entry is "current" from the moment its heading crosses a reading line 30%
+// down the viewport until the next heading does (the first entry counts from
+// page load). Each part's view timeline starts PART_HEAD_OFFSET above its
+// heading, so the ranges are shifted by that much. Parts sit flush (padding,
+// not margin), so one range ends exactly where the next begins. Each <li> runs
+// an animation over its part's timeline that sets --toc-on: 1; the link styles
+// answer to a style query, so they still ease in with ordinary transitions.
+// The last entry fills forwards and stays lit to the end of the page.
+// Browsers without scroll-driven animations get a plain list.
+//
+// Anchor jumps glide: smooth scrolling is on while the pointer or focus is in
+// the list, or while one of its targets is the URL fragment (a keyboard jump
+// drops focus before the browser scrolls, but :target is already set). It is
+// never on for the page as a whole, so page-to-page navigation still lands at
+// the top instantly. Reduced motion keeps the instant jump.
 const tocCss = `
 @supports (animation-timeline: view()) {
   .ptoc-item {
     animation: ptoc-on linear none;
     animation-duration: auto;
+  }
+  .ptoc-item:last-child {
+    animation-fill-mode: forwards;
   }
   @keyframes ptoc-on {
     from, to { --toc-on: 1; }
@@ -121,16 +143,28 @@ const tocCss = `
     .ptoc-text { translate: 12px 0; }
   }
 }
+@media (prefers-reduced-motion: no-preference) {
+  html:has(.ptoc:hover, .ptoc:focus-within, [data-toc-target]:target) {
+    scroll-behavior: smooth;
+  }
+}
 `;
 
+/** The list is 210px wide and keeps an 80px gap to the content column (about
+    104px to the text, past the column's padding), so it follows the column on
+    wide screens; on narrower ones it stops 2rem from the window edge. */
+const TOC_START = "max(2rem, calc(50% - var(--column-width) / 2 - 210px - 80px))";
+
 function tocRange(first: boolean) {
-  return first ? "cover 0% cover calc(100% - 35vh)" : "cover 65vh cover calc(100% - 35vh)";
+  const end = `cover calc(100% - 30vh + ${PART_HEAD_OFFSET})`;
+  return first ? `cover 0% ${end}` : `cover calc(70vh + ${PART_HEAD_OFFSET}) ${end}`;
 }
 
-function TableOfContents({ entries }: { entries: TocEntry[] }) {
+function TableOfContents({ entries, slug }: { entries: TocEntry[]; slug: string }) {
   return (
-    <nav aria-label="Table of contents" className="fixed top-24 left-8 hidden w-[210px] xl:block">
+    <nav aria-label="Table of contents" className="ptoc fixed top-24 hidden w-[210px] xl:block" style={{ insetInlineStart: TOC_START }}>
       <style>{tocCss}</style>
+      <ProjectViews slug={slug} />
       <p className="text-[14px] text-secondary">Table of Contents</p>
       <ul className="mt-8">
         {entries.map((entry, index) => (
@@ -151,7 +185,7 @@ function TableOfContents({ entries }: { entries: TocEntry[] }) {
             ) : null}
             <a
               href={`#${entry.id}`}
-              className="ptoc-link group relative flex h-[9px] items-center gap-2.5 text-[13px] leading-none text-secondary transition-colors duration-200 ease-out before:absolute before:inset-x-0 before:-inset-y-[9px] before:content-[''] hover:text-primary"
+              className="ptoc-link group relative flex h-[9px] items-center gap-2.5 text-[13px]/none text-secondary transition-[color] duration-200 ease-out before:absolute before:inset-x-0 before:-inset-y-[9px] before:content-[''] hover:text-primary"
             >
               <span className="flex w-8 shrink-0">
                 <span className="ptoc-line h-px w-full origin-left scale-x-[0.625] bg-current opacity-25 transition-[scale,opacity] duration-300 ease-swap group-hover:scale-x-[0.85]" />
@@ -188,7 +222,7 @@ function Part({ id, title, children }: { id: string; title: string; children: Re
   return (
     <section aria-labelledby={id} className="pt-14" style={{ viewTimeline: `${timelineName(id)} block` }}>
       <SectionRule />
-      <h2 id={id} className="mt-14 scroll-mt-24 font-medium text-primary">
+      <h2 id={id} data-toc-target="" className="mt-14 scroll-mt-24 font-medium text-primary">
         {title}
       </h2>
       <div className="mt-4">{children}</div>
@@ -251,7 +285,7 @@ export default async function ProjectPage({ params }: PageProps) {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData).replace(/</g, "\\u003c") }}
       />
 
-      {toc.length > 1 ? <TableOfContents entries={toc} /> : null}
+      {toc.length > 1 ? <TableOfContents entries={toc} slug={project.slug} /> : null}
 
       <header className="mt-16">
         <p className="flex flex-wrap items-center gap-x-1.5 text-[13px] text-tertiary tabular-nums">
@@ -266,7 +300,7 @@ export default async function ProjectPage({ params }: PageProps) {
             </span>
           ))}
         </p>
-        <h1 className="mt-3 text-[22px] leading-[1.3] font-medium tracking-[-0.015em] text-balance text-primary">
+        <h1 className="mt-3 text-[22px]/[1.3] font-medium tracking-[-0.015em] text-balance text-primary">
           {project.name}
         </h1>
         <p className="mt-3 text-[16px] leading-[1.5] text-pretty">{project.tagline}</p>
@@ -279,7 +313,7 @@ export default async function ProjectPage({ params }: PageProps) {
       </header>
 
       <article className="mt-14 text-[16px] leading-[1.6]">
-        <div id="overview" className="scroll-mt-24" style={{ viewTimeline: `${timelineName("overview")} block` }}>
+        <div id="overview" data-toc-target="" className="scroll-mt-24" style={{ viewTimeline: `${timelineName("overview")} block` }}>
           {project.body.map((paragraph, i) => (
             <p key={i} className={cn(i > 0 && "mt-5")}>
               {paragraph}
@@ -315,7 +349,7 @@ export default async function ProjectPage({ params }: PageProps) {
                     const cell = cn("py-[0.6em] align-top", !last && "border-b border-border");
                     return (
                       <tr key={row.label}>
-                        <th scope="row" className={cn(cell, "pe-[0.75em] text-start font-normal whitespace-nowrap text-primary")}>
+                        <th scope="row" className={cn(cell, "pe-[0.75em] text-start font-normal whitespace-nowrap text-body")}>
                           {row.label}
                         </th>
                         <td className={cn(cell, "ps-[0.75em]")}>{row.value}</td>
@@ -331,7 +365,7 @@ export default async function ProjectPage({ params }: PageProps) {
         {project.tags.length ? (
           <ul aria-label="Tags" className="mt-10 flex flex-wrap gap-1.5">
             {project.tags.map((tag) => (
-              <li key={tag} className="rounded-[8px] bg-control px-2 py-0.5 text-[13px] leading-[1.5] text-secondary">
+              <li key={tag} className="rounded-[8px] bg-well px-2 py-0.5 text-[13px] leading-[1.5] text-secondary">
                 {tag}
               </li>
             ))}
@@ -355,12 +389,12 @@ function Neighbour({ project, label, align }: { project: Project; label: string;
     <Link
       href={`/projects/${project.slug}/`}
       className={cn(
-        "group -m-3 block max-w-[48%] rounded-xl p-3 transition-[background-color] duration-150 ease-out hover:bg-tint",
+        "group -m-3 block max-w-[48%] rounded-pill p-3 transition-[background-color] duration-150 ease-out hover:bg-wash",
         align === "end" && "text-end",
       )}
     >
       <span className="block text-[13px] text-tertiary">{label}</span>
-      <span className="mt-1 line-clamp-2 block font-medium text-secondary transition-colors duration-150 ease-out group-hover:text-primary">
+      <span className="mt-1 block line-clamp-2 font-medium text-secondary transition-[color] duration-150 ease-out group-hover:text-primary">
         {project.name}
       </span>
     </Link>

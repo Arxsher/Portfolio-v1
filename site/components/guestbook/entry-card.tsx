@@ -72,16 +72,16 @@ export function EntryCard({
   if (variant === "full") {
     const date = formatEntryDate(entry.created_at);
     return (
-      <li className={cn("mb-3 break-inside-avoid rounded-[24px] bg-surface p-5", className)}>
+      <li className={cn("mb-3 break-inside-avoid rounded-panel bg-tile p-5", className)}>
         <Signature path={entry.signature} name={entry.name} className="h-11 w-full max-w-[160px] text-primary" />
-        <p className="mt-4 text-[16px] leading-[1.5] break-words text-primary">
+        <p className="mt-4 text-[16px]/[1.5] break-words text-primary">
           <QuoteMark size={19} className={color} />
           {entry.message}
         </p>
-        <p className="mt-3 flex items-baseline justify-between gap-3 text-[13px]">
+        <p className="mt-3 flex items-baseline gap-3 text-[13px]">
           <span className="min-w-0 truncate text-secondary">{entry.name}</span>
           {date ? (
-            <time dateTime={entry.created_at} className="shrink-0 text-tertiary tabular-nums">
+            <time dateTime={entry.created_at} className="ms-auto shrink-0 text-tertiary tabular-nums">
               {date}
             </time>
           ) : null}
@@ -93,13 +93,13 @@ export function EntryCard({
   return (
     <li
       className={cn(
-        "flex min-h-[148px] flex-col justify-between gap-3 rounded-[18px] bg-surface p-3.5",
+        "flex min-h-[148px] flex-col justify-between gap-3 rounded-card bg-tile p-3.5",
         className,
       )}
     >
       <Signature path={entry.signature} name={entry.name} className="h-11 w-full max-w-[140px] text-primary" />
       <div className="min-w-0">
-        <p className="line-clamp-2 text-[13px] leading-[1.5] break-words text-primary">
+        <p className="line-clamp-2 text-[13px]/[1.5] break-words text-primary">
           <QuoteMark size={16} className={color} />
           {entry.message}
         </p>
@@ -122,13 +122,13 @@ export function EntryCardSkeleton({
 }) {
   if (variant === "full") {
     return (
-      <li aria-hidden="true" className={cn("mb-3 break-inside-avoid rounded-[24px] bg-surface p-5", className)}>
-        <div className="skeleton h-11 w-[120px] rounded-[10px] bg-control/60" />
-        <div className="mt-[22px] h-3 w-4/5 rounded-[6px] bg-control/60" />
-        {lines === 2 ? <div className="mt-3 h-3 w-1/2 rounded-[6px] bg-control/60" /> : null}
+      <li aria-hidden="true" className={cn("mb-3 break-inside-avoid rounded-panel bg-tile p-5", className)}>
+        <div className="skeleton h-11 w-[120px] rounded-[10px] bg-well/60" />
+        <div className="mt-[22px] h-3 w-4/5 rounded-[6px] bg-well/60" />
+        {lines === 2 ? <div className="mt-3 h-3 w-1/2 rounded-[6px] bg-well/60" /> : null}
         <div className="mt-[18px] flex h-[21px] items-center justify-between">
-          <div className="h-3 w-16 rounded-[6px] bg-control/60" />
-          <div className="h-3 w-20 rounded-[6px] bg-control/60" />
+          <div className="h-3 w-16 rounded-[6px] bg-well/60" />
+          <div className="h-3 w-20 rounded-[6px] bg-well/60" />
         </div>
       </li>
     );
@@ -136,12 +136,12 @@ export function EntryCardSkeleton({
   return (
     <li
       aria-hidden="true"
-      className={cn("flex min-h-[148px] flex-col justify-between gap-3 rounded-[18px] bg-surface p-3.5", className)}
+      className={cn("flex min-h-[148px] flex-col justify-between gap-3 rounded-card bg-tile p-3.5", className)}
     >
-      <div className="skeleton h-11 w-[104px] rounded-[10px] bg-control/60" />
+      <div className="skeleton h-11 w-[104px] rounded-[10px] bg-well/60" />
       <div>
-        <div className="h-[13px] w-4/5 rounded-[6px] bg-control/60" />
-        <div className="mt-2.5 h-[10px] w-12 rounded-[5px] bg-control/60" />
+        <div className="h-[13px] w-4/5 rounded-[6px] bg-well/60" />
+        <div className="mt-2.5 h-[10px] w-12 rounded-[5px] bg-well/60" />
       </div>
     </li>
   );

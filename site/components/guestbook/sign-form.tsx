@@ -1,6 +1,6 @@
 "use client";
 
-// The "sign my guestbook" form that the command bar shows in its guestbook
+// The "sign the guestbook" form that the command bar shows in its guestbook
 // panel: name and message side by side, the signature pad, then the live
 // counter and the Sign button. After a successful signature the fields
 // fade out, the signature traces itself in with a short thank-you, the
@@ -21,14 +21,14 @@ import { SignaturePad, type SignaturePadHandle } from "./signature-pad";
 /** Copy for the panel header the command bar renders above the form. */
 export const GUESTBOOK_PANEL = {
   title: "Sign the guestbook",
-  description: "Leave a note and sign it in your own hand.",
+  description: "Write a short note, then sign it by hand.",
 } as const;
 
 /** How long the "signed" state shows before onDone. */
 const DONE_DELAY = 1800;
 
 const fieldClass =
-  "w-full rounded-pill bg-raised px-4 py-2 text-[16px] text-primary shadow-tray outline-none transition-[box-shadow] duration-150 ease-out placeholder:text-tertiary hover:shadow-tray-hover focus:shadow-[0_0_0_1px_color-mix(in_oklab,var(--foreground)_45%,transparent),0_0_0_4px_color-mix(in_oklab,var(--foreground)_9%,transparent)] disabled:cursor-default disabled:opacity-60 sm:text-[15px]";
+  "w-full rounded-pill bg-float px-4 py-2 text-[16px] text-primary shadow-lift outline-none transition-[box-shadow] duration-150 ease-out placeholder:text-tertiary hover:shadow-lift-hover focus:shadow-[0_0_0_1px_color-mix(in_oklab,var(--foreground)_45%,transparent),0_0_0_4px_color-mix(in_oklab,var(--foreground)_9%,transparent)] disabled:cursor-default disabled:opacity-60 sm:text-[15px]";
 
 type Phase = "idle" | "sending" | "done";
 
@@ -163,7 +163,7 @@ export function GuestbookSignForm({
                 name="message"
                 value={message}
                 onChange={(event) => setMessage(event.target.value)}
-                placeholder="Say something…"
+                placeholder="Write a short note…"
                 maxLength={GUESTBOOK_LIMITS.message}
                 autoComplete="off"
                 enterKeyHint="send"
@@ -182,6 +182,11 @@ export function GuestbookSignForm({
             <SignaturePad
               ref={pad}
               labelledBy={ids.signature}
+              name={name}
+              onNeedName={() => {
+                setError("Add your name first, then you can sign with it.");
+                nameInput.current?.focus();
+              }}
               disabled={!enabled || sending}
               className={enabled ? undefined : "opacity-60"}
               onChange={(path) => {
@@ -225,14 +230,14 @@ export function GuestbookSignForm({
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
         <p className="-ms-1.5">
-          <Odometer value={enabled ? count : 0} className="mx-1.5" /> signatures so far.
+          <Odometer value={enabled ? count : 0} className="mx-1.5" /> notes on the wall.
         </p>
         <button
           type="submit"
           disabled={!enabled || done}
           aria-busy={sending}
           className={cn(
-            "relative inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-pill bg-btn px-5 py-2 text-[15px] font-medium text-btn-fg outline-none transition-[opacity,scale] duration-150 ease-out hover:opacity-85 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary active:scale-[0.96] disabled:cursor-default disabled:active:scale-100",
+            "relative inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-pill bg-ink px-5 py-2 text-[15px] font-medium text-on-ink transition-[opacity,scale] duration-150 ease-out hover:opacity-85 active:scale-[0.96] disabled:cursor-default disabled:active:scale-100 focus-ring",
             // While the thank-you shows the button just rests; greyed out
             // only when signing is actually unavailable.
             done ? "disabled:hover:opacity-100" : "disabled:opacity-60",

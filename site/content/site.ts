@@ -14,8 +14,12 @@ export const site = {
   metaTitle: "Zakaria • Full-stack Developer & Designer",
   description:
     "Designer, developer and builder crafting digital experiences at the intersection of design, technology, and user experience.",
-  avatar: "/images/avatar.png",
-  ogImage: "/images/og-image.png",
+  // Profile photo, e.g. "/images/avatar.jpg" (put the file in public/).
+  // Empty shows the "arsher" mark on a soft tile instead.
+  avatar: "",
+  // Social preview image (1200 x 630) for links shared on X, LinkedIn …
+  ogImage: "/og.png",
+  ogImageSize: { width: 1200, height: 630 },
   verified: true,
 
   status: {
@@ -34,7 +38,8 @@ export const site = {
   // and the panel points people to "Say hi" instead.
   calLink: process.env.NEXT_PUBLIC_CAL_LINK ?? "",
 
-  // Guestbook storage (Supabase). See site/README.md for the one-time setup.
+  // Guestbook and post view counts (Supabase). See site/README.md and
+  // supabase/*.sql for the one-time setup.
   supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
   supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
 
@@ -60,22 +65,26 @@ export const site = {
       { strong: "Extra Immobilien", href: "https://www.extraimmobilien.de/" },
       { text: ". The rest of the time I'm deep into AI agent orchestration: " },
       { chip: "AegiLabs", icon: "github", href: "https://github.com/Arxsher/AegiLabs" },
-      { text: " is my latest build, and my " },
-      { chip: "lab", icon: "sparkle", href: "#lab" },
-      { text: " is where I keep design shots and experiments." },
+      { text: " is my latest build, and the rest of my " },
+      { chip: "experiments", icon: "folder", href: "#work" },
+      { text: " are just below." },
     ],
   ],
 
   // How many projects the home page shows before "All work".
   homeProjectCount: 6,
 
-  lab: [
-    { slug: "car-climate", title: "Car Climate", caption: "Remote climate control for a connected car", image: "/lab/car-climate.webp", width: 1200, height: 900 },
-    { slug: "fact-checker", title: "Fact Checker", caption: "Claim-by-claim news verification app", image: "/lab/fact-checker.webp", width: 1200, height: 943 },
-    { slug: "growth-spring", title: "GrowthSpring", caption: "Onboarding flow for small business owners", image: "/lab/growth-spring.webp", width: 1200, height: 900 },
-    { slug: "word-ladder", title: "Word Ladder War", caption: "Brand mark for a word game", image: "/lab/word-ladder.webp", width: 1200, height: 630 },
-    { slug: "wormhole", title: "Wormhole", caption: "Contract explorer for the Wormhole V2 router", image: "/lab/wormhole.webp", width: 1200, height: 800 },
-  ],
+  // Design shots for the lab section: { slug, title, caption?, image,
+  // width, height }, with the image in public/lab/. Empty until there are
+  // shots of Zakaria's own work; the section shows a quiet empty state.
+  lab: [] as ReadonlyArray<{
+    slug: string;
+    title: string;
+    caption?: string;
+    image: string;
+    width: number;
+    height: number;
+  }>,
 
   writing: [
     {

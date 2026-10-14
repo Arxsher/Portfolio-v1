@@ -16,7 +16,7 @@ const person = {
   alternateName: site.handle,
   jobTitle: site.title,
   url: site.url,
-  image: new URL(site.avatar, site.url).toString(),
+  ...(site.avatar ? { image: new URL(site.avatar, site.url).toString() } : {}),
   sameAs: site.socials.map((social) => social.href),
 };
 

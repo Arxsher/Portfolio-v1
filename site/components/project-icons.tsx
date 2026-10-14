@@ -1,7 +1,8 @@
 // Project marks: one small, bold, monochrome glyph per project (keyed by the
 // slug in content/projects.json). Each is drawn on a 20×20 grid in
 // currentColor, with secondary tones done through opacity, so a glyph
-// follows the text colour of its tile in both themes.
+// follows the text colour of its tile in both themes. At render time each
+// drawing is centred and scaled to fill 18 of the 20 units (see FIT).
 //
 //   <ProjectIcon slug="laya" className="size-5 text-primary" />
 //   <ProjectTile slug="laya" />   // the 44px rounded tile used in the rows
@@ -52,13 +53,13 @@ function LiquidGlass() {
 function Laya() {
   return (
     <>
-      <rect x="3.9" y="5.5" width="1.4" height="10" rx=".7" />
-      <rect x="2.8" y="8" width="3.6" height="5.5" rx="1.1" />
-      <rect x="9.3" y="2.5" width="1.4" height="11" rx=".7" />
-      <rect x="8.2" y="4.5" width="3.6" height="7" rx="1.1" />
+      <rect x="3.05" y="5.5" width="1.7" height="10" rx=".85" />
+      <rect x="1.8" y="8" width="4.2" height="5.5" rx="1.3" />
+      <rect x="9.15" y="2.5" width="1.7" height="11" rx=".85" />
+      <rect x="7.9" y="4.5" width="4.2" height="7" rx="1.3" />
       <g opacity=".45">
-        <rect x="14.7" y="7" width="1.4" height="10.5" rx=".7" />
-        <rect x="13.6" y="9.5" width="3.6" height="5.5" rx="1.1" />
+        <rect x="15.25" y="7" width="1.7" height="10.5" rx=".85" />
+        <rect x="14" y="9.5" width="4.2" height="5.5" rx="1.3" />
       </g>
     </>
   );
@@ -160,36 +161,63 @@ function Generic() {
   return <rect x="4" y="4" width="12" height="12" rx="3.5" />;
 }
 
-const GLYPHS: Record<string, () => ReactNode> = {
-  aegilabs: AegiLabs,
-  "liquid-glass": LiquidGlass,
-  laya: Laya,
-  archexcellence: ArchExcellence,
-  sealed: Sealed,
-  skillsy: Skillsy,
-  "spotify-wrapped": SpotifyWrapped,
-  "comet-chat": CometChat,
-  hologesture: HoloGesture,
-  edenmorph: EdenMorph,
+/** A drawing plus its ink extent [x0, y0, x1, y1] on the 20-unit grid,
+    strokes included (measured by rasterising each mark). */
+type Mark = { draw: () => ReactNode; box: readonly [number, number, number, number] };
+
+const MARKS: Record<string, Mark> = {
+  aegilabs: { draw: AegiLabs, box: [3, 1.85, 17, 18.1] },
+  "liquid-glass": { draw: LiquidGlass, box: [4, 2.35, 16, 18.5] },
+  laya: { draw: Laya, box: [1.8, 2.5, 18.2, 17.5] },
+  archexcellence: { draw: ArchExcellence, box: [1.75, 2.75, 18.25, 17.5] },
+  sealed: { draw: Sealed, box: [3.5, 1.95, 16.5, 18] },
+  skillsy: { draw: Skillsy, box: [2, 4.75, 18, 17.5] },
+  "spotify-wrapped": { draw: SpotifyWrapped, box: [2.4, 2.5, 17.8, 17.5] },
+  "comet-chat": { draw: CometChat, box: [2.3, 2.8, 17.2, 17.7] },
+  hologesture: { draw: HoloGesture, box: [2.5, 2.3, 17.1, 18] },
+  edenmorph: { draw: EdenMorph, box: [2.15, 2.8, 18.4, 18] },
 };
+
+// The fallback keeps a quieter footprint (about 15 units) so it never reads
+// as a real mark.
+const GENERIC: Mark = { draw: Generic, box: [2.6, 2.6, 17.4, 17.4] };
+
+/** Each mark is centred and scaled so its longest side spans this many of
+    the 20 units, so every tile carries about the same amount of ink. */
+const FIT = 18;
+
+function fitTransform([x0, y0, x1, y1]: Mark["box"]): string {
+  const scale = FIT / Math.max(x1 - x0, y1 - y0);
+  const round = (n: number) => Math.round(n * 1000) / 1000;
+  return `translate(10 10) scale(${round(scale)}) translate(${round(-(x0 + x1) / 2)} ${round(-(y0 + y1) / 2)})`;
+}
 
 /** The bare glyph. Size it with a class (`size-5`) and colour it with text-*. */
 export function ProjectIcon({ slug, className, title }: GlyphProps & { slug: string }) {
-  const Draw = GLYPHS[slug] ?? Generic;
+  const mark = MARKS[slug] ?? GENERIC;
+  const Draw = mark.draw;
   return (
     <Glyph className={className} title={title}>
-      <Draw />
+      <g transform={fitTransform(mark.box)}>
+        <Draw />
+      </g>
     </Glyph>
   );
 }
 
-/** The 44px tile the glyph sits in (radius 13, surface fill, 20px glyph). */
+/** The 44px tile the glyph sits in (radius 13, surface fill, 20px glyph).
+    In light mode the glyph is dimmed with brightness(.82), which takes the
+    #171717 ink down to about rgb(19,19,19), the same depth as the marks on
+    the reference rows. Dark mode leaves it at full brightness. The filter is
+    on the svg, not on the tile, so it acts on the ink before it is laid over
+    the surface: solid strokes get darker, the .45 secondary tones barely move
+    (about 142 -> 141), and the tile fill is not touched. */
 export function ProjectTile({ slug, className }: { slug: string; className?: string }) {
   return (
     <span
-      className={cn("flex size-11 shrink-0 items-center justify-center rounded-[13px] bg-surface", className)}
+      className={cn("flex size-11 shrink-0 items-center justify-center rounded-[13px] bg-tile", className)}
     >
-      <ProjectIcon slug={slug} className="size-5 text-primary" />
+      <ProjectIcon slug={slug} className="size-5 text-primary brightness-[.82] dark:brightness-100" />
     </span>
   );
 }

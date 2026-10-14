@@ -25,7 +25,7 @@ export function Odometer({
   return (
     <span
       dir="ltr"
-      className={cn("inline-flex gap-1 rounded-chip p-1 align-middle shadow-tray", className)}
+      className={cn("inline-flex gap-1 rounded-chip p-1 align-middle shadow-lift", className)}
     >
       {text.split("").map((digit, index) => {
         const fromRight = text.length - 1 - index;
@@ -35,7 +35,7 @@ export function Odometer({
             // number grows a digit.
             key={fromRight}
             aria-hidden="true"
-            className="relative inline-flex h-6 w-[18px] overflow-hidden rounded-md bg-raised text-[14px] leading-none text-primary tabular-nums shadow-tray"
+            className="relative inline-flex h-6 w-[18px] overflow-hidden rounded-md bg-float text-[14px] leading-none text-primary tabular-nums shadow-lift"
           >
             <span
               className={cn(

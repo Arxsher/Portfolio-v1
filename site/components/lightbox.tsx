@@ -230,7 +230,7 @@ export function LightboxGallery({
 /* ---------------------------------------------------------------------- */
 
 const iconButton =
-  "flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-[10px] text-secondary outline-none transition-[background-color,color,scale] duration-150 ease-out hover:bg-control hover:text-primary focus-visible:outline-2 focus-visible:outline-primary active:scale-[0.94]";
+  "flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-[12px] text-secondary sm:size-8 sm:rounded-[10px] transition-[background-color,color,scale] duration-150 ease-out hover:bg-well hover:text-primary active:scale-[0.94] focus-ring";
 
 export function Lightbox({
   items,
@@ -327,8 +327,14 @@ export function Lightbox({
       onClose={handleClose}
       onClick={onDialogClick}
     >
-      <div className="lightbox-panel flex max-h-full max-w-full flex-col overflow-hidden rounded-[20px] bg-raised p-1.5 shadow-popover">
-        <div className="flex min-h-0 items-center justify-center overflow-hidden rounded-[14px] bg-surface">
+      <div className="lightbox-panel flex max-h-full max-w-full flex-col overflow-hidden rounded-[20px] bg-float p-1.5 shadow-float">
+        {/* The ::after hairline sits above the image, so a shot with a white
+            background still has an edge against the white panel. */}
+        <div className="relative flex min-h-0 items-center justify-center overflow-hidden rounded-[14px] bg-tile after:pointer-events-none after:absolute after:inset-0 after:rounded-[14px] after:shadow-[inset_0_0_0_1px_rgb(0_0_0/0.07)] dark:after:shadow-[inset_0_0_0_1px_rgb(255_255_255/0.07)]">
+          {/* Height budget: 100cqh minus the panel padding (12px) and the
+              tallest footer (6px gap + 8px padding + one 18.2px title line
+              + two 16.25px caption lines = 64.7px), so even a two-line
+              caption never squeezes the well and crops the image. */}
           {used ? (
             <img
               key={item.src}
@@ -336,7 +342,7 @@ export function Lightbox({
               width={item.width}
               height={item.height}
               alt={item.alt ?? (item.caption ? `${item.title}: ${item.caption}` : item.title)}
-              className="block h-auto max-h-[calc(100cqh-64px)] w-auto max-w-[min(960px,calc(100cqw-12px))] animate-fade-in"
+              className="block h-auto max-h-[calc(100cqh-78px)] w-auto max-w-[min(960px,calc(100cqw-12px))] animate-fade-in"
             />
           ) : null}
         </div>

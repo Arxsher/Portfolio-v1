@@ -16,9 +16,23 @@
 //  whatever is mounted inside gets the soft, rounded, blurred border for
 //  free. If the pond draws its own edge, remove `style={feather}`.
 //  #pond is `relative` and `select-none`; it has no handlers of its own.
-//  To match the reference: fade the pond in once it is ready (opacity
-//  0 -> 1 over 500ms, ease-out), and if it is focusable give it
-//  `rounded-[24px]` so the focus ring follows the corners.
+//  To match the reference:
+//    - Fade the pond in once it is ready: opacity 0 -> 1 over 500ms,
+//      ease-out (`opacity-0 transition-opacity duration-500 ease-out`,
+//      then drop `opacity-0`).
+//    - If it is interactive, make the canvas a Tab stop that announces
+//      itself: role="button" tabIndex={0} and an aria-label in your own
+//      words that describes the scene and how to interact with it (what
+//      a click or tap does, and what Enter / Space do). Handle Enter /
+//      Space in onKeyDown. Give it
+//      `outline-none focus-visible:outline-2 focus-visible:outline-offset-2
+//      focus-visible:outline-primary rounded-[24px]` so the focus ring
+//      follows the corners, and `touch-pan-y cursor-pointer` so a phone
+//      can still scroll the page over it.
+//    - Optional: a still image of the scene (`<picture>`/`<img alt="">`,
+//      `absolute inset-0 size-full pointer-events-none`) behind the
+//      canvas as a fallback for no-JS / reduced motion / while loading,
+//      fading over 300ms ease-out (`transition-opacity duration-300`).
 // =====================================================================
 
 import type { CSSProperties } from "react";
@@ -104,7 +118,7 @@ function PondPlaceholder() {
   return (
     <div
       aria-hidden="true"
-      className="absolute inset-0 bg-surface [--dot:rgb(0_0_0/0.1)] [--pool-a:rgb(255_255_255/0.3)] [--pool-b:rgb(255_255_255/0.2)] dark:[--dot:rgb(255_255_255/0.08)] dark:[--pool-a:rgb(255_255_255/0.035)] dark:[--pool-b:rgb(255_255_255/0.025)]"
+      className="absolute inset-0 bg-tile [--dot:rgb(0_0_0/0.1)] [--pool-a:rgb(255_255_255/0.3)] [--pool-b:rgb(255_255_255/0.2)] dark:[--dot:rgb(255_255_255/0.08)] dark:[--pool-a:rgb(255_255_255/0.035)] dark:[--pool-b:rgb(255_255_255/0.025)]"
       style={{
         backgroundImage: [
           "radial-gradient(circle, var(--dot) 0.75px, transparent 1.25px)",
@@ -129,7 +143,7 @@ export function HeroPond() {
     <figure className="mt-10">
       {/* Bleeds 16px past the text column; also the size container for the feather. */}
       <div className="-mx-4 @container">
-        <div id="pond" className="relative h-[300px] w-full select-none sm:h-[400px]" style={feather}>
+        <div id="pond" className="relative h-75 w-full select-none sm:h-100" style={feather}>
           {/* Mount the pond animation here. */}
           <PondPlaceholder />
         </div>

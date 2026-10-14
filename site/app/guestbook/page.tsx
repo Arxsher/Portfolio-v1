@@ -15,7 +15,7 @@ export const metadata: Metadata = {
     siteName: site.name,
     title: `Guestbook • ${site.name}`,
     description: intro,
-    images: [{ url: site.ogImage, width: 1200, height: 675, alt: site.metaTitle }],
+    images: [{ url: site.ogImage, ...site.ogImageSize, alt: site.metaTitle }],
   },
 };
 
@@ -23,8 +23,8 @@ export default function GuestbookPage() {
   return (
     <>
       <header className="mt-16">
-        <h1 className="text-[30px] leading-[1.15] tracking-[-0.025em] text-balance text-primary">Guestbook</h1>
-        <div className="mt-3 max-w-[56ch] text-[16px] leading-[1.5] text-pretty">
+        <h1 className="page-title">Guestbook</h1>
+        <div className="page-lede mt-3">
           <p>{intro}</p>
           <div className="mt-5 flex">
             <SignItButton />

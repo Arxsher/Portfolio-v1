@@ -44,9 +44,12 @@ const GAP = 4;
 const STEP = CELL + GAP;
 const RADIUS = 3.5;
 const HEIGHT = 7 * STEP - GAP; // 108
+/** The calendar shows at most the last 40 weeks, so a day is always the
+ *  same size (11.09px in the 588px desktop card). */
+const WEEKS = 40;
+const FULL_WIDTH = WEEKS * STEP - GAP; // 636
 /** On phones cells never shrink below 80% (9.6px); the calendar scrolls
- *  instead. From `sm` up it always fits the card (a full 53-week year
- *  draws 8.4px cells rather than hiding January off to the left). */
+ *  instead. From `sm` up it always fits the card. */
 const MIN_SCALE = 0.8;
 /** Tooltips this many weeks from a visible edge hug that edge instead of centring. */
 const EDGE_WEEKS = 8;
@@ -94,10 +97,15 @@ function levelOf(day: ContributionDay | undefined, count: number): number {
 }
 
 /**
- * Lays the year out week by week: from Jan 1 to the last day in the data
- * (or to `updatedAt` / Dec 31 when there is no data yet). Weeks start on
- * Sunday; days outside the range are not drawn, so the first and last
- * columns can be partial.
+ * Lays the year out week by week (Sunday on top), ending on the last day in
+ * the data (or on `updatedAt` when there is no data yet).
+ *
+ * The window is the last WEEKS weeks, starting on a Sunday, so the first
+ * column is full and only the last one (the current week) is partial. Early
+ * in the year, when fewer weeks have passed, it starts with the week of
+ * Jan 1 instead (days before Jan 1 are not drawn) and has fewer columns;
+ * the graph then keeps the same day size and leaves the rest of the card
+ * empty rather than stretching a few weeks across it.
  */
 function buildCalendar({ year, days, updatedAt }: Contributions): Calendar {
   const start = Math.round(Date.UTC(year, 0, 1) / DAY_MS);
@@ -112,28 +120,33 @@ function buildCalendar({ year, days, updatedAt }: Contributions): Calendar {
     if (last === null || day > last) last = day;
   }
 
+  const firstWeek = start - fromDay(start).getUTCDay(); // the Sunday on or before Jan 1
   const fallback = toDayNumber(updatedAt);
-  let end = last ?? (fallback !== null && fallback >= start && fallback <= yearEnd ? fallback : yearEnd);
+  // No data and no date: draw the year's first WEEKS weeks, empty.
+  const blank = Math.min(yearEnd, firstWeek + WEEKS * 7 - 1);
+  let end = last ?? (fallback !== null && fallback >= start && fallback <= yearEnd ? fallback : blank);
   if (end < start) end = start;
 
-  const gridStart = start - fromDay(start).getUTCDay(); // the Sunday on or before Jan 1
+  const lastWeek = end - fromDay(end).getUTCDay(); // the Sunday on or before the last day
+  const gridStart = Math.max(lastWeek - (WEEKS - 1) * 7, firstWeek);
+  const first = Math.max(gridStart, start); // the first day drawn
   const cells: Cell[] = [];
-  for (let day = start; day <= end; day++) {
+  for (let day = first; day <= end; day++) {
     const entry = byDay.get(day);
     const count = Math.max(0, Math.trunc(entry?.count ?? 0)) || 0;
     const offset = day - gridStart;
     cells.push({ day, count, level: levelOf(entry, count), col: Math.floor(offset / 7), row: offset % 7 });
   }
 
-  const columns = Math.floor((end - gridStart) / 7) + 1;
-  const first = monthLabel.format(fromDay(start));
+  const columns = (lastWeek - gridStart) / 7 + 1;
+  const firstMonth = monthLabel.format(fromDay(first));
   const lastMonth = monthLabel.format(fromDay(end));
   return {
     cells,
     columns,
     width: columns * STEP - GAP,
-    months: first === lastMonth ? [first] : [first, lastMonth],
-    range: `${dayLabel.format(fromDay(start))} to ${dayLabel.format(fromDay(end))}`,
+    months: firstMonth === lastMonth ? [firstMonth] : [firstMonth, lastMonth],
+    range: `${dayLabel.format(fromDay(first))} to ${dayLabel.format(fromDay(end))}`,
   };
 }
 
@@ -154,7 +167,7 @@ export function GitHubGraph({
   id = "github",
 }: {
   data?: Contributions;
-  /** Section anchor; only the preview page needs another one. */
+  /** Section anchor (#github by default). */
   id?: string;
 }) {
   const { username, year } = data;
@@ -165,24 +178,24 @@ export function GitHubGraph({
   return (
     <Section
       id={id}
-      label="github"
+      label="GitHub"
       count={`${formatNumber(total)} this year`}
       action={{ label: `@${username}`, href: profile, external: true }}
     >
-      <div className="flex flex-col rounded-[24px] bg-surface p-5">
-        <div className="flex items-center justify-between gap-3 text-[13px]">
+      <div className="flex flex-col rounded-panel bg-tile p-5">
+        <div className="flex items-center gap-3 text-[13px]">
           <a
             href={profile}
             target="_blank"
             rel="noopener noreferrer"
-            className="group flex min-w-0 items-center gap-1.5 rounded-[6px] font-medium text-primary outline-none focus-visible:outline-2 focus-visible:outline-primary"
+            className="group inline-flex min-w-0 items-center gap-1.5 rounded-[6px] font-medium text-primary focus-ring"
           >
             <GitHub size={14} />
             <span className="truncate">{username}</span>
             <ArrowUpRight size={12} className="text-tertiary transition-colors duration-150 group-hover:text-primary" />
             <span className="sr-only">(GitHub profile, opens in a new tab)</span>
           </a>
-          <span className="shrink-0 text-tertiary tabular-nums">
+          <span className="ms-auto shrink-0 text-tertiary tabular-nums">
             {formatNumber(total)} {plural(total, "contribution")} in {year}
           </span>
         </div>
@@ -196,7 +209,7 @@ export function GitHubGraph({
           }
         />
 
-        <div aria-hidden="true" className="mt-2 flex items-center justify-end text-[11px] text-tertiary">
+        <div aria-hidden="true" className="mt-2 flex justify-end text-[11px]/[1.6] text-tertiary">
           <span className="flex items-center gap-1.5">
             Less
             {LEVEL_SWATCH.map((swatch) => (
@@ -228,6 +241,10 @@ const KEY_STEPS = new Map([
 function ContributionCalendar({ calendar, summary }: { calendar: Calendar; summary: string }) {
   const { cells, columns, width, months } = calendar;
   const minWidth = Math.round(width * MIN_SCALE);
+  // Fewer than WEEKS weeks so far: keep the day size and leave the rest of
+  // the row empty (marginRight: auto pins it left inside the RTL scroller).
+  const fit: CSSProperties | undefined =
+    columns < WEEKS ? { width: `${(width / FULL_WIDTH) * 100}%`, marginRight: "auto" } : undefined;
   const scrollerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState<Active | null>(null);
@@ -238,7 +255,7 @@ function ContributionCalendar({ calendar, summary }: { calendar: Calendar; summa
   // of the year on a phone).
   function place(index: number, byKey: boolean): Active {
     const { col, row } = cells[index];
-    let align: Align = col < EDGE_WEEKS ? "start" : col >= columns - EDGE_WEEKS ? "end" : "center";
+    let align: Align = col < EDGE_WEEKS ? "start" : col >= WEEKS - EDGE_WEEKS ? "end" : "center";
     const graph = graphRef.current?.getBoundingClientRect();
     const scroller = scrollerRef.current?.getBoundingClientRect();
     if (graph && scroller && graph.width > 0) {
@@ -246,7 +263,8 @@ function ContributionCalendar({ calendar, summary }: { calendar: Calendar; summa
       const x = graph.left + (col * STEP + CELL / 2) * scale;
       const edge = EDGE_WEEKS * STEP * scale;
       const left = Math.max(graph.left, scroller.left + 20);
-      const right = Math.min(graph.right, scroller.right - 20);
+      // The visible edge (a partial year leaves empty card to its right).
+      const right = scroller.right - 20;
       align = x - left < edge ? "start" : right - x < edge ? "end" : "center";
     }
     return { index, align, below: row < BELOW_ROWS, byKey };
@@ -276,10 +294,11 @@ function ContributionCalendar({ calendar, summary }: { calendar: Calendar; summa
     const step = KEY_STEPS.get(event.key);
     if (step !== undefined) {
       event.preventDefault();
-      if (!active) return show(lastIndex, true); // the first press starts at the latest day
-      const next = active.index + step;
-      if (next >= 0 && next <= lastIndex) show(next, true);
-      else if (!active.byKey) show(active.index, true);
+      // The first press steps from the latest day. Past either end the day
+      // stays put (a pointer day becomes the keyboard day and is read out).
+      const from = active ? active.index : lastIndex;
+      const next = from + step;
+      show(next >= 0 && next <= lastIndex ? next : from, true);
     } else if (event.key === "Home" || event.key === "End") {
       event.preventDefault();
       show(event.key === "Home" ? 0 : lastIndex, true);
@@ -322,11 +341,14 @@ function ContributionCalendar({ calendar, summary }: { calendar: Calendar; summa
         <div
           ref={graphRef}
           dir="ltr"
-          role="img"
+          // An application region, not an image: screen readers then hand
+          // the arrow keys to it, so the day-by-day reading works.
+          role="application"
+          aria-roledescription="contribution calendar"
           aria-label={summary}
           tabIndex={0}
-          className="relative rounded-[6px] outline-none [container-type:size] max-sm:min-w-(--graph-min) focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
-          style={{ aspectRatio: `${width} / ${HEIGHT}` }}
+          className="relative rounded-[6px] [container-type:size] max-sm:min-w-(--graph-min) focus-ring-far"
+          style={{ aspectRatio: `${width} / ${HEIGHT}`, ...fit }}
           onPointerOver={onPointerOver}
           onPointerLeave={onPointerLeave}
           onPointerCancel={clear}
@@ -379,6 +401,7 @@ function ContributionCalendar({ calendar, summary }: { calendar: Calendar; summa
           dir="ltr"
           aria-hidden="true"
           className="mt-3 flex justify-between text-[11px] text-tertiary max-sm:min-w-(--graph-min)"
+          style={fit}
         >
           {months.map((month, index) => (
             <span key={index}>{month}</span>
@@ -409,7 +432,7 @@ function Tooltip({ cell, active, width }: { cell: Cell; active: Active; width: n
   return (
     <span
       aria-hidden="true"
-      className="pointer-events-none absolute top-0 left-0 z-10 rounded-[8px] bg-raised px-2 py-1 text-[12px] whitespace-nowrap text-primary shadow-popover transition-[translate] duration-150 ease-out will-change-[translate] motion-reduce:transition-none"
+      className="pointer-events-none absolute top-0 left-0 z-10 rounded-[8px] bg-float px-2 py-1 text-[12px] whitespace-nowrap text-primary shadow-float transition-[translate] duration-150 ease-out will-change-[translate] motion-reduce:transition-none"
       style={{ translate: `${x} ${y}` }}
     >
       <span className="font-medium tabular-nums">{cell.count === 0 ? "No" : formatNumber(cell.count)}</span>{" "}

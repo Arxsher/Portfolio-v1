@@ -141,7 +141,7 @@ function storeFor(client: GuestbookClient): Store {
 
 const ClientContext = createContext<GuestbookClient>(guestbookClient);
 
-/** Point the guestbook views below at another client (previews, tests). */
+/** Point the guestbook views below at another client (e.g. in tests). */
 export function GuestbookClientProvider({ client, children }: { client: GuestbookClient; children: ReactNode }) {
   return <ClientContext.Provider value={client}>{children}</ClientContext.Provider>;
 }

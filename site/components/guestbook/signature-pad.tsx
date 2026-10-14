@@ -9,6 +9,10 @@
 // scaled so the pad is SIGNATURE_WIDTH (600) units wide, rounded to one
 // decimal, and each stroke becomes "M x y Q … L x y". An empty string
 // means the pad is blank. <Signature> renders the result.
+//
+// Without a pointer (keyboard, screen readers) the pad offers a button that
+// only shows when it has focus: it writes a flowing, signature-like line
+// from the typed name (see nameStrokes), which can be cleared like ink.
 
 import { useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent, Ref } from "react";
@@ -35,6 +39,8 @@ export function SignaturePad({
   onChange,
   disabled = false,
   labelledBy,
+  name = "",
+  onNeedName,
   className,
 }: {
   ref?: Ref<SignaturePadHandle>;
@@ -42,6 +48,10 @@ export function SignaturePad({
   disabled?: boolean;
   /** id of the visible label ("Signature"). */
   labelledBy?: string;
+  /** The signer's name, for signing without a pointer. */
+  name?: string;
+  /** Asked to sign from the keyboard before a name was typed. */
+  onNeedName?: () => void;
   className?: string;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -140,6 +150,38 @@ export function SignaturePad({
     emit();
   }, [emit, paint]);
 
+  const typedRef = useRef<HTMLButtonElement>(null);
+  const clearRef = useRef<HTMLButtonElement>(null);
+  // Which of the pad's own buttons should take focus once it has rendered
+  // (the one that was pressed has just been swapped for the other).
+  const focusNext = useRef<"typed" | "clear" | null>(null);
+  useEffect(() => {
+    const next = focusNext.current;
+    if (!next) return;
+    focusNext.current = null;
+    (next === "clear" ? clearRef : typedRef).current?.focus({ preventScroll: true });
+  });
+
+  const signWithName = () => {
+    if (disabled) return;
+    if (!name.trim()) {
+      onNeedName?.();
+      return;
+    }
+    const { width, height } = size.current;
+    const unitHeight = width ? (height * SIGNATURE_WIDTH) / width : SIGNATURE_WIDTH / 4;
+    strokes.current = nameStrokes(name, unitHeight);
+    active.current = null;
+    paint();
+    emit();
+    focusNext.current = "clear";
+  };
+
+  const clearByButton = () => {
+    clear();
+    focusNext.current = "typed";
+  };
+
   useImperativeHandle(ref, () => ({ clear, isEmpty: () => strokes.current.length === 0 }), [clear]);
 
   const toPoint = (event: { clientX: number; clientY: number }): Point => {
@@ -193,44 +235,132 @@ export function SignaturePad({
     emit();
   };
 
+  const statusId = labelledBy ? `${labelledBy}-state` : undefined;
+  const typedLabel = name.trim() ? `Press Enter to sign as “${name.trim()}”` : "Type your name above to sign with it";
+
   return (
-    <div className={cn("relative touch-none", className)}>
+    <div
+      role="group"
+      aria-labelledby={labelledBy}
+      aria-describedby={statusId}
+      className={cn("relative touch-none", className)}
+    >
+      <span id={statusId} className="sr-only">
+        {empty
+          ? "Required. Draw your signature with a mouse, pen or finger, or use the sign button to sign with your name."
+          : "Signed."}
+      </span>
       <canvas
         ref={canvasRef}
-        role="img"
-        aria-labelledby={labelledBy}
-        aria-describedby={labelledBy ? `${labelledBy}-hint` : undefined}
+        aria-hidden="true"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endStroke}
         onPointerCancel={endStroke}
         onLostPointerCapture={endStroke}
         className={cn(
-          "block aspect-2/1 w-full touch-none rounded-xl bg-raised text-primary shadow-tray select-none sm:aspect-4/1",
+          "block aspect-2/1 w-full touch-none rounded-xl bg-float text-primary shadow-lift select-none sm:aspect-4/1",
           disabled ? "cursor-default" : "cursor-crosshair",
         )}
       />
       <span
-        id={labelledBy ? `${labelledBy}-hint` : undefined}
-        aria-hidden={!empty}
+        aria-hidden="true"
         className={cn(
           "pointer-events-none absolute inset-0 flex items-center justify-center text-[14px] text-tertiary transition-opacity duration-200 ease-out",
           empty ? "opacity-100" : "opacity-0",
         )}
       >
-        Draw your signature here
+        Sign here with your mouse or finger
       </span>
+      {empty && !disabled ? (
+        // Shows only while focused, over the hint; pointer presses go
+        // through to the canvas underneath.
+        <button
+          ref={typedRef}
+          type="button"
+          onClick={signWithName}
+          className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-xl bg-float px-4 text-center text-[14px] text-primary opacity-0 focus-visible:opacity-100 focus-ring"
+        >
+          {typedLabel}
+        </button>
+      ) : null}
       {!empty && !disabled ? (
         <button
+          ref={clearRef}
           type="button"
-          onClick={clear}
-          className="absolute end-1.5 bottom-1.5 cursor-pointer rounded-lg px-2 py-0.5 text-[13px] text-secondary outline-none transition-[color,background-color] duration-150 ease-out animate-fade-in hover:bg-tint hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
+          onClick={clearByButton}
+          aria-label="Clear signature"
+          className="absolute end-1.5 bottom-1.5 cursor-pointer rounded-lg px-2 py-0.5 text-[13px] text-secondary outline-none transition-[color,background-color] duration-150 ease-out animate-fade-in hover:bg-wash hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
         >
           Clear
         </button>
       ) : null}
     </div>
   );
+}
+
+/**
+ * A signature-like line for a typed name, in signature units: one flowing
+ * stroke per word, letters drawn as humps, tall loops for capitals and
+ * ascenders, dips for descenders, and an underline flourish. It is not a
+ * font, just a hand-ish line with the rhythm of the name.
+ */
+export function nameStrokes(name: string, height: number): Point[][] {
+  const text = name.trim().replace(/\s+/g, " ").slice(0, 24);
+  const letters = [...text];
+  if (letters.length === 0) return [];
+  const h = Math.max(80, Math.min(height, 300));
+  const base = h * 0.6;
+  const xHeight = h * 0.17;
+  const tall = h * 0.4;
+  const deep = h * 0.22;
+  const start = SIGNATURE_WIDTH * 0.16;
+  const span = SIGNATURE_WIDTH * 0.68;
+  const step = Math.min(42, span / Math.max(4, letters.length));
+  const used = step * letters.length;
+  let x = start + (span - used) / 2;
+  const wobble = (index: number, salt: number) => (((letters[index].codePointAt(0) ?? 0) * (salt + 7) + index * 13) % 11) / 10 - 0.5;
+
+  const strokes: Point[][] = [];
+  let line: Point[] = [];
+  letters.forEach((letter, index) => {
+    if (letter === " ") {
+      if (line.length) strokes.push(line);
+      line = [];
+      x += step;
+      return;
+    }
+    const w = step * (0.85 + wobble(index, 1) * 0.2);
+    const lift = wobble(index, 3) * xHeight * 0.25;
+    const at = (dx: number, dy: number): Point => [clamp(x + dx * w, 0, SIGNATURE_WIDTH), clamp(base - dy + lift, 0, h)];
+    if (line.length === 0) line.push(at(-0.15, xHeight * 0.1));
+    if (/[A-Z]/.test(letter) || (index === 0 && /\p{L}/u.test(letter))) {
+      line.push(at(0.05, tall * 0.8), at(0.35, tall), at(0.25, xHeight * 0.4), at(0.75, xHeight * 0.8), at(1, 0));
+    } else if (/[bdfhklt]/.test(letter)) {
+      line.push(at(0.25, tall * 0.85), at(0.45, tall * 0.7), at(0.5, 0), at(0.85, xHeight * 0.5), at(1, 0));
+    } else if (/[gjpqy]/.test(letter)) {
+      line.push(at(0.3, xHeight), at(0.55, 0), at(0.55, -deep), at(0.35, -deep * 0.6), at(1, xHeight * 0.2));
+    } else if (/\p{L}/u.test(letter)) {
+      line.push(at(0.3, xHeight), at(0.65, xHeight * 0.9), at(1, 0));
+    } else {
+      line.push(at(0.5, xHeight * 0.5), at(1, 0));
+    }
+    x += step;
+  });
+  if (line.length) strokes.push(line);
+
+  // the underline: a long, slightly rising sweep with a small hook
+  const first = start + (span - used) / 2;
+  const end = Math.min(SIGNATURE_WIDTH * 0.9, first + used + step * 0.6);
+  const under = base + Math.min(deep * 0.9, h * 0.16);
+  strokes.push([
+    [clamp(first - step * 0.2, 0, SIGNATURE_WIDTH), under + 4],
+    [first + (end - first) * 0.35, under],
+    [first + (end - first) * 0.75, under - 4],
+    [end, under - 9],
+    [end - step * 0.25, under - 2],
+  ]);
+  return strokes;
 }
 
 function traceStroke(ctx: CanvasRenderingContext2D, points: Point[]) {

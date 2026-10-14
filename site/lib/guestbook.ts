@@ -57,7 +57,7 @@ const MAX_ROWS = 1000;
 
 const MESSAGES = {
   disabled: "The guestbook isn't connected yet.",
-  offline: "Couldn't reach the guestbook. Check your connection and try again.",
+  offline: "The guestbook is out of reach right now. Try again in a moment.",
   timeout: "The guestbook took too long to answer. Please try again.",
   rejected: "The guestbook didn't accept that note. Please check it and try again.",
   busy: "Lots of people signing right now. Give it a minute and try again.",
@@ -67,7 +67,7 @@ const MESSAGES = {
 
 /**
  * Build a client for one Supabase project. The site uses the default one
- * below; tests and previews can point a second one somewhere else.
+ * below; tests can point a second one somewhere else.
  */
 export function createGuestbookClient(config: { url: string; anonKey: string }): GuestbookClient {
   const base = config.url.trim().replace(/\/+$/, "");
@@ -176,7 +176,7 @@ export function cleanEntry(input: NewGuestbookEntry): NewGuestbookEntry {
   const signature = input.signature.trim();
   if (!name) throw new GuestbookError("Add your name first.");
   if (!message) throw new GuestbookError("Write a short message first.");
-  if (!signature) throw new GuestbookError("Draw your signature before signing.");
+  if (!signature) throw new GuestbookError("Add your signature first.");
   if ([...name].length > GUESTBOOK_LIMITS.name) {
     throw new GuestbookError(`Names can be up to ${GUESTBOOK_LIMITS.name} characters.`);
   }

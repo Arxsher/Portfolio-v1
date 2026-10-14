@@ -13,10 +13,10 @@
 //   └──────┘ └──────┘ └──────┘
 //
 // The masonry is plain CSS columns, so the reading order goes down the
-// first column, then the next. Tile heights come from FRAMES below: they
-// are picked so that the five current shots end level in both layouts
-// (three columns: 2 + 2 + 1 tall tile; two columns: 3 + 2). New shots
-// without an entry get a tile that fits their own aspect ratio.
+// first column, then the next. A shot can get a hand-picked tile shape in
+// FRAMES below (handy for making the columns end level); shots without an
+// entry get a tile that fits their own aspect ratio. With no shots in
+// site.lab the section shows a quiet empty card.
 
 import { LightboxGallery, type LightboxItem } from "@/components/lightbox";
 import { Section } from "@/components/section";
@@ -42,18 +42,13 @@ type Frame = {
 /** Share of the tile width the shot takes up. */
 const SHOT_WIDTH = 0.8;
 
-// Tile proportions, written as "column width / tile height" at the 204px
-// desktop column. The pairs in the first two columns add up to the tall
-// tile in the third (210 + 150 = 180 + 180 = 368 - 8px gap); on phones the
-// same order splits 3 + 2 and lands level as well.
-const FRAMES: Record<string, Frame> = {
-  "fact-checker": { tile: 204 / 210 },
-  "word-ladder": { tile: 204 / 150 },
-  "car-climate": { tile: 204 / 180 },
-  "growth-spring": { tile: 204 / 180 },
-  // A tall tile: the phone in the middle of this shot, cropped to portrait.
-  wormhole: { tile: 204 / 368, crop: { aspect: 0.64, position: "50% 0%" } },
-};
+// Tile shapes by slug, written as "column width / tile height" at the
+// 204px desktop column, e.g.
+//   "my-shot": { tile: 204 / 210 },
+//   "tall-one": { tile: 204 / 368, crop: { aspect: 0.64, position: "50% 0%" } },
+// Tiles in a column are 8px apart, so two stacked tiles of 180px end level
+// with one of 368px next to them.
+const FRAMES: Record<string, Frame> = {};
 
 const ORDER = Object.keys(FRAMES);
 
@@ -86,7 +81,7 @@ export function Lab() {
 export function LabGrid({ items }: { items: ReadonlyArray<LabItem> }) {
   if (items.length === 0) {
     return (
-      <div className="flex h-40 items-center justify-center rounded-[20px] bg-surface text-[14px] text-tertiary">
+      <div className="flex h-40 items-center justify-center rounded-[20px] bg-tile text-[14px] text-tertiary">
         Nothing in the lab yet.
       </div>
     );
@@ -125,7 +120,7 @@ function LabTile({ item, index }: { item: LabItem; index: number }) {
         data-lightbox-index={index}
         aria-haspopup="dialog"
         aria-label={`${item.title}, view larger`}
-        className="group relative flex items-center justify-center overflow-hidden rounded-[20px] bg-surface outline-none transition-[background-color,scale] duration-200 ease-out hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary active:scale-[0.985]"
+        className="group relative grid place-items-center overflow-hidden rounded-[20px] bg-tile transition-[scale,background-color] duration-200 ease-out hover:bg-tile-hover active:scale-[0.985] focus-ring"
         style={{ aspectRatio: frame.tile }}
       >
         <img
@@ -144,7 +139,7 @@ function LabTile({ item, index }: { item: LabItem; index: number }) {
               : null),
           }}
         />
-        <span className="pointer-events-none absolute bottom-3 left-3 flex h-6 max-w-[calc(100%-24px)] translate-y-1 items-center gap-1 rounded-[8px] bg-raised px-2 text-[12px] text-primary opacity-0 shadow-tray transition-[opacity,translate] duration-200 ease-out group-hover:translate-y-0 group-hover:opacity-100 group-focus-visible:translate-y-0 group-focus-visible:opacity-100">
+        <span className="pointer-events-none absolute start-3 bottom-3 flex h-6 max-w-[calc(100%-24px)] translate-y-1 items-center gap-1 rounded-[8px] bg-float px-2 text-[12px] text-primary opacity-0 shadow-lift transition-[translate,opacity] duration-200 ease-out group-hover:translate-y-0 group-hover:opacity-100 group-focus-visible:translate-y-0 group-focus-visible:opacity-100">
           <span className="truncate">{item.title}</span>
           <Expand className="text-tertiary" />
         </span>

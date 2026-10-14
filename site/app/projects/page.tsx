@@ -15,7 +15,7 @@ export const metadata: Metadata = {
     siteName: site.name,
     title: `Work • ${site.name}`,
     description: intro,
-    images: [{ url: site.ogImage, width: 1200, height: 675, alt: site.metaTitle }],
+    images: [{ url: site.ogImage, ...site.ogImageSize, alt: site.metaTitle }],
   },
 };
 
@@ -23,8 +23,8 @@ export default function ProjectsPage() {
   return (
     <>
       <header className="mt-16">
-        <h1 className="text-[30px] leading-[1.15] tracking-[-0.025em] text-balance text-primary">Work</h1>
-        <p className="mt-3 max-w-[56ch] text-[16px] leading-[1.5] text-pretty">{intro}</p>
+        <h1 className="page-title">Work</h1>
+        <p className="page-lede mt-3">{intro}</p>
       </header>
       <div className="mt-10">
         <ProjectList projects={projects} />

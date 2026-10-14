@@ -67,14 +67,14 @@ function LeaveNoteCard() {
     <button
       type="button"
       onClick={() => openCommand("guestbook")}
-      className="group flex h-full min-h-[148px] w-full cursor-pointer flex-col justify-between rounded-[18px] border border-dashed border-border-strong p-3.5 text-left outline-none transition-[background-color,border-color] duration-200 ease-out hover:border-transparent hover:bg-surface focus-visible:border-transparent focus-visible:bg-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+      className="group flex size-full min-h-[148px] cursor-pointer flex-col justify-between rounded-card border border-dashed border-line-firm p-3.5 text-start transition-[border-color,background-color] duration-200 ease-out hover:border-transparent hover:bg-tile focus-visible:border-transparent focus-visible:bg-tile focus-ring"
     >
-      <span className="flex size-8 items-center justify-center rounded-[9px] bg-control text-secondary transition-colors duration-200 group-hover:text-primary group-focus-visible:text-primary">
+      <span className="grid size-8 place-items-center rounded-[9px] bg-well text-secondary transition-[color] duration-200 group-hover:text-primary group-focus-visible:text-primary">
         <Pen />
       </span>
       <span className="text-[13px] leading-[1.5]">
         <span className="block text-primary">Leave a note</span>
-        <span className="block text-tertiary">Sign it in your own hand</span>
+        <span className="block text-tertiary">Signed by hand, kept here</span>
       </span>
     </button>
   );

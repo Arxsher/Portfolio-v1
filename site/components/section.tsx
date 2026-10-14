@@ -29,7 +29,7 @@ export type SectionProps = {
 };
 
 export const sectionActionClass =
-  "-my-1.5 ms-auto inline-flex shrink-0 items-center gap-0.5 rounded-[6px] py-1.5 text-[13px] text-tertiary outline-none transition-colors duration-150 ease-out hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary";
+  "-my-1.5 ms-auto inline-flex shrink-0 items-center gap-0.5 rounded-[6px] py-1.5 text-[13px] text-tertiary transition-colors duration-150 ease-out hover:text-primary focus-ring";
 
 export function Section({ id, label, count, action, className, children }: SectionProps) {
   const titleId = `${id}-title`;

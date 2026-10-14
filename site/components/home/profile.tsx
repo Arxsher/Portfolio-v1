@@ -5,7 +5,7 @@
 //             Full-stack developer & designer
 //   ( ● Available for work · 8:28am GMT+1 )
 
-import Image from "next/image";
+import { AvatarFill } from "@/components/avatar";
 import { LocalTime } from "@/components/home/hero-client";
 import { Verified } from "@/components/icons";
 import { site } from "@/content/site";
@@ -26,19 +26,11 @@ export function Profile() {
   return (
     <section className="mt-6">
       <div className="flex items-center gap-4">
-        <span className="relative size-16 shrink-0 overflow-hidden rounded-[20px] bg-surface outline -outline-offset-1 outline-black/10 dark:outline-white/10">
-          <Image
-            src={site.avatar}
-            alt=""
-            width={64}
-            height={64}
-            loading="eager"
-            fetchPriority="high"
-            className="size-full object-cover"
-          />
+        <span className="relative size-16 shrink-0 overflow-hidden rounded-[20px] bg-tile outline -outline-offset-1 outline-black/10 dark:outline-white/10">
+          <AvatarFill mark={24} eager />
         </span>
         <div className="min-w-0">
-          <h1 className="text-[22px] leading-tight font-medium tracking-[-0.02em] text-primary">
+          <h1 className="text-[22px]/[1.25] font-medium tracking-[-0.02em] text-primary">
             {site.name}
             {site.verified ? (
               // The check is drawn in the page colour so it reads as cut out of the badge.
@@ -49,9 +41,9 @@ export function Profile() {
         </div>
       </div>
 
-      <p className="mt-4 inline-flex items-center gap-2 rounded-[10px] bg-surface py-1.5 ps-2.5 pe-3 text-[13px] whitespace-nowrap">
+      <p className="mt-4 inline-flex items-center gap-2 rounded-[10px] bg-tile py-1.5 ps-2.5 pe-3 text-[13px] whitespace-nowrap">
         <span aria-hidden="true" className="relative flex size-2 text-status">
-          <span className="absolute inset-0 animate-ping rounded-full bg-current opacity-60 motion-reduce:animate-none" />
+          <span className="absolute inset-0 rounded-full bg-current opacity-60 motion-safe:animate-ping" />
           <span className="relative size-2 rounded-full bg-current" />
         </span>
         <span className="font-medium text-primary">{label}</span>

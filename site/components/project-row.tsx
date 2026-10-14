@@ -43,11 +43,11 @@ export function ProjectRow({ project }: { project: ProjectSummary }) {
     <li className="transition-opacity duration-200 ease-out">
       <Link
         href={`/projects/${project.slug}/`}
-        className="group flex items-center gap-4 rounded-[14px] py-3 outline-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
+        className="group flex items-center gap-4 rounded-[14px] py-3 focus-ring-far"
       >
         <ProjectTile slug={project.slug} />
         <span className="min-w-0 flex-1 leading-[1.4]">
-          <span className="block font-medium text-primary underline decoration-transparent underline-offset-[3px] transition-[text-decoration-color] duration-150 group-hover:decoration-current">
+          <span className="hover-underline block font-medium text-primary group-hover:decoration-current">
             {project.name}
           </span>
           <span className="block text-[15px] text-secondary">{project.tagline}</span>

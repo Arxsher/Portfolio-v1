@@ -27,7 +27,7 @@ export const metadata: Metadata = {
     siteName: site.name,
     title: site.metaTitle,
     description: site.description,
-    images: [{ url: site.ogImage, width: 1200, height: 675, alt: site.metaTitle }],
+    images: [{ url: site.ogImage, ...site.ogImageSize, alt: site.metaTitle }],
   },
   twitter: {
     card: "summary_large_image",
@@ -69,7 +69,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body className="flex min-h-full flex-col">
         <a
           href="#main"
-          className="pointer-events-none fixed top-3 left-3 z-50 -translate-y-[calc(100%+24px)] rounded-[10px] bg-raised px-3 py-2 text-[13px] font-medium text-primary opacity-0 shadow-popover transition-[translate,opacity] duration-150 ease-out focus-visible:pointer-events-auto focus-visible:translate-y-0 focus-visible:opacity-100"
+          className="pointer-events-none fixed top-3 left-3 z-50 -translate-y-[calc(100%+24px)] rounded-[10px] bg-float px-3 py-2 text-[13px] font-medium text-primary opacity-0 shadow-float transition-[translate,opacity] duration-150 ease-out focus-visible:pointer-events-auto focus-visible:translate-y-0 focus-visible:opacity-100"
         >
           Skip to content
         </a>

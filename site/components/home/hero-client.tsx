@@ -97,7 +97,8 @@ function readClock(atMinute: number, timeZone: string) {
 /**
  * "· 8:28am GMT+1" for the status pill. The slot keeps the width of the
  * widest reading ("12:00am") from the first paint, so the pill doesn't
- * grow when the time arrives after hydration.
+ * grow when the time arrives after hydration; the time then simply
+ * appears (no fade), as on the reference.
  */
 export function LocalTime({ timeZone, zoneFallback }: { timeZone: string; zoneFallback: string }) {
   const current = useSyncExternalStore(subscribeClock, getMinute, getServerMinute);
@@ -115,7 +116,7 @@ export function LocalTime({ timeZone, zoneFallback }: { timeZone: string; zoneFa
           12:00am {zone}
         </span>
         {clock ? (
-          <time dateTime={clock.iso} className="animate-fade-in [grid-area:1/1]">
+          <time dateTime={clock.iso} className="[grid-area:1/1]">
             {clock.time} {clock.zone}
           </time>
         ) : null}

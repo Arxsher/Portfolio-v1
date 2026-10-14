@@ -6,12 +6,20 @@
 
 /* ------------------------------------------------------------------------ */
 /* Design tokens                                                            */
-/* Values were measured from the reference site's computed styles; the     */
-/* naming and structure here are our own.                                   */
+/* The colour, shadow and size values were measured from the reference      */
+/* site's computed styles (so they match it on purpose). The token names    */
+/* are this site's own:                                                     */
+/*   tile   resting fill of cards, pills and panels     (bg-tile)           */
+/*   float  floating things: dock, popovers, scroll-top (bg-float)          */
+/*   well   small inset fills: kbd, chips, quiet hovers (bg-well)           */
+/*   wash   faint hover tint over the page              (bg-wash)           */
+/*   line-* hairlines and dashed borders; edge-* 1px ring shadows           */
+/*   ink / on-ink  the solid button and its label       (bg-ink text-on-ink)*/
+/*   lift-* elevation shadows                    (shadow-lift, shadow-float)*/
 /* ------------------------------------------------------------------------ */
 
 :root {
-  --content-width: 676px;
+  --column-width: 676px;
 
   /* page + text */
   --background: #fbfbfb;
@@ -21,29 +29,29 @@
   --tertiary: #6e6e6e; /* counts, captions, footer, placeholders */
 
   /* fills */
-  --surface: #f2f2f2; /* cards, status pill, graph panel */
-  --surface-hover: #ebebeb;
-  --raised: #ffffff; /* floating dock, popovers, scroll-top */
-  --control: #ececec; /* kbd, inline chips, hover fill of quiet buttons */
-  --control-hover: #e4e4e4;
-  --tint: rgb(0 0 0 / 0.0385);
+  --tile: #f2f2f2; /* cards, status pill, graph panel */
+  --tile-hover: #ebebeb;
+  --float: #ffffff; /* floating dock, popovers, scroll-top */
+  --well: #ececec; /* kbd, inline chips, hover fill of quiet buttons */
+  --well-hover: #e4e4e4;
+  --wash: rgb(0 0 0 / 0.0385);
 
   /* lines */
   --border: rgb(0 0 0 / 0.066);
-  --border-strong: rgb(0 0 0 / 0.15);
-  --border-dashed: rgb(0 0 0 / 0.132);
-  --ring: rgb(0 0 0 / 0.09);
-  --ring-strong: rgb(0 0 0 / 0.14);
+  --line-firm: rgb(0 0 0 / 0.15);
+  --line-dash: rgb(0 0 0 / 0.132);
+  --edge: rgb(0 0 0 / 0.09);
+  --edge-firm: rgb(0 0 0 / 0.14);
 
   /* solid button */
-  --btn-bg: #171717;
-  --btn-fg: #fbfbfb;
+  --ink: #171717;
+  --on-ink: #fbfbfb;
 
   /* accents */
   --status: #16a34a; /* "available" dot */
   --verified: #1d9bf0; /* verified badge (same in both themes) */
   --accent: #1d9bf0;
-  --accent-soft: rgb(29 155 240 / 0.12);
+  --accent-wash: rgb(29 155 240 / 0.12);
   --danger: #dc2626;
 
   /* contribution graph: the foreground colour at five strengths */
@@ -61,9 +69,9 @@
   --quote-green: #1a7f37;
 
   /* elevation */
-  --shadow-tray: 0 0 0 1px rgb(0 0 0 / 0.06), 0 1px 2px -1px rgb(0 0 0 / 0.06), 0 2px 4px 0 rgb(0 0 0 / 0.04);
-  --shadow-tray-hover: 0 0 0 1px rgb(0 0 0 / 0.08), 0 1px 3px -1px rgb(0 0 0 / 0.08), 0 4px 8px -2px rgb(0 0 0 / 0.06);
-  --shadow-popover: 0 0 0 1px rgb(0 0 0 / 0.06), 0 4px 8px -2px rgb(0 0 0 / 0.06), 0 12px 24px -4px rgb(0 0 0 / 0.08);
+  --lift: 0 0 0 1px rgb(0 0 0 / 0.06), 0 1px 2px -1px rgb(0 0 0 / 0.06), 0 2px 4px 0 rgb(0 0 0 / 0.04);
+  --lift-hover: 0 0 0 1px rgb(0 0 0 / 0.08), 0 1px 3px -1px rgb(0 0 0 / 0.08), 0 4px 8px -2px rgb(0 0 0 / 0.06);
+  --lift-float: 0 0 0 1px rgb(0 0 0 / 0.06), 0 4px 8px -2px rgb(0 0 0 / 0.06), 0 12px 24px -4px rgb(0 0 0 / 0.08);
 
   --selection: color-mix(in oklab, var(--foreground) 13%, transparent);
   --scrollbar: color-mix(in oklab, var(--foreground) 22%, transparent);
@@ -76,25 +84,25 @@
   --secondary: #9c9c9c;
   --tertiary: #919191;
 
-  --surface: #232323;
-  --surface-hover: #2a2a2a;
-  --raised: #262626;
-  --control: #2a2a2a;
-  --control-hover: #333333;
-  --tint: rgb(255 255 255 / 0.054);
+  --tile: #232323;
+  --tile-hover: #2a2a2a;
+  --float: #262626;
+  --well: #2a2a2a;
+  --well-hover: #333333;
+  --wash: rgb(255 255 255 / 0.054);
 
   --border: rgb(255 255 255 / 0.07);
-  --border-strong: rgb(255 255 255 / 0.12);
-  --border-dashed: rgb(255 255 255 / 0.185);
-  --ring: rgb(255 255 255 / 0.07);
-  --ring-strong: rgb(255 255 255 / 0.12);
+  --line-firm: rgb(255 255 255 / 0.12);
+  --line-dash: rgb(255 255 255 / 0.185);
+  --edge: rgb(255 255 255 / 0.07);
+  --edge-firm: rgb(255 255 255 / 0.12);
 
-  --btn-bg: #f2f2f2;
-  --btn-fg: #1a1a1a;
+  --ink: #f2f2f2;
+  --on-ink: #1a1a1a;
 
   --status: #3fcf6e;
   --accent: #4aabf7;
-  --accent-soft: rgb(74 171 247 / 0.16);
+  --accent-wash: rgb(74 171 247 / 0.16);
   --danger: #f2575c;
 
   --quote-purple: #a58cf0;
@@ -103,14 +111,15 @@
   --quote-blue: #6cb6ff;
   --quote-green: #56d364;
 
-  --shadow-tray: 0 0 0 1px rgb(255 255 255 / 0.07);
-  --shadow-tray-hover: 0 0 0 1px rgb(255 255 255 / 0.11);
-  --shadow-popover: 0 0 0 1px rgb(255 255 255 / 0.08), 0 16px 40px -12px rgb(0 0 0 / 0.6);
+  --lift: 0 0 0 1px rgb(255 255 255 / 0.07);
+  --lift-hover: 0 0 0 1px rgb(255 255 255 / 0.11);
+  --lift-float: 0 0 0 1px rgb(255 255 255 / 0.08), 0 16px 40px -12px rgb(0 0 0 / 0.6);
 }
 
-/* Tailwind names. Use e.g. `bg-background text-primary`, `bg-card`,
-   `text-muted`, `text-subtle`, `bg-control`, `border-border`,
-   `shadow-popover`, `ease-out`. Aliases point at the same variables. */
+/* Tailwind names. Use e.g. `bg-background text-primary`, `bg-tile`
+   (alias `bg-card`), `text-muted`, `text-subtle`, `bg-well`,
+   `border-border`, `shadow-float`, `ease-out`. Aliases point at the same
+   variables. */
 @theme inline {
   --font-sans: var(--font-geist-sans), "Geist", system-ui, arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
@@ -124,30 +133,30 @@
   --color-tertiary: var(--tertiary);
   --color-subtle: var(--tertiary);
 
-  --color-surface: var(--surface);
-  --color-surface-hover: var(--surface-hover);
-  --color-card: var(--surface);
-  --color-card-hover: var(--surface-hover);
-  --color-raised: var(--raised);
-  --color-control: var(--control);
-  --color-control-hover: var(--control-hover);
-  --color-kbd: var(--control);
-  --color-tint: var(--tint);
+  --color-tile: var(--tile);
+  --color-tile-hover: var(--tile-hover);
+  --color-card: var(--tile);
+  --color-card-hover: var(--tile-hover);
+  --color-float: var(--float);
+  --color-well: var(--well);
+  --color-well-hover: var(--well-hover);
+  --color-kbd: var(--well);
+  --color-wash: var(--wash);
 
   --color-border: var(--border);
-  --color-border-strong: var(--border-strong);
-  --color-border-dashed: var(--border-dashed);
-  --color-ring: var(--ring);
-  --color-ring-strong: var(--ring-strong);
+  --color-line-firm: var(--line-firm);
+  --color-line-dash: var(--line-dash);
+  --color-edge: var(--edge);
+  --color-edge-firm: var(--edge-firm);
 
-  --color-btn: var(--btn-bg);
-  --color-btn-fg: var(--btn-fg);
+  --color-ink: var(--ink);
+  --color-on-ink: var(--on-ink);
 
   --color-status: var(--status);
   --color-green: var(--status);
   --color-verified: var(--verified);
   --color-accent: var(--accent);
-  --color-accent-soft: var(--accent-soft);
+  --color-accent-wash: var(--accent-wash);
   --color-danger: var(--danger);
 
   --color-graph-0: var(--graph-0);
@@ -162,11 +171,11 @@
   --color-quote-blue: var(--quote-blue);
   --color-quote-green: var(--quote-green);
 
-  --shadow-tray: var(--shadow-tray);
-  --shadow-tray-hover: var(--shadow-tray-hover);
-  --shadow-popover: var(--shadow-popover);
+  --shadow-lift: var(--lift);
+  --shadow-lift-hover: var(--lift-hover);
+  --shadow-float: var(--lift-float);
 
-  --container-content: var(--content-width);
+  --container-content: var(--column-width);
 }
 
 @theme static {
@@ -324,12 +333,11 @@
   border-radius: 12px;
   font-size: 13px;
   font-weight: 500;
-  line-height: 1;
   white-space: nowrap;
   cursor: pointer;
   outline: none;
   user-select: none;
-  transition-property: scale, background-color, color, opacity, box-shadow;
+  transition-property: scale, background-color, color, opacity;
   transition-duration: 150ms;
   transition-timing-function: var(--ease-out);
   &:active {
@@ -346,17 +354,17 @@
   }
 }
 @utility btn-solid {
-  background-color: var(--btn-bg);
-  color: var(--btn-fg);
+  background-color: var(--ink);
+  color: var(--on-ink);
   &:hover:not(:disabled) {
-    background-color: color-mix(in oklab, var(--btn-bg) 88%, var(--btn-fg));
+    background-color: color-mix(in oklab, var(--ink) 88%, var(--on-ink));
   }
 }
 @utility btn-soft {
-  background-color: var(--surface);
+  background-color: var(--tile);
   color: var(--foreground);
   &:hover:not(:disabled) {
-    background-color: var(--surface-hover);
+    background-color: var(--tile-hover);
   }
 }
 @utility btn-icon {
@@ -373,10 +381,52 @@
   }
 }
 
+/* Focus ring for links and custom controls: nothing until the element is
+   focus-visible, then a 2px ring in the foreground colour, 2px out
+   (`focus-ring`) or 4px out for full-width rows (`focus-ring-far`). */
+@utility focus-ring {
+  outline: none;
+  &:focus-visible {
+    outline: 2px solid var(--foreground);
+    outline-offset: 2px;
+  }
+}
+@utility focus-ring-far {
+  outline: none;
+  &:focus-visible {
+    outline: 2px solid var(--foreground);
+    outline-offset: 4px;
+  }
+}
+
+/* Page headings on the inner pages (Work, Writing, Guestbook, 404). */
+@utility page-title {
+  color: var(--foreground);
+  font-size: 30px;
+  line-height: 1.15;
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+}
+@utility page-lede {
+  max-width: 56ch;
+  font-size: 16px;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+
+/* A name that underlines when its row is hovered (add
+   group-hover:decoration-current on the row's text). */
+@utility hover-underline {
+  text-decoration-line: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 3px;
+  transition: text-decoration-color 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
 /* Keyboard hint chip, e.g. the "/" in the footer. */
 @utility kbd {
   border-radius: 6px;
-  background-color: var(--control);
+  background-color: var(--well);
   padding: 0.125rem 0.375rem;
   font-family: var(--font-sans);
   font-size: 11px;
