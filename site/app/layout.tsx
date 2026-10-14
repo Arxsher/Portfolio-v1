@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { CommandBar } from "@/components/command/command-bar";
 import { Footer } from "@/components/footer";
 import { Header } from "@/components/header";
+import { pieces } from "@/components/lab/registry";
 import { ScrollTop } from "@/components/scroll-top";
 import { projects, site } from "@/content/site";
 import { themeScript } from "@/lib/theme-script";
@@ -57,7 +58,10 @@ export const viewport: Viewport = {
 };
 
 // Breadcrumb titles for detail pages, keyed by "segment/slug".
-const pageTitles = Object.fromEntries(projects.map((project) => [`projects/${project.slug}`, project.name]));
+const pageTitles = Object.fromEntries([
+  ...projects.map((project) => [`projects/${project.slug}`, project.name]),
+  ...pieces.map((piece) => [`lab/${piece.slug}`, piece.title]),
+]);
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
@@ -73,8 +77,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         >
           Skip to content
         </a>
-        {/* The 628px content column (676px with its 24px gutters). */}
-        <div className="mx-auto flex w-full max-w-content flex-1 flex-col px-6 pt-6">
+        {/* The 628px content column (676px with its 24px gutters); lab pages
+            widen it (see "Wide pages" in globals.css). */}
+        <div className="site-column mx-auto flex w-full max-w-content flex-1 flex-col px-6 pt-6">
           <Header handle={site.handle} pages={pageTitles} />
           <main id="main" tabIndex={-1} className="flex flex-col outline-none">
             {children}

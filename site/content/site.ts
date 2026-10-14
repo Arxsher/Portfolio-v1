@@ -67,24 +67,17 @@ export const site = {
       { chip: "AegiLabs", icon: "github", href: "https://github.com/Arxsher/AegiLabs" },
       { text: " is my latest build, and the rest of my " },
       { chip: "experiments", icon: "folder", href: "#work" },
-      { text: " are just below." },
+      { text: " are just below. The " },
+      { chip: "lab", icon: "sparkle", href: "/lab/" },
+      { text: " is where I build small interactive pieces." },
     ],
   ],
 
   // How many projects the home page shows before "All work".
   homeProjectCount: 6,
 
-  // Design shots for the lab section: { slug, title, caption?, image,
-  // width, height }, with the image in public/lab/. Empty until there are
-  // shots of Zakaria's own work; the section shows a quiet empty state.
-  lab: [] as ReadonlyArray<{
-    slug: string;
-    title: string;
-    caption?: string;
-    image: string;
-    width: number;
-    height: number;
-  }>,
+  // The lab (/lab/) is code, not content: each piece lives in
+  // components/lab/pieces/<slug>/ and is listed in components/lab/registry.ts.
 
   writing: [
     {

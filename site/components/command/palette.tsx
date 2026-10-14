@@ -6,7 +6,7 @@
 // (command-bar.tsx). Moving the pointer over a row makes it active.
 
 import { useLayoutEffect, useRef } from "react";
-import { Mail } from "@/components/icons";
+import { Mail, Sparkle } from "@/components/icons";
 import { ProjectIcon } from "@/components/project-icons";
 import { cn } from "@/lib/cn";
 import type { PaletteItem } from "./items";
@@ -19,6 +19,7 @@ export function optionId(listId: string, item: PaletteItem) {
 function ItemIcon({ item }: { item: PaletteItem }) {
   if (item.kind === "view") return <ViewIcon name={item.icon} />;
   if (item.kind === "project") return <ProjectIcon slug={item.slug} className="size-3.5" />;
+  if (item.kind === "piece") return <Sparkle size={14} />;
   return <Mail size={14} />;
 }
 

@@ -17,6 +17,7 @@ type Crumb = { label: string; href?: string };
     unknown one renders the 404 page); add new top-level routes as they land. */
 const SECTIONS: Record<string, string> = {
   projects: "work",
+  lab: "lab",
   writing: "writing",
   guestbook: "guestbook",
 };
@@ -53,7 +54,7 @@ export function Header({
   /** The name next to the mark (site.handle). Passed in so this client
       component doesn't pull the whole content module into the bundle. */
   handle: string;
-  /** Titles of known detail pages keyed by "segment/slug", e.g. { "projects/aegilabs": "AegiLabs" }. */
+  /** Titles of known detail pages keyed by "segment/slug", e.g. { "projects/aegilabs": "AegiLabs", "lab/zellige": "Zellige" }. */
   pages?: Record<string, string>;
 }) {
   const pathname = usePathname() ?? "/";

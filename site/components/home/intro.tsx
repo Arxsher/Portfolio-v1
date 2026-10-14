@@ -7,6 +7,7 @@
 //   { strong, href }         the same, as a link (underline firms up on hover)
 //   { chip, icon, href }     a small inline pill with an icon (github | sparkle | folder)
 
+import Link from "next/link";
 import type { ComponentType, ReactNode } from "react";
 import { CommandButton } from "@/components/home/hero-client";
 import { Calendar, Folder, GitHub, Mail, SocialIcons, Sparkle, type IconProps } from "@/components/icons";
@@ -67,10 +68,24 @@ const chipClass =
 function renderSegment(segment: Segment, key: number): ReactNode {
   if ("chip" in segment) {
     const Icon = chipIcons[segment.icon];
-    return (
-      <a key={key} href={segment.href} {...linkProps(segment.href)} className={chipClass}>
+    const content = (
+      <>
         {Icon ? <Icon size={13} /> : null}
         {segment.chip}
+      </>
+    );
+    // Pages of this site ("/lab/") navigate client-side; anchors and other
+    // sites stay plain links.
+    if (segment.href.startsWith("/")) {
+      return (
+        <Link key={key} href={segment.href} className={chipClass}>
+          {content}
+        </Link>
+      );
+    }
+    return (
+      <a key={key} href={segment.href} {...linkProps(segment.href)} className={chipClass}>
+        {content}
       </a>
     );
   }

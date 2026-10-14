@@ -1,75 +1,66 @@
 "use client";
 
-// "The lab": the design shots as a three-column grid of square tiles with
-// the title under each. A tile takes you to the lab section, where the
-// shot opens large.
+// "The lab": every piece as a two-column grid of rows (one column on
+// phones), numbered like the lab's list view, each opening its page, plus
+// a last row for the lab index.
 
-import { useState } from "react";
-import { site } from "@/content/site";
-import { cn } from "@/lib/cn";
+import Link from "next/link";
+import type { ReactNode } from "react";
+import { ChevronRight } from "@/components/icons";
+import { pieces } from "@/components/lab/registry";
+import { pad } from "@/lib/format";
 import { VIEWS } from "../items";
-import { Panel } from "./panel";
+import { Panel, panelRowClass } from "./panel";
 
-type Shot = (typeof site.lab)[number];
-
-function Tile({ shot, onOpen }: { shot: Shot; onOpen: () => void }) {
-  const [loaded, setLoaded] = useState(false);
+function Row({
+  href,
+  title,
+  description,
+  icon,
+  onNavigate,
+}: {
+  href: string;
+  title: string;
+  description: string;
+  icon: ReactNode;
+  onNavigate: () => void;
+}) {
   return (
     <li>
-      <a
-        href="/#lab"
-        onClick={(event) => {
-          event.preventDefault();
-          onOpen();
-        }}
-        className="group block rounded-[16px] focus-ring"
-      >
-        <span
-          className={cn(
-            "flex aspect-square items-center justify-center overflow-hidden rounded-[16px] bg-tile p-2 transition-[background-color] duration-150 group-hover:bg-tile-hover",
-            !loaded && "skeleton",
-          )}
-        >
-          <img
-            src={shot.image}
-            width={shot.width}
-            height={shot.height}
-            alt=""
-            loading="lazy"
-            decoding="async"
-            onLoad={() => setLoaded(true)}
-            ref={(image) => {
-              if (image?.complete && image.naturalWidth > 0) setLoaded(true);
-            }}
-            className={cn(
-              "h-auto max-h-full w-auto max-w-full rounded-[8px] object-contain transition-[scale,opacity] duration-300 ease-out group-hover:scale-[1.04]",
-              loaded ? "opacity-100" : "opacity-0",
-            )}
-          />
+      <Link href={href} onClick={onNavigate} className={panelRowClass}>
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-[12px] bg-tile">{icon}</span>
+        <span className="min-w-0 flex-1 leading-[1.35]">
+          <span className="block truncate text-[14px] font-medium text-primary">{title}</span>
+          <span className="block truncate text-[13px] text-secondary">{description}</span>
         </span>
-        <span className="mt-1.5 flex items-center gap-1 px-1 text-[12px] text-secondary">
-          <span className="truncate">{shot.title}</span>
-        </span>
-      </a>
+      </Link>
     </li>
   );
 }
 
-export function LabPanel({ onClose, onOpenLab }: { onClose: () => void; onOpenLab: () => void }) {
+export function LabPanel({ onClose, onNavigate }: { onClose: () => void; onNavigate: () => void }) {
   const info = VIEWS.lab;
   return (
     <Panel title={info.title} description={info.description} icon="sparkle" onClose={onClose}>
-      {site.lab.length ? (
-        <ul className="grid grid-cols-3 gap-2">
-          {site.lab.map((shot) => (
-            <Tile key={shot.slug} shot={shot} onOpen={onOpenLab} />
-          ))}
-        </ul>
-      ) : (
-        <p className="flex h-28 items-center justify-center rounded-[16px] bg-tile text-[14px] text-tertiary">
-          Nothing in the lab yet.
-        </p>
-      )}
+      <ul className="grid grid-cols-1 gap-0.5 sm:grid-cols-2 sm:gap-x-3">
+        {pieces.map((piece, index) => (
+          <Row
+            key={piece.slug}
+            href={`/lab/${piece.slug}/`}
+            title={piece.title}
+            description={piece.summary}
+            icon={<span className="text-[12px] font-medium text-secondary tabular-nums">{pad(index + 1)}</span>}
+            onNavigate={onNavigate}
+          />
+        ))}
+        <Row
+          href="/lab/"
+          title="All pieces"
+          description="The whole lab, by category."
+          icon={<ChevronRight size={18} className="text-secondary" />}
+          onNavigate={onNavigate}
+        />
+      </ul>
     </Panel>
   );
 }

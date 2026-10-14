@@ -358,13 +358,6 @@ export function CommandBar() {
     router.push(href);
   }
 
-  function openLab() {
-    close({ restore: false, blur: true });
-    const section = latest.current.pathname === "/" ? document.getElementById("lab") : null;
-    if (section) section.scrollIntoView({ behavior: scrollBehavior(), block: "start" });
-    else router.push("/#lab");
-  }
-
   function openProfile(view: PanelView) {
     const name = (Object.keys(SOCIAL_VIEWS) as Array<keyof typeof SOCIAL_VIEWS>).find((key) => SOCIAL_VIEWS[key] === view);
     const profile = site.socials.find((entry) => entry.name === name);
@@ -376,6 +369,7 @@ export function CommandBar() {
   function run(item: PaletteItem | undefined) {
     if (!item) return;
     if (item.kind === "project") return navigate(`/projects/${item.slug}/`);
+    if (item.kind === "piece") return navigate(`/lab/${item.slug}/`);
     if (item.kind === "message") {
       const resolved = resolveQuery(latest.current.live.query);
       const parsed = "parsed" in resolved ? resolved.parsed : null;
@@ -395,7 +389,7 @@ export function CommandBar() {
       case "writing":
         return navigate("/writing/");
       case "lab":
-        return openLab();
+        return navigate("/lab/");
       case "github":
       case "x":
       case "instagram":
@@ -572,7 +566,7 @@ export function CommandBar() {
       case "writing":
         return <WritingPanel onClose={closeRestoring} onNavigate={closeForNavigation} />;
       case "lab":
-        return <LabPanel onClose={closeRestoring} onOpenLab={openLab} />;
+        return <LabPanel onClose={closeRestoring} onNavigate={closeForNavigation} />;
       case "theme":
         return <ThemePanel onClose={closeRestoring} />;
       case "github":

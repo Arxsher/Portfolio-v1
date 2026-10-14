@@ -8,6 +8,7 @@
 
 import type { CommandView } from "@/lib/command";
 import { GUESTBOOK_PANEL } from "@/components/guestbook/sign-form";
+import { pieces } from "@/components/lab/registry";
 import { projects, site } from "@/content/site";
 import { matches, normalize, parseMessage, type ParsedMessage } from "./parse";
 
@@ -107,11 +108,11 @@ export const VIEWS: Record<PanelView, ViewInfo> = {
   },
   lab: {
     title: "The lab",
-    description: "Design shots and experiments.",
+    description: "Small interactive pieces, each running live in the browser.",
     icon: "sparkle",
     input: "lab",
-    aliases: ["lab", "the lab", "shots", "experiments"],
-    keywords: ["shots", "experiments", "design", "dribbble", ...site.lab.map((shot) => shot.title)],
+    aliases: ["lab", "the lab", "playground", "pieces"],
+    keywords: ["playground", "pieces", "interactive", "components", "generative", "canvas", "webgl", "demos"],
   },
   theme: {
     title: "Theme",
@@ -179,6 +180,7 @@ export const SHORTCUTS: readonly PanelView[] = [
 export type PaletteItem =
   | { kind: "view"; id: string; view: PanelView; title: string; description: string; icon: IconName }
   | { kind: "project"; id: string; slug: string; title: string; description: string }
+  | { kind: "piece"; id: string; slug: string; title: string; description: string }
   | { kind: "message"; id: string; message: string; title: string; description: string };
 
 const shortcutItem = (view: PanelView): PaletteItem => ({
@@ -195,10 +197,14 @@ const ALL_SHORTCUTS = SHORTCUTS.map(shortcutItem);
 /** Project names and slugs: they also find the Work shortcut, after the project itself. */
 const PROJECT_WORDS = projects.flatMap((project) => [project.name, project.slug.replace(/-/g, " ")]).join(" ");
 
+/** Lab piece titles and slugs: they also find the lab shortcut, after the piece. */
+const PIECE_WORDS = pieces.flatMap((piece) => [piece.title, piece.slug.replace(/-/g, " ")]).join(" ");
+
 /**
  * The list for a query: matching shortcuts in their usual order, then
- * matching projects, so Enter on a project's name opens that project. The
- * Work shortcut also turns up for a project's name, below the project.
+ * matching projects and lab pieces, so Enter on a project's or a piece's
+ * name opens its page. The Work (or lab) shortcut also turns up for such
+ * a name, below the match.
  */
 export function paletteItems(query: string): PaletteItem[] {
   const q = query.trim();
@@ -225,6 +231,22 @@ export function paletteItems(query: string): PaletteItem[] {
   }
   const work = ALL_SHORTCUTS.find((item) => item.kind === "view" && item.view === "work");
   if (projectMatched && work && !found.includes(work) && matches(q, PROJECT_WORDS)) found.push(work);
+
+  let pieceMatched = false;
+  for (const piece of pieces) {
+    if (matches(q, `${piece.title} ${piece.slug.replace(/-/g, " ")}`)) {
+      pieceMatched = true;
+      found.push({
+        kind: "piece",
+        id: `piece-${piece.slug}`,
+        slug: piece.slug,
+        title: piece.title,
+        description: piece.summary,
+      });
+    }
+  }
+  const lab = ALL_SHORTCUTS.find((item) => item.kind === "view" && item.view === "lab");
+  if (pieceMatched && lab && !found.includes(lab) && matches(q, PIECE_WORDS)) found.push(lab);
 
   // A sentence that is not a command reads like a note: offer to send it.
   if (normalize(q).split(" ").length >= 2 && q.length >= 8) {

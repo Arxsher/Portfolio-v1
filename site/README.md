@@ -39,7 +39,8 @@ To roll back, set the Pages source back to **Deploy from a branch**
 
 | What | Where |
 | --- | --- |
-| Name, title, status, intro, socials, writing, lab shots | `content/site.ts` |
+| Name, title, status, intro, socials, writing | `content/site.ts` |
+| Lab pieces (one folder each: `meta.ts` + `piece.tsx`) | `components/lab/pieces/` |
 | Projects (home list, `/projects`, detail pages) | `content/projects.json` |
 | Contribution graph | `data/contributions.json` (`npm run contributions`) |
 | Profile photo | `site.avatar` in `content/site.ts`, file in `public/`. Empty shows the mark instead. |

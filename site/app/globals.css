@@ -532,6 +532,19 @@
 }
 
 /* ------------------------------------------------------------------------ */
+/* Wide pages                                                               */
+/* ------------------------------------------------------------------------ */
+
+/* The lab (/lab/ and /lab/<slug>/) uses a wide column, 1185px of content
+   like the reference lab, while every other page keeps the 628px one. A
+   page opts in by rendering an element with `data-wide-page`; the column
+   wrapper in app/layout.tsx (.site-column) widens around it, header and
+   footer included. Pure CSS, so the static HTML is already right. */
+.site-column:has([data-wide-page]) {
+  --column-width: 1233px;
+}
+
+/* ------------------------------------------------------------------------ */
 /* View transitions                                                         */
 /* ------------------------------------------------------------------------ */
 

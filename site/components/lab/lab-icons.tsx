@@ -37,10 +37,10 @@ export function Expand(props: IconProps) {
   return (
     <Svg {...props}>
       <Stroke>
-        <path d="M3 6.25V3h3.25" />
-        <path d="M9.75 3H13v3.25" />
-        <path d="M13 9.75V13H9.75" />
-        <path d="M6.25 13H3V9.75" />
+        <path d="M2.75 5.5V2.75H5.5" />
+        <path d="M10.5 2.75h2.75V5.5" />
+        <path d="M13.25 10.5v2.75H10.5" />
+        <path d="M5.5 13.25H2.75V10.5" />
       </Stroke>
     </Svg>
   );
@@ -51,10 +51,10 @@ export function Shrink(props: IconProps) {
   return (
     <Svg {...props}>
       <Stroke>
-        <path d="M6.25 3v3.25H3" />
-        <path d="M13 6.25H9.75V3" />
-        <path d="M9.75 13V9.75H13" />
-        <path d="M3 9.75h3.25V13" />
+        <path d="M5.75 2.75v3h-3" />
+        <path d="M13.25 5.75h-3v-3" />
+        <path d="M10.25 13.25v-3h3" />
+        <path d="M2.75 10.25h3v3" />
       </Stroke>
     </Svg>
   );

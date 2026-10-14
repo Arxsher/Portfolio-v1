@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Doc, Folder, Home } from "@/components/icons";
+import { Doc, Folder, Home, Sparkle } from "@/components/icons";
 import { MissingPath } from "@/components/not-found-bits";
 import { BrokenLinksGame } from "@/components/not-found-game";
 
@@ -41,6 +41,10 @@ export default function NotFound() {
         <Link href="/projects/" className={wayOut}>
           <Folder size={15} />
           Work
+        </Link>
+        <Link href="/lab/" className={wayOut}>
+          <Sparkle size={15} />
+          Lab
         </Link>
       </nav>
     </>
