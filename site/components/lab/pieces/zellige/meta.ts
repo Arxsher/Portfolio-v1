@@ -15,6 +15,6 @@ export const meta: PieceMeta = {
   inspiredBy: "Moroccan zellige tilework",
   // 204 × 192 at the 204px home tile.
   tile: { aspect: 204 / 192 },
-  stage: { aspect: 1 },
+  stage: { aspect: 0.74, minHeight: 440 },
   controlsHint: "Move to light the glaze · Click or tap to re-glaze",
 };

@@ -1,0 +1,126 @@
+/* The Index sheet (DESIGN.md → Shell → The Index). Everything else in the
+   command area is Tailwind plus the shared utilities in app/globals.css
+   (sheet, sheet-arch, field, btn, kbd, caps …); this file holds only what
+   those cannot express: the top-layer <dialog>, its backdrop, the arrival
+   and the phone layout. Colours are the site's tokens. */
+
+/* The dialog covers the viewport and stays transparent: the sheet sits in
+   it, a press on the dialog itself (around the sheet) closes it. */
+.dialog {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--body);
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+.dialog:not([open]) {
+  display: none;
+}
+.dialog[open] {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.dialog:focus-visible {
+  outline: none;
+}
+
+.dialog::backdrop {
+  background-color: rgb(14 17 39 / 0.38);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+}
+:global(.dark) .dialog::backdrop {
+  background-color: rgb(4 5 14 / 0.55);
+}
+.dialog[open]::backdrop {
+  animation: backdrop-in 300ms var(--ease-out) both;
+}
+
+/* The sheet: paper with a domed top (`sheet sheet-arch` in the markup),
+   600px wide, 8vh from the top. --room is the visible height (the on-screen
+   keyboard taken away), set from visualViewport while open. */
+.sheet {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(600px, calc(100vw - 24px));
+  max-height: min(680px, calc(var(--room, 100dvh) - max(8vh, 24px) - 24px));
+  margin-top: max(8vh, 24px);
+  overflow: hidden;
+  transform-origin: 50% 0;
+}
+.dialog[open] .sheet {
+  animation: sheet-in 420ms var(--ease-out) both;
+}
+
+/* Each view settles in as it replaces the last. */
+.view {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+  animation: view-in 220ms var(--ease-out) both;
+}
+
+@keyframes sheet-in {
+  from {
+    opacity: 0;
+    translate: 0 -12px;
+    scale: 0.98;
+  }
+}
+@keyframes backdrop-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes view-in {
+  from {
+    opacity: 0;
+    translate: 0 4px;
+  }
+}
+
+/* Phones: the sheet fills the screen (above the keyboard), its dome a
+   little flatter, with room for the safe areas. */
+@media (max-width: 639px) {
+  .dialog[open] {
+    align-items: flex-start;
+  }
+  .sheet {
+    width: var(--room-w, 100%);
+    height: var(--room, 100dvh);
+    max-height: none;
+    margin-top: 0;
+    translate: var(--room-left, 0px) var(--room-top, 0px);
+    border-radius: 50% 50% 0 0 / 40px 40px 0 0;
+    padding-bottom: env(safe-area-inset-bottom);
+    box-shadow: 0 0 0 1px var(--line);
+  }
+  .dialog[open] .sheet {
+    animation-name: sheet-up;
+  }
+}
+@keyframes sheet-up {
+  from {
+    opacity: 0;
+    translate: var(--room-left, 0px) calc(var(--room-top, 0px) + 24px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dialog[open] .sheet,
+  .dialog[open]::backdrop,
+  .view {
+    animation: none;
+  }
+}

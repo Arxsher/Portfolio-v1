@@ -1,127 +1,52 @@
 "use client";
 
-// "Say hi" (Send me a message): the address with a Copy button, then name, email
-// and message, and Send.
+// "Write a note", the first tab of the contact sheet: name, email and a
+// message, then Send.
 //
 // Sending goes through Web3Forms when site.web3formsKey is set. Without a
-// key, Send opens the visitor's mail app with everything filled in, and
-// the panel says so. Fields typed into the command bar ("hi, i'm sam,
-// sam@site.com, love your work") arrive as `prefill` and keep following
-// the bar until the visitor edits that field by hand.
+// key, Send opens the visitor's mail app with everything written out, and
+// the form says so beforehand. A note typed into the Index ("hi, i'm sam,
+// sam@site.com, love your work") arrives as `prefill`; the sheet shows what
+// it picked up, and untouched fields keep following the prefill until they
+// are edited by hand.
 
 import { useEffect, useId, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
-import { Check, Copy, Mail } from "@/components/icons";
+import { Arrow } from "@/components/ornament";
 import { site } from "@/content/site";
 import { cn } from "@/lib/cn";
 import type { CommandPrefill } from "@/lib/command";
-import { VIEWS } from "../items";
 import { isEmail } from "../parse";
-import { Panel, panelButtonClass } from "./panel";
 
 const LIMITS = { name: 60, email: 160, message: 2000 } as const;
-
-const fieldClass =
-  "w-full rounded-[12px] bg-tile px-3.5 py-2.5 text-[16px] text-primary outline-none transition-shadow duration-150 ease-out placeholder:text-tertiary focus:shadow-[0_0_0_2px_var(--foreground)] aria-[invalid=true]:shadow-[0_0_0_1.5px_var(--danger)] aria-[invalid=true]:focus:shadow-[0_0_0_2px_var(--danger)] disabled:opacity-60 sm:text-[15px]";
 
 type Field = "name" | "email" | "message";
 type Phase = "idle" | "sending" | "sent" | "mailto" | "error";
 
 /**
- * What was typed by hand, kept for the life of the page so closing the bar
- * by accident (Esc, a click outside) does not throw a message away.
- * Cleared once the message has gone out.
+ * What was typed by hand, kept for the life of the page so closing the
+ * sheet by accident (Esc, a press outside) does not throw a note away.
+ * Cleared once the note has gone out.
  */
 let draft: Partial<Record<Field, string>> = {};
 
-async function copyText(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    // Older browsers and non-secure previews: the textarea fallback.
-    try {
-      const area = document.createElement("textarea");
-      area.value = text;
-      area.setAttribute("readonly", "");
-      area.style.position = "fixed";
-      area.style.opacity = "0";
-      document.body.appendChild(area);
-      area.select();
-      const ok = document.execCommand("copy");
-      area.remove();
-      return ok;
-    } catch {
-      return false;
-    }
-  }
-}
-
-function CopyEmail() {
-  const [copied, setCopied] = useState(false);
-  const timer = useRef<number>(undefined);
-  useEffect(() => () => window.clearTimeout(timer.current), []);
-
-  return (
-    <div className="mb-3 flex items-center gap-2 rounded-[12px] bg-tile py-1.5 ps-3.5 pe-1.5">
-      <Mail size={14} className="text-tertiary" />
-      <a
-        href={`mailto:${site.email}`}
-        className="min-w-0 flex-1 truncate rounded-[4px] text-[14px] text-primary focus-ring"
-      >
-        {site.email}
-      </a>
-      <button
-        type="button"
-        onClick={async () => {
-          if (!(await copyText(site.email))) return;
-          setCopied(true);
-          window.clearTimeout(timer.current);
-          timer.current = window.setTimeout(() => setCopied(false), 1600);
-        }}
-        className="flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-[8px] px-2 text-[12px] text-secondary outline-none transition-colors duration-150 hover:bg-well hover:text-primary focus-visible:bg-well focus-visible:text-primary focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-primary"
-      >
-        <span className="icon-swap">
-          <span className="flex" data-hidden={copied}>
-            <Copy size={13} />
-          </span>
-          <span className="flex" data-hidden={!copied}>
-            <Check size={13} />
-          </span>
-        </span>
-        {/* Only the current label, so the button widens while "Copied" shows. */}
-        <span>{copied ? "Copied" : "Copy"}</span>
-        <span className="sr-only" aria-live="polite">
-          {copied ? "Email address copied" : ""}
-        </span>
-      </button>
-    </div>
-  );
-}
-
 function Label({ htmlFor, children }: { htmlFor: string; children: ReactNode }) {
   return (
-    <label htmlFor={htmlFor} className="ps-1 text-[13px] text-secondary">
+    <label htmlFor={htmlFor} className="text-small text-muted">
       {children}
     </label>
   );
 }
 
-function Chip({ children }: { children: ReactNode }) {
-  return <span className="rounded-[6px] bg-well px-1.5 py-px text-primary">{children}</span>;
-}
-
-export function SayHiPanel({
+export function WriteNote({
   prefill,
   fromTyping,
   autoFocus,
-  onClose,
 }: {
   prefill: CommandPrefill;
-  /** The prefill was read from what was typed into the bar: show what was picked up. */
+  /** The prefill was read from what was typed into the Index: show what was picked up. */
   fromTyping: boolean;
   autoFocus: boolean;
-  onClose: () => void;
 }) {
   const id = useId();
   const ids = { name: `${id}-name`, email: `${id}-email`, message: `${id}-message`, status: `${id}-status` };
@@ -132,7 +57,7 @@ export function SayHiPanel({
   };
 
   // Hand edits win; untouched fields follow the prefill. A fresh prefill
-  // (from the bar or a button) beats an older draft of the same field.
+  // beats an older draft of the same field.
   const [edits, setEditsState] = useState<Partial<Record<Field, string>>>(() => {
     const kept = { ...draft };
     for (const field of ["name", "email", "message"] as const) if (prefill[field]) delete kept[field];
@@ -151,7 +76,10 @@ export function SayHiPanel({
   };
   const edit = (field: Field) => (event: { target: { value: string } }) => {
     setEdits((current) => ({ ...current, [field]: event.target.value }));
-    if (invalid === field) setInvalid(null);
+    if (invalid === field) {
+      setInvalid(null);
+      setError("");
+    }
   };
 
   const [phase, setPhase] = useState<Phase>("idle");
@@ -161,15 +89,15 @@ export function SayHiPanel({
   const statusRef = useRef<HTMLDivElement>(null);
   const sendRef = useRef<HTMLButtonElement>(null);
 
-  // The form and the "sent" card replace each other, and disabled fields
+  // The form and the "sent" note replace each other, and disabled fields
   // drop focus while sending. When that leaves focus on nothing, put it
-  // somewhere sensible: the card, the Send button, or the next empty field.
+  // somewhere sensible: the note, the Send button, or the next empty field.
   const lastPhase = useRef(phase);
   useEffect(() => {
     if (lastPhase.current === phase) return;
     lastPhase.current = phase;
     const current = document.activeElement;
-    if (current && current !== document.body) return;
+    if (current && current !== document.body && current.isConnected) return;
     if (!live) statusRef.current?.focus({ preventScroll: true });
     else if (phase === "error") sendRef.current?.focus({ preventScroll: true });
     else if (phase === "idle") {
@@ -201,10 +129,10 @@ export function SayHiPanel({
     const name = values.name.trim();
     const email = values.email.trim();
     const message = values.message.trim();
-    if (!name) return fail("name", "Add your name so I know who’s writing.");
-    if (!email) return fail("email", "Add your email so I can reply.");
-    if (!isEmail(email)) return fail("email", "That email doesn’t look quite right.");
-    if (!message) return fail("message", "Write a message first.");
+    if (!name) return fail("name", "Add your name, so I know who is writing.");
+    if (!email) return fail("email", "Add your email, so I can write back.");
+    if (!isEmail(email)) return fail("email", "That address does not look complete.");
+    if (!message) return fail("message", "Write a line or two first.");
     setInvalid(null);
     setError("");
 
@@ -231,7 +159,7 @@ export function SayHiPanel({
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({
           access_key: site.web3formsKey,
-          subject: "New message from arsher.is-a.dev",
+          subject: "New note from arsher.is-a.dev",
           from_name: name,
           name,
           email,
@@ -244,151 +172,146 @@ export function SayHiPanel({
       setPhase("sent");
     } catch {
       setPhase("error");
-      setError("That didn’t go through. Try again, or email me directly.");
+      setError(`It did not go through. Try again, or write to ${site.email}.`);
     }
   }
 
   const firstName = values.name.trim().split(/\s+/)[0];
   const picked = fromTyping && (prefill.name || prefill.email);
+  const errorFor = (field: Field) => (invalid === field ? `${id}-error` : undefined);
+
+  if (!live) {
+    return (
+      <div
+        ref={statusRef}
+        tabIndex={-1}
+        role="status"
+        className="rounded-paper bg-band px-6 py-8 text-center outline-none animate-fade-up"
+      >
+        <p className="serif-italic text-[26px] leading-[1.15] text-primary">
+          {phase === "sent" ? `Sent. Thank you${firstName ? `, ${firstName}` : ""}.` : "Over to your mail app."}
+        </p>
+        <p className="mx-auto mt-2 max-w-[38ch] text-[15px] leading-[1.55] text-body">
+          {phase === "sent" ? (
+            <>
+              The note is with me. I will write back to <span className="text-primary">{values.email.trim()}</span>.
+            </>
+          ) : (
+            <>
+              A new email should be open with your note in it. If nothing happened, write to{" "}
+              <span className="text-primary">{site.email}</span>.
+            </>
+          )}
+        </p>
+        <button
+          type="button"
+          onClick={() => {
+            if (phase === "sent") setEdits(() => ({ name: values.name, email: values.email, message: "" }));
+            setPhase("idle");
+          }}
+          className="btn btn-ghost btn-sm mt-4"
+        >
+          {phase === "sent" ? "Write another" : "Back to the note"}
+        </button>
+      </div>
+    );
+  }
 
   return (
-    <Panel
-      label={VIEWS["say-hi"].title}
-      title={VIEWS["say-hi"].title}
-      icon="mail"
-      onClose={onClose}
-      description={
-        picked ? (
-          <p className="mt-0.5 flex flex-wrap items-center gap-1 text-[12px] text-tertiary">
-            Picked up from what you typed:
-            {prefill.name ? <Chip>{prefill.name}</Chip> : null}
-            {prefill.email ? <Chip>{prefill.email}</Chip> : null}
-          </p>
-        ) : (
-          VIEWS["say-hi"].description
-        )
-      }
-    >
-      <CopyEmail />
-      {live ? (
-        <form noValidate onSubmit={onSubmit} className="flex flex-col gap-2" aria-describedby={ids.status}>
-          <div className="grid gap-2 sm:grid-cols-2">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor={ids.name}>Name</Label>
-              <input
-                ref={refs.name}
-                id={ids.name}
-                name="name"
-                autoComplete="name"
-                placeholder="Ada Lovelace"
-                maxLength={LIMITS.name}
-                value={values.name}
-                onChange={edit("name")}
-                aria-invalid={invalid === "name"}
-                disabled={phase === "sending"}
-                className={fieldClass}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor={ids.email}>Email</Label>
-              <input
-                ref={refs.email}
-                id={ids.email}
-                name="email"
-                type="email"
-                inputMode="email"
-                autoComplete="email"
-                placeholder="ada@example.com"
-                maxLength={LIMITS.email}
-                value={values.email}
-                onChange={edit("email")}
-                aria-invalid={invalid === "email"}
-                disabled={phase === "sending"}
-                className={fieldClass}
-              />
-            </div>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor={ids.message}>Message</Label>
-            <textarea
-              ref={refs.message}
-              id={ids.message}
-              name="message"
-              rows={3}
-              placeholder="What would you like to talk about?"
-              maxLength={LIMITS.message}
-              value={values.message}
-              onChange={edit("message")}
-              aria-invalid={invalid === "message"}
-              disabled={phase === "sending"}
-              className={cn(fieldClass, "resize-none")}
-            />
-          </div>
-          {/* Web3Forms' spam trap: people never see or tick it. */}
-          <input type="checkbox" name="botcheck" tabIndex={-1} aria-hidden="true" className="hidden" autoComplete="off" />
-          <div className="flex items-center justify-between gap-3">
-            <output
-              id={ids.status}
-              aria-live="polite"
-              className={cn("block min-w-0 text-[13px] leading-[1.4]", error ? "text-danger" : "text-tertiary")}
-            >
-              {error || (site.web3formsKey ? "" : "Opens your mail app, ready to send.")}
-            </output>
-            <button
-              ref={sendRef}
-              type="submit"
-              className={panelButtonClass}
-              disabled={phase === "sending"}
-              aria-busy={phase === "sending"}
-            >
-              <span className={cn(phase === "sending" && "opacity-0")}>Send</span>
-              {phase === "sending" ? (
-                <span aria-hidden="true" className="absolute inset-0 flex items-center justify-center">
-                  <span className="size-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                </span>
-              ) : null}
-              {phase === "sending" ? <span className="sr-only">Sending</span> : null}
-            </button>
-          </div>
-        </form>
-      ) : (
-        <div
-          ref={statusRef}
-          tabIndex={-1}
-          role="status"
-          className="flex animate-blur-in flex-col items-center rounded-[16px] bg-tile px-6 py-7 text-center outline-none"
-        >
-          <span className="mb-3 flex size-10 items-center justify-center rounded-full bg-float text-primary shadow-lift">
-            {phase === "sent" ? <Check size={16} /> : <Mail size={16} />}
-          </span>
-          <p className="text-[15px] font-medium text-primary">
-            {phase === "sent" ? "Message sent" : "Over to your mail app"}
-          </p>
-          <p className="mt-1 max-w-[340px] text-[13px] leading-[1.5] text-secondary">
-            {phase === "sent" ? (
-              <>
-                Thanks{firstName ? `, ${firstName}` : ""}. It’s in my inbox now, and I’ll write back to{" "}
-                <span className="text-primary">{values.email.trim()}</span>.
-              </>
-            ) : (
-              <>
-                Your message is waiting in a new email. If nothing opened, write to{" "}
-                <span className="text-primary">{site.email}</span> directly.
-              </>
-            )}
-          </p>
-          <button
-            type="button"
-            onClick={() => {
-              if (phase === "sent") setEdits(() => ({ name: values.name, email: values.email, message: "" }));
-              setPhase("idle");
-            }}
-            className="mt-4 flex h-8 cursor-pointer items-center rounded-[10px] px-3 text-[13px] text-secondary transition-colors duration-150 hover:bg-well hover:text-primary focus-visible:bg-well focus-visible:text-primary focus-ring"
-          >
-            {phase === "sent" ? "Write another" : "Back to the message"}
-          </button>
+    <form noValidate onSubmit={onSubmit} className="flex flex-col gap-3.5" aria-describedby={ids.status}>
+      {picked ? (
+        <p className="flex flex-wrap items-center gap-1.5 text-caption text-muted">
+          From what you typed:
+          {prefill.name ? <span className="tag">{prefill.name}</span> : null}
+          {prefill.email ? <span className="tag">{prefill.email}</span> : null}
+        </p>
+      ) : null}
+      <div className="grid gap-3.5 sm:grid-cols-2">
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor={ids.name}>Your name</Label>
+          <input
+            ref={refs.name}
+            id={ids.name}
+            name="name"
+            autoComplete="name"
+            placeholder="Ada Lovelace"
+            maxLength={LIMITS.name}
+            value={values.name}
+            onChange={edit("name")}
+            aria-invalid={invalid === "name"}
+            aria-describedby={errorFor("name")}
+            disabled={phase === "sending"}
+            className="field"
+          />
         </div>
-      )}
-    </Panel>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor={ids.email}>Email, for the reply</Label>
+          <input
+            ref={refs.email}
+            id={ids.email}
+            name="email"
+            type="email"
+            inputMode="email"
+            autoComplete="email"
+            placeholder="ada@example.com"
+            maxLength={LIMITS.email}
+            value={values.email}
+            onChange={edit("email")}
+            aria-invalid={invalid === "email"}
+            aria-describedby={errorFor("email")}
+            disabled={phase === "sending"}
+            className="field"
+          />
+        </div>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor={ids.message}>Message</Label>
+        <textarea
+          ref={refs.message}
+          id={ids.message}
+          name="message"
+          rows={4}
+          placeholder="A project, a question, a hello…"
+          maxLength={LIMITS.message}
+          value={values.message}
+          onChange={edit("message")}
+          aria-invalid={invalid === "message"}
+          aria-describedby={errorFor("message")}
+          disabled={phase === "sending"}
+          className="field resize-none"
+        />
+      </div>
+      {/* Web3Forms' spam trap: people never see or tick it. */}
+      <input type="checkbox" name="botcheck" tabIndex={-1} aria-hidden="true" className="hidden" autoComplete="off" />
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+        <output
+          id={ids.status}
+          aria-live="polite"
+          className={cn("block min-w-0 flex-1 text-small", error ? "text-danger" : "text-muted")}
+        >
+          <span id={error ? `${id}-error` : undefined}>
+            {error || (site.web3formsKey ? "" : "Send opens your mail app with the note written out.")}
+          </span>
+        </output>
+        <button
+          ref={sendRef}
+          type="submit"
+          className="btn btn-solid max-sm:w-full"
+          disabled={phase === "sending"}
+          aria-busy={phase === "sending"}
+        >
+          <span className={cn("inline-flex items-center gap-2", phase === "sending" && "opacity-0")}>
+            Send
+            <Arrow />
+          </span>
+          {phase === "sending" ? (
+            <span aria-hidden="true" className="absolute inset-0 flex items-center justify-center">
+              <span className="size-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+            </span>
+          ) : null}
+          {phase === "sending" ? <span className="sr-only">Sending</span> : null}
+        </button>
+      </div>
+    </form>
   );
 }

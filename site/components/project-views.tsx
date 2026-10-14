@@ -1,11 +1,12 @@
 "use client";
 
-// "0042 views" above a project page's table of contents: the guestbook's
-// odometer, counting this visit. Only there when Supabase is configured
-// (lib/views.ts); if the count can't be loaded it quietly goes away.
+// The "Views" line of a project page's fiche: this visit is counted and the
+// total shows in terracotta Fraunces numerals. Only there when Supabase is
+// configured (lib/views.ts); if the count can't be loaded the line quietly
+// goes away. Renders a <div><dt/><dd/></div>, so place it inside the fiche's <dl>.
 
 import { useEffect, useState } from "react";
-import { Odometer } from "@/components/guestbook/odometer";
+import { formatNumber } from "@/lib/format";
 import { recordView, viewsEnabled } from "@/lib/views";
 
 export function ProjectViews({ slug }: { slug: string }) {
@@ -26,9 +27,18 @@ export function ProjectViews({ slug }: { slug: string }) {
 
   if (!viewsEnabled || failed) return null;
   return (
-    <p className="-ms-1.5 mb-7 text-[13px] text-tertiary">
-      <Odometer value={views} className="mx-1.5" />
-      views
-    </p>
+    <div>
+      <dt>Views</dt>
+      <dd>
+        {views === null ? (
+          <>
+            <span aria-hidden="true" className="skeleton inline-block h-[1.1em] w-12 rounded-key align-[-0.2em]" />
+            <span className="sr-only">Counting…</span>
+          </>
+        ) : (
+          <span className="numeral animate-fade-in text-[18px] leading-none tabular-nums">{formatNumber(views)}</span>
+        )}
+      </dd>
+    </div>
   );
 }

@@ -43,9 +43,29 @@ To roll back, set the Pages source back to **Deploy from a branch**
 | Lab pieces (one folder each: `meta.ts` + `piece.tsx`) | `components/lab/pieces/` |
 | Projects (home list, `/projects`, detail pages) | `content/projects.json` |
 | Contribution graph | `data/contributions.json` (`npm run contributions`) |
-| Profile photo | `site.avatar` in `content/site.ts`, file in `public/`. Empty shows the mark instead. |
+| Profile photo (contact panels) | `site.avatar` in `content/site.ts`, file in `public/`. Empty shows the star mark instead. |
 | Social preview image | `public/og.png` (1200 x 630), set as `site.ogImage` |
-| Hero pond | `components/home/hero-pond.tsx` (placeholder slot, see the comment at the top) |
+| Footer credit | `site.credit` in `content/site.ts` (delete the field to remove it) |
+
+## Design
+
+The look is "Casablanca": sand paper by day, indigo ink by night, zellige
+cobalt and terracotta, Fraunces for names and headings and Instrument Sans
+for text (both self-hosted at build time by `next/font`).
+
+| What | Where |
+| --- | --- |
+| Colours, type scale, radii, shadows, motion, utilities (`btn`, `chip`, `kbd`, `field`, `paper`, `fiche` …) | `app/globals.css` |
+| The same palette for canvas / WebGL code | `lib/palette.ts` |
+| Fonts | `app/layout.tsx` |
+| Ornament: star, star rule, arch, zellige frieze | `components/ornament.tsx`, `components/zellige-band.tsx`, `lib/zellige.ts` |
+| Section and page headings | `components/section.tsx` |
+| Top bar, footer, back to top | `components/header.tsx`, `components/footer.tsx`, `components/scroll-top.tsx` |
+| Keyboard shortcuts | `lib/shortcuts.ts` |
+
+Keys: `/` or Ctrl/Cmd+K open the index; `t` switches day and night; `j` / `k`
+walk the rows; `g g` goes to the top and `G` to the bottom. The single-key
+ones can be turned off from the footer.
 
 ## Optional services
 

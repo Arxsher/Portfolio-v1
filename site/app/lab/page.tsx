@@ -1,9 +1,12 @@
-// The lab index: every piece, live, with filters, search and a list view.
-// The interactive part is components/lab/lab-index.tsx; this page adds the
-// heading and opts into the wide column (data-wide-page).
+// The lab index: every piece, live, in an arcade, with filters, search and
+// a list view. The interactive part is components/lab/lab-index.tsx; this
+// page adds the heading and draws the posters on the server.
 
 import type { Metadata } from "next";
-import { LabIndex } from "@/components/lab/lab-index";
+import { PieceArt, artGround } from "@/components/lab/lab-art";
+import { LabIndex, type PiecePoster } from "@/components/lab/lab-index";
+import { pieces } from "@/components/lab/registry";
+import { PageHeader } from "@/components/section";
 import { site } from "@/content/site";
 
 const intro =
@@ -25,13 +28,17 @@ export const metadata: Metadata = {
 };
 
 export default function LabPage() {
+  const posters: Record<string, PiecePoster> = Object.fromEntries(
+    pieces.map((piece) => [
+      piece.slug,
+      { poster: <PieceArt slug={piece.slug} uid={`lab-${piece.slug}`} />, ground: artGround(piece.slug) },
+    ]),
+  );
+
   return (
     <div data-wide-page="" className="flex flex-col">
-      <header className="mt-16">
-        <h1 className="page-title">Lab</h1>
-        <p className="page-lede mt-3">{intro}</p>
-      </header>
-      <LabIndex />
+      <PageHeader kicker="Lab" title="Pieces drawn" turn="in code" count={pieces.length} lede={intro} />
+      <LabIndex posters={posters} />
     </div>
   );
 }

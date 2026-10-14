@@ -205,6 +205,19 @@ export function GridView(props: IconProps) {
   );
 }
 
+/** Two arches on a sill: the arcade view of the lab. */
+export function ArcadeView(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <Stroke width={1.4}>
+        <path d="M2.25 13V7.9a2.75 2.75 0 0 1 5.5 0V13" />
+        <path d="M8.25 13V7.9a2.75 2.75 0 0 1 5.5 0V13" />
+        <path d="M1.25 13.25h13.5" />
+      </Stroke>
+    </Svg>
+  );
+}
+
 /** Ruled lines: list view. */
 export function ListView(props: IconProps) {
   return (

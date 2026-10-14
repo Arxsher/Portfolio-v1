@@ -1,12 +1,13 @@
 "use client";
 
-// Round "back to top" button, bottom right. It appears once the visitor is
-// one and a half screens down and pops in/out with a blur + scale. On
-// phones it sits above the floating dock; from `sm` it moves into the
-// corner.
+// "Back to top": a round paper button in the bottom-right corner with a
+// fine up arrow. It appears once the visitor is one and a half screens
+// down (a small spring pop) and hides again near the top. Clicking it
+// scrolls home (smoothly unless reduced motion) and hands focus to the
+// page content, so the next Tab continues from the top.
 
 import { useEffect, useState } from "react";
-import { ChevronUp } from "@/components/icons";
+import { ArrowUp } from "@/components/icons";
 
 const THRESHOLD = 1.5; // in viewport heights
 
@@ -35,8 +36,6 @@ export function ScrollTop() {
   const toTop = () => {
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     window.scrollTo({ top: 0, behavior: reduced ? "auto" : "smooth" });
-    // The button hides itself at the top, so hand focus to the page content
-    // (the next Tab then continues from the top, not from the dock).
     document.getElementById("main")?.focus({ preventScroll: true });
   };
 
@@ -44,14 +43,14 @@ export function ScrollTop() {
     <button
       type="button"
       aria-label="Back to top"
+      title="Back to top (g g)"
       onClick={toTop}
       tabIndex={visible ? 0 : -1}
       aria-hidden={visible ? undefined : true}
       data-visible={visible ? "" : undefined}
-      style={{ viewTransitionName: "site-top" }}
-      className="fixed end-4 bottom-[84px] z-30 grid size-10 cursor-pointer place-items-center rounded-[14px] bg-float text-secondary shadow-float transition-[opacity,scale,filter,color,visibility] duration-[240ms] ease-out hover:text-primary active:scale-[0.96] sm:end-6 sm:bottom-6 not-data-visible:pointer-events-none not-data-visible:invisible not-data-visible:scale-[0.85] not-data-visible:opacity-0 not-data-visible:blur-[4px] motion-reduce:not-data-visible:scale-100 motion-reduce:not-data-visible:blur-none focus-ring"
+      className="scroll-top fixed end-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-30 grid size-11 cursor-pointer place-items-center rounded-full border border-line-firm bg-paper text-primary shadow-float transition-[opacity,scale,translate,border-color,color,visibility] duration-[320ms] ease-spring hover:border-primary hover:text-cobalt active:scale-[0.94] sm:end-6 sm:bottom-6 not-data-visible:pointer-events-none not-data-visible:invisible not-data-visible:translate-y-2 not-data-visible:scale-[0.85] not-data-visible:opacity-0 motion-reduce:not-data-visible:translate-y-0 motion-reduce:not-data-visible:scale-100 focus-ring"
     >
-      <ChevronUp />
+      <ArrowUp size={16} />
     </button>
   );
 }

@@ -1,21 +1,23 @@
 "use client";
 
-// The lab index (/lab/): filter tabs with counts, a search box and a
-// grid / list switch above the pieces.
+// The lab index (/lab/): arched filter tabs standing on a ground line, a
+// search pill and an Arcade / List switch, then the pieces.
 //
-//   [All 9 | Components 4 | Objects 2 | Generative 3]      [⌕ Search 9 pieces] [▦ ☰]
+//    ╭───╮ ╭──────────╮ ╭───────╮ ╭──────────╮
+//    │All⁹│ │Components⁴│ │Objects²│ │Generative³│     (⌕ Find a piece)  [⌂ Arcade | ≡ List]
+//   ─┴───┴─┴──────────┴─┴───────┴─┴──────────┴───────────────────────────────────────────
 //
-// Grid: the live tiles in a masonry of four columns (three on tablets, two
-// on phones). List: an index of huge numbered titles with the category and
-// tech on the right; with a mouse, a small live preview of the piece
-// follows the cursor over the rows.
+// Arcade: the niches (components/lab/lab-tile.tsx) in rows of five, live.
+// List: the big-type index (numeral, name, summary, kind); with a mouse, a
+// small arched window with the piece in it follows the cursor over the rows.
 //
-// The category is mirrored in the URL (?c=objects) so a filtered view can
-// be shared; the chosen view is remembered per browser.
+// The category is mirrored in the URL (?c=objects) so a filtered view can be
+// shared; the chosen view is remembered per browser. Enter in the search
+// opens the first match. Posters come from the server page (lab-art.tsx).
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
-  useCallback,
   useEffect,
   useId,
   useLayoutEffect,
@@ -26,34 +28,42 @@ import {
   type ReactNode,
 } from "react";
 import { Close, Search } from "@/components/icons";
+import { ArchFrame } from "@/components/ornament";
 import { cn } from "@/lib/cn";
 import { pad } from "@/lib/format";
 import { Spring, clamp, useFinePointer, useFrame, useReducedMotion } from "./hooks";
-import { GridView, ListView } from "./lab-icons";
-import { LabTile } from "./lab-tile";
+import { ArcadeView, ListView } from "./lab-icons";
+import { LabNiche } from "./lab-tile";
 import { LoadPiece } from "./load-piece";
-import { Masonry } from "./masonry";
+import { Arcade } from "./masonry";
 import { categories, matchesSearch, pieceNumber, pieces, type CategoryFilter } from "./registry";
 import { CATEGORY_SINGULAR, type PieceMeta } from "./types";
 
-type View = "grid" | "list";
+type View = "arcade" | "list";
+
+/** A piece's poster, drawn on the server: the picture and the colour behind it. */
+export type PiecePoster = { poster: ReactNode; ground: string };
 
 const VIEW_KEY = "arsher:lab:view";
 
 const isCategory = (value: string | null): value is CategoryFilter =>
   Boolean(value && categories.some((category) => category.id === value));
 
-export function LabIndex() {
+const NUMBER_WORDS = ["no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve"];
+const countWords = (n: number) => NUMBER_WORDS[n] ?? String(n);
+
+export function LabIndex({ posters = {} }: { posters?: Readonly<Record<string, PiecePoster>> }) {
+  const router = useRouter();
   const [filter, setFilter] = useState<CategoryFilter>("all");
   const [query, setQuery] = useState("");
-  const [view, setView] = useState<View>("grid");
+  const [view, setView] = useState<View>("arcade");
   const [animate, setAnimate] = useState(false);
   const animateTimer = useRef(0);
   const panelId = useId();
   const tabsId = useId();
 
   // Restore ?c= and the remembered view once mounted (the static HTML is
-  // always "all" in a grid, so hydration matches).
+  // always "all" in the arcade, so hydration matches).
   useEffect(() => {
     const fromUrl = new URLSearchParams(window.location.search).get("c");
     if (isCategory(fromUrl)) setFilter(fromUrl);
@@ -64,25 +74,25 @@ export function LabIndex() {
 
   useEffect(() => () => window.clearTimeout(animateTimer.current), []);
 
-  // Tiles glide to their new places while the set changes, never on resize.
-  const glide = () => {
+  // Niches rise into place while the set changes, never on first paint.
+  const settle = () => {
     setAnimate(true);
     window.clearTimeout(animateTimer.current);
-    animateTimer.current = window.setTimeout(() => setAnimate(false), 600);
+    animateTimer.current = window.setTimeout(() => setAnimate(false), 900);
   };
 
   const changeFilter = (next: CategoryFilter) => {
     if (next === filter) return;
-    glide();
+    settle();
     setFilter(next);
     const url = new URL(window.location.href);
     if (next === "all") url.searchParams.delete("c");
     else url.searchParams.set("c", next);
-    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
   };
 
   const changeQuery = (next: string) => {
-    glide();
+    settle();
     setQuery(next);
   };
 
@@ -97,50 +107,52 @@ export function LabIndex() {
     (piece) => (filter === "all" || piece.category === filter) && matchesSearch(piece, query),
   );
   const activeTab = `${tabsId}-${filter}`;
+  const filtered = Boolean(query.trim()) || filter !== "all";
 
   return (
     <>
-      <div className="mt-10 flex flex-wrap items-center justify-between gap-x-3 gap-y-2.5">
-        <FilterTabs idBase={tabsId} panelId={panelId} value={filter} onChange={changeFilter} />
-        <div className="flex min-w-0 flex-1 items-center justify-end gap-2 max-sm:basis-full">
-          <SearchBox value={query} onChange={changeQuery} count={pieces.length} />
+      <div className="relative md:flex md:items-end md:justify-between md:gap-6">
+        <div className="border-b border-line-firm md:border-0">
+          <FilterTabs idBase={tabsId} panelId={panelId} value={filter} onChange={changeFilter} />
+        </div>
+        <div className="mt-4 flex items-center gap-2 md:mt-0 md:mb-2.5">
+          <SearchBox
+            value={query}
+            onChange={changeQuery}
+            onSubmit={() => {
+              if (query.trim() && shown[0]) router.push(`/lab/${shown[0].slug}/`);
+            }}
+          />
           <ViewSwitch value={view} onChange={changeView} />
         </div>
+        <span aria-hidden="true" className="absolute inset-x-0 bottom-0 hidden h-px bg-line-firm md:block" />
       </div>
 
       <p className="sr-only" aria-live="polite">
-        {query ? `${shown.length} ${shown.length === 1 ? "piece" : "pieces"} found` : ""}
+        {filtered ? `${shown.length} ${shown.length === 1 ? "piece" : "pieces"} shown` : ""}
       </p>
 
-      <div id={panelId} role="tabpanel" aria-labelledby={activeTab} className="mt-5">
+      <div
+        id={panelId}
+        role="tabpanel"
+        aria-labelledby={activeTab}
+        className={view === "arcade" ? "mt-[clamp(40px,5vw,64px)]" : "mt-[clamp(28px,4vw,44px)]"}
+      >
         {shown.length === 0 ? (
-          <div className="flex h-48 flex-col items-center justify-center gap-3 rounded-[24px] bg-tile text-center">
-            <p className="text-[14px] text-tertiary">
-              Nothing in the lab matches “{query.trim()}”{filter !== "all" ? " in this category" : ""}.
-            </p>
-            <button type="button" onClick={() => changeQuery("")} className="btn btn-soft h-8 bg-well">
-              Clear search
-            </button>
-          </div>
-        ) : view === "grid" ? (
-          <Masonry
-            max={4}
-            gap={{ 2: 8, 3: 12, 4: 12 }}
-            rows={[]}
-            animate={animate}
+          <EmptyState query={query.trim()} inCategory={filter !== "all"} onClear={() => changeQuery("")} />
+        ) : view === "arcade" ? (
+          <Arcade
             label="Lab pieces"
+            animate={animate}
             items={shown.map((piece) => ({
               key: piece.slug,
-              aspect: piece.tile.aspect,
               children: (
-                <div className="size-full animate-fade-in">
-                  <LabTile piece={piece} size="large" />
-                </div>
+                <LabNiche piece={piece} poster={posters[piece.slug]?.poster} ground={posters[piece.slug]?.ground} />
               ),
             }))}
           />
         ) : (
-          <PieceList items={shown} />
+          <PieceList items={shown} posters={posters} />
         )}
       </div>
     </>
@@ -148,7 +160,28 @@ export function LabIndex() {
 }
 
 /* ---------------------------------------------------------------------- */
-/* filter tabs                                                             */
+/* empty                                                                   */
+/* ---------------------------------------------------------------------- */
+
+function EmptyState({ query, inCategory, onClear }: { query: string; inCategory: boolean; onClear: () => void }) {
+  return (
+    <div className="paper mx-auto max-w-[560px] px-7 py-10 text-center sm:px-10 sm:py-12">
+      <p className="serif-italic text-title-2 text-balance text-primary">
+        Nothing in the lab answers to “{query}”{inCategory ? " here" : ""}.
+      </p>
+      <p className="mx-auto mt-3 max-w-[40ch] text-copy text-pretty text-body">
+        Try a material or a technique (glass, sound, WebGL), or clear the search to see all {countWords(pieces.length)}{" "}
+        pieces.
+      </p>
+      <button type="button" onClick={onClear} className="btn btn-soft mt-6">
+        Clear the search
+      </button>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* filter tabs: arched doorways on a ground line                           */
 /* ---------------------------------------------------------------------- */
 
 function FilterTabs({
@@ -163,38 +196,10 @@ function FilterTabs({
   onChange: (value: CategoryFilter) => void;
 }) {
   const refs = useRef<Array<HTMLButtonElement | null>>([]);
-  const [box, setBox] = useState<{ left: number; width: number } | null>(null);
-  const [ready, setReady] = useState(false);
   const selected = Math.max(
     0,
     categories.findIndex((category) => category.id === value),
   );
-
-  const measure = useCallback(() => {
-    const tab = refs.current[selected];
-    if (!tab) return;
-    setBox((prev) =>
-      prev && prev.left === tab.offsetLeft && prev.width === tab.offsetWidth
-        ? prev
-        : { left: tab.offsetLeft, width: tab.offsetWidth },
-    );
-  }, [selected]);
-
-  useLayoutEffect(() => {
-    measure();
-  }, [measure]);
-
-  useEffect(() => {
-    const list = refs.current[0]?.parentElement;
-    if (!list) return;
-    const observer = new ResizeObserver(() => measure());
-    observer.observe(list);
-    const frame = requestAnimationFrame(() => setReady(true));
-    return () => {
-      observer.disconnect();
-      cancelAnimationFrame(frame);
-    };
-  }, [measure]);
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const count = categories.length;
@@ -212,22 +217,15 @@ function FilterTabs({
   };
 
   return (
+    // The tabs sit on the ground line; the extra 6px below them (pulled back
+    // with the negative margin) leaves room for the focus ring inside the
+    // scroller on narrow screens.
     <div
       role="tablist"
-      aria-label="Filter by category"
+      aria-label="Filter by kind"
       onKeyDown={onKeyDown}
-      className="no-scrollbar relative flex h-9 max-w-full shrink-0 items-center overflow-x-auto rounded-[12px] bg-well p-[3px]"
+      className="no-scrollbar -mb-1.5 flex items-end gap-1 overflow-x-auto px-1 pt-1.5 pb-1.5 max-md:-mx-1 sm:gap-1.5 md:overflow-visible md:px-0"
     >
-      {box ? (
-        <span
-          aria-hidden="true"
-          className={cn(
-            "absolute top-[3px] bottom-[3px] start-0 rounded-[9px] bg-float shadow-lift",
-            ready && "transition-[translate,width] duration-300 ease-out motion-reduce:transition-none",
-          )}
-          style={{ width: box.width, translate: `${box.left}px 0` }}
-        />
-      ) : null}
       {categories.map((category, index) => {
         const active = index === selected;
         return (
@@ -244,13 +242,23 @@ function FilterTabs({
             tabIndex={active ? 0 : -1}
             onClick={() => onChange(category.id)}
             className={cn(
-              "relative flex h-[30px] shrink-0 cursor-pointer items-center gap-1.5 rounded-[9px] px-2.5 text-[13px] whitespace-nowrap outline-none transition-[color] duration-150 ease-out focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary",
-              active ? "text-primary" : "text-secondary hover:text-primary",
-              !box && active && "bg-float shadow-lift",
+              "relative flex h-11 shrink-0 cursor-pointer items-center rounded-[50%_50%_0_0/18px_18px_0_0] border border-b-0 ps-4 pe-3.5 text-[14px] font-[550] whitespace-nowrap outline-none transition-[background-color,border-color,color] duration-200 ease-out focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--focus) max-sm:px-3 max-sm:text-[13px] max-[23.75rem]:px-2.5",
+              active
+                ? "border-ink bg-ink text-on-ink"
+                : "border-line-firm bg-paper/40 text-body hover:border-[color-mix(in_oklab,var(--foreground)_45%,transparent)] hover:bg-paper hover:text-primary",
             )}
           >
-            {category.label}
-            <span className="text-[12px] text-tertiary tabular-nums">{category.count}</span>
+            <span className="translate-y-[2px]">{category.label}</span>
+            <span
+              className={cn(
+                "ms-1 -translate-y-[0.4em] text-[10.5px] font-semibold tabular-nums max-sm:sr-only",
+                active ? "text-on-ink/70" : "text-terra",
+              )}
+            >
+              <span className="sr-only">, </span>
+              {category.count}
+              <span className="sr-only"> {category.count === 1 ? "piece" : "pieces"}</span>
+            </span>
           </button>
         );
       })}
@@ -262,39 +270,50 @@ function FilterTabs({
 /* search and view                                                         */
 /* ---------------------------------------------------------------------- */
 
-function SearchBox({ value, onChange, count }: { value: string; onChange: (value: string) => void; count: number }) {
+function SearchBox({
+  value,
+  onChange,
+  onSubmit,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  onSubmit: () => void;
+}) {
   const inputRef = useRef<HTMLInputElement>(null);
   return (
-    <label className="relative flex h-9 min-w-0 flex-1 items-center sm:w-[220px] sm:flex-none">
+    <label className="relative flex min-w-0 flex-1 items-center md:w-[248px] md:flex-none">
       <span className="sr-only">Search the lab</span>
-      <Search size={14} className="pointer-events-none absolute start-3 text-tertiary" />
+      <Search size={15} className="pointer-events-none absolute start-4 text-muted" />
       <input
         ref={inputRef}
         type="search"
         value={value}
         onChange={(event) => onChange(event.target.value)}
         onKeyDown={(event) => {
-          if (event.key === "Escape" && value) {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            onSubmit();
+          } else if (event.key === "Escape" && value) {
             event.preventDefault();
             event.stopPropagation();
             onChange("");
           }
         }}
-        placeholder={`Search ${count} pieces`}
+        placeholder="Find a piece"
         autoComplete="off"
         spellCheck={false}
-        enterKeyHint="search"
-        className="h-full w-full min-w-0 rounded-[12px] bg-well ps-8.5 pe-8 text-[16px] text-primary outline-none transition-[background-color] duration-150 ease-out placeholder:text-tertiary hover:bg-well-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary sm:text-[13px] [&::-webkit-search-cancel-button]:appearance-none"
+        enterKeyHint="go"
+        className="field h-11 rounded-pill py-0 ps-10 pe-10 [&::-webkit-search-cancel-button]:appearance-none"
       />
       {value ? (
         <button
           type="button"
-          aria-label="Clear search"
+          aria-label="Clear the search"
           onClick={() => {
             onChange("");
             inputRef.current?.focus();
           }}
-          className="absolute end-1.5 flex size-6 cursor-pointer items-center justify-center rounded-[8px] text-tertiary outline-none transition-colors duration-150 hover:bg-well-hover hover:text-primary focus-visible:outline-2 focus-visible:outline-primary"
+          className="absolute end-2 grid size-7 cursor-pointer place-items-center rounded-full text-muted transition-colors duration-150 hover:bg-wash hover:text-primary focus-ring"
         >
           <Close size={12} />
         </button>
@@ -305,22 +324,22 @@ function SearchBox({ value, onChange, count }: { value: string; onChange: (value
 
 function ViewSwitch({ value, onChange }: { value: View; onChange: (value: View) => void }) {
   const options: Array<{ id: View; label: string; icon: ReactNode }> = [
-    { id: "grid", label: "Grid view", icon: <GridView size={15} /> },
-    { id: "list", label: "List view", icon: <ListView size={15} /> },
+    { id: "arcade", label: "Arcade", icon: <ArcadeView size={15} /> },
+    { id: "list", label: "List", icon: <ListView size={15} /> },
   ];
   const refs = useRef<Array<HTMLButtonElement | null>>([]);
   return (
     <div
       role="radiogroup"
-      aria-label="View"
+      aria-label="Show the lab as"
       onKeyDown={(event) => {
         if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
         event.preventDefault();
-        const next = value === "grid" ? "list" : "grid";
+        const next = value === "arcade" ? "list" : "arcade";
         onChange(next);
-        refs.current[next === "grid" ? 0 : 1]?.focus();
+        refs.current[next === "arcade" ? 0 : 1]?.focus();
       }}
-      className="flex h-9 shrink-0 items-center rounded-[12px] bg-well p-[3px]"
+      className="flex h-11 shrink-0 items-center gap-0.5 rounded-pill border border-line-firm bg-paper/55 p-[3px]"
     >
       {options.map((option, index) => {
         const active = option.id === value;
@@ -334,15 +353,17 @@ function ViewSwitch({ value, onChange }: { value: View; onChange: (value: View) 
             role="radio"
             aria-checked={active}
             aria-label={option.label}
-            title={option.label}
             tabIndex={active ? 0 : -1}
             onClick={() => onChange(option.id)}
             className={cn(
-              "flex h-[30px] w-[34px] cursor-pointer items-center justify-center rounded-[9px] outline-none transition-[background-color,color,box-shadow] duration-200 ease-out focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary",
-              active ? "bg-float text-primary shadow-lift" : "text-secondary hover:text-primary",
+              "flex h-full cursor-pointer items-center gap-1.5 rounded-pill px-3 text-[13.5px] font-[550] outline-none transition-[background-color,color] duration-200 ease-out focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--focus) sm:px-3.5",
+              active ? "bg-ink text-on-ink" : "text-secondary hover:bg-wash hover:text-primary",
             )}
           >
             {option.icon}
+            <span className="max-sm:sr-only" aria-hidden="true">
+              {option.label}
+            </span>
           </button>
         );
       })}
@@ -354,10 +375,16 @@ function ViewSwitch({ value, onChange }: { value: View; onChange: (value: View) 
 /* list view                                                               */
 /* ---------------------------------------------------------------------- */
 
-const PREVIEW_WIDTH = 232;
+const PREVIEW_WIDTH = 188;
 
-/** Huge numbered rows, like a directory index; a live preview follows the mouse. */
-function PieceList({ items }: { items: readonly PieceMeta[] }) {
+/** The big-type index; with a mouse, an arched window with the live piece follows the cursor. */
+function PieceList({
+  items,
+  posters,
+}: {
+  items: readonly PieceMeta[];
+  posters: Readonly<Record<string, PiecePoster>>;
+}) {
   const fine = useFinePointer();
   const reduced = useReducedMotion();
   const [hovered, setHovered] = useState<PieceMeta | null>(null);
@@ -377,9 +404,9 @@ function PieceList({ items }: { items: readonly PieceMeta[] }) {
     const width = preview.offsetWidth;
     const height = preview.offsetHeight;
     // To the right of the cursor, or to its left near the window's edge.
-    const right = x + 28 + width < window.innerWidth - 16;
-    const tx = right ? x + 28 : x - 28 - width;
-    const ty = clamp(y - height / 2, 16, Math.max(16, window.innerHeight - height - 16));
+    const right = x + 32 + width < window.innerWidth - 16;
+    const tx = right ? x + 32 : x - 32 - width;
+    const ty = clamp(y - height / 2, 80, Math.max(80, window.innerHeight - height - 16));
     if (pointer.current.fresh || reduced) {
       motion.x.set(tx);
       motion.y.set(ty);
@@ -388,7 +415,7 @@ function PieceList({ items }: { items: readonly PieceMeta[] }) {
     } else {
       motion.x.to(tx);
       motion.y.to(ty);
-      motion.tilt.to(clamp(pointer.current.vx * 0.006, -7, 7));
+      motion.tilt.to(clamp(pointer.current.vx * 0.005, -6, 6));
       pointer.current.vx *= Math.exp(-dt * 10);
     }
     motion.x.step(dt);
@@ -418,10 +445,13 @@ function PieceList({ items }: { items: readonly PieceMeta[] }) {
     wake();
   };
 
+  const art = hovered ? posters[hovered.slug] : undefined;
+
   return (
     <div className="relative">
       <ol
-        className="border-t border-border [&:has(a:hover)>li>a:not(:hover)]:opacity-45"
+        aria-label="Lab pieces"
+        className="rule-ink"
         onPointerMove={onPointerMove}
         onPointerLeave={() => {
           setShown(false);
@@ -429,27 +459,27 @@ function PieceList({ items }: { items: readonly PieceMeta[] }) {
         }}
       >
         {items.map((piece) => (
-          <li key={piece.slug}>
+          <li key={piece.slug} className="border-b border-line">
             <Link
               href={`/lab/${piece.slug}/`}
+              data-row=""
               onPointerEnter={(event) => {
                 if (event.pointerType !== "mouse") return;
                 setHovered(piece);
                 setShown(true);
               }}
-              className="group flex items-end gap-3 border-b border-border py-4 outline-none transition-[opacity] duration-200 ease-out focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary sm:gap-6 sm:py-5"
+              className="group row-rise grid grid-cols-[36px_minmax(0,1fr)_auto] items-baseline gap-x-4 gap-y-1.5 px-2 pt-[18px] pb-4 text-primary focus-ring md:grid-cols-[64px_minmax(0,1fr)_minmax(0,300px)_128px] md:gap-x-5"
             >
-              <span aria-hidden="true" className="w-6 shrink-0 pb-[0.45em] font-mono text-[12px] text-tertiary tabular-nums sm:w-8">
+              <span aria-hidden="true" className="numeral text-[15px]">
                 {pad(pieceNumber(piece.slug))}
               </span>
-              <span className="min-w-0 flex-1 truncate text-[34px]/[1.1] font-medium tracking-[-0.035em] text-primary sm:text-[48px]/[1.08] lg:text-[56px]/[1.06]">
+              <span className="min-w-0 font-display text-title-1 text-balance group-hover:turn group-focus-visible:turn">
                 {piece.title}
               </span>
-              <span className="hidden shrink-0 flex-col items-end pb-[0.5em] text-end font-mono text-[12px] leading-[1.6] text-tertiary sm:flex">
-                <span className="text-secondary">{CATEGORY_SINGULAR[piece.category]}</span>
-                <span className="max-w-[300px] truncate">{piece.uses.join(" · ")}</span>
+              <span className="col-start-2 row-start-2 text-[15px] leading-[1.5] text-pretty text-muted max-md:line-clamp-2 md:col-start-auto md:row-start-auto md:translate-y-[-0.2em]">
+                {piece.summary}
               </span>
-              <span className="shrink-0 pb-[0.5em] font-mono text-[11px] text-tertiary sm:hidden">
+              <span className="col-start-3 row-start-1 caps text-end text-muted md:col-start-auto md:row-start-auto">
                 {CATEGORY_SINGULAR[piece.category]}
               </span>
             </Link>
@@ -466,12 +496,13 @@ function PieceList({ items }: { items: readonly PieceMeta[] }) {
         >
           <div
             className={cn(
-              "relative animate-pop-in overflow-hidden rounded-[20px] bg-tile shadow-float transition-[opacity,scale,filter] duration-200 ease-out",
-              shown ? "scale-100 opacity-100 blur-none" : "scale-90 opacity-0 blur-[4px]",
+              "origin-center drop-shadow-[0_18px_22px_rgb(var(--shadow-rgb)/0.28)] transition-[opacity,scale] duration-300 ease-out motion-reduce:transition-none",
+              shown ? "scale-100 opacity-100" : "scale-90 opacity-0",
             )}
-            style={{ aspectRatio: hovered.tile.aspect }}
           >
-            <LoadPiece key={hovered.slug} slug={hovered.slug} mode="tile" active={shown} />
+            <ArchFrame keystone={false} windowStyle={{ background: art?.ground ?? "var(--band)" }}>
+              <LoadPiece key={hovered.slug} slug={hovered.slug} mode="tile" active={shown} poster={art?.poster ?? null} />
+            </ArchFrame>
           </div>
         </div>
       ) : null}

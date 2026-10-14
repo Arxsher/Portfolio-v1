@@ -1,99 +1,261 @@
 "use client";
 
-// The list view of the command bar: a listbox driven from the input.
-// The input keeps focus and points at the active row with
-// aria-activedescendant; arrows, Home/End and Enter are handled there
-// (command-bar.tsx). Moving the pointer over a row makes it active.
+// The Index itself: the head, the pill search field (a combobox) and the
+// grouped list (a listbox) under it, with a keycap legend at the foot.
+//
+// The field keeps focus and points at the active row with
+// aria-activedescendant. ↑ ↓ (or Ctrl-N / Ctrl-P) walk the rows, Home and
+// End jump to the ends, Enter takes the active row. Letters the search
+// matched are underlined in cobalt; the counter says how many of the
+// Index's entries are showing. The active row gets a sand band and its
+// star bullet fills and turns 45°.
 
-import { useLayoutEffect, useRef } from "react";
-import { Mail, Sparkle } from "@/components/icons";
-import { ProjectIcon } from "@/components/project-icons";
+import { useLayoutEffect, useRef, type KeyboardEvent, type RefObject } from "react";
+import { Search as SearchIcon } from "@/components/icons";
+import { Star } from "@/components/ornament";
 import { cn } from "@/lib/cn";
-import type { PaletteItem } from "./items";
-import { Hairline, ViewIcon, columnStyle } from "./panels/panel";
+import type { Entry, Search } from "./items";
+import { SheetHead } from "./panels/panel";
 
-export function optionId(listId: string, item: PaletteItem) {
-  return `${listId}-${item.id}`;
+export const optionId = (listId: string, entry: Entry) => `${listId}-${entry.id.replace(/[^\w-]/g, "_")}`;
+
+/** The label with the matched letters underlined. */
+function Marked({ text, hits }: { text: string; hits: number[] }) {
+  if (!hits.length) return <>{text}</>;
+  const set = new Set(hits);
+  const parts: Array<{ text: string; hit: boolean }> = [];
+  for (let index = 0; index < text.length; index += 1) {
+    const hit = set.has(index);
+    const last = parts[parts.length - 1];
+    if (last && last.hit === hit) last.text += text[index];
+    else parts.push({ text: text[index], hit });
+  }
+  return (
+    <>
+      {parts.map((part, index) =>
+        part.hit ? (
+          <span
+            key={index}
+            className="text-cobalt underline decoration-cobalt decoration-[1.5px] underline-offset-[3px]"
+          >
+            {part.text}
+          </span>
+        ) : (
+          <span key={index}>{part.text}</span>
+        ),
+      )}
+    </>
+  );
 }
 
-function ItemIcon({ item }: { item: PaletteItem }) {
-  if (item.kind === "view") return <ViewIcon name={item.icon} />;
-  if (item.kind === "project") return <ProjectIcon slug={item.slug} className="size-3.5" />;
-  if (item.kind === "piece") return <Sparkle size={14} />;
-  return <Mail size={14} />;
-}
-
-export function Palette({
+export function IndexView({
+  titleId,
   listId,
-  items,
+  inputRef,
+  search,
+  query,
   active,
+  onQuery,
   onActive,
   onRun,
+  onClose,
 }: {
+  titleId: string;
   listId: string;
-  items: PaletteItem[];
+  inputRef: RefObject<HTMLInputElement | null>;
+  search: Search;
+  query: string;
   active: number;
+  onQuery: (query: string) => void;
   onActive: (index: number) => void;
-  onRun: (item: PaletteItem) => void;
+  onRun: (entry: Entry) => void;
+  onClose: () => void;
 }) {
-  const listRef = useRef<HTMLUListElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  /** The active row moved under the pointer: it is in view already, do not scroll. */
+  const byPointer = useRef(false);
+  const { groups, flat, total } = search;
+  const current = flat[Math.min(active, flat.length - 1)];
 
-  // Keep the active row inside the scroller (only moves when the keyboard
-  // walks past an edge; a row under the pointer is already visible).
+  // Keep the active row in view (the first row brings its group heading along).
   useLayoutEffect(() => {
     const list = listRef.current;
-    const row = list?.querySelector<HTMLElement>(`[data-index="${active}"]`);
-    if (!list || !row) return;
-    const pad = 6;
-    if (row.offsetTop - pad < list.scrollTop) list.scrollTop = row.offsetTop - pad;
-    else if (row.offsetTop + row.offsetHeight + pad > list.scrollTop + list.clientHeight) {
-      list.scrollTop = row.offsetTop + row.offsetHeight + pad - list.clientHeight;
+    if (!list) return;
+    if (byPointer.current) {
+      byPointer.current = false;
+      return;
     }
-  }, [active, items]);
+    if (active === 0) {
+      list.scrollTop = 0;
+      return;
+    }
+    list.querySelector<HTMLElement>(`[data-index="${active}"]`)?.scrollIntoView({ block: "nearest" });
+  }, [active, search]);
+
+  function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.nativeEvent.isComposing) return;
+    const count = flat.length;
+    const ctrl = event.ctrlKey && !event.metaKey && !event.altKey;
+    const key = event.key;
+    const down = key === "ArrowDown" || (ctrl && (key === "n" || key === "N"));
+    const up = key === "ArrowUp" || (ctrl && (key === "p" || key === "P"));
+    if (down || up) {
+      event.preventDefault();
+      if (count) onActive((active + (down ? 1 : -1) + count) % count);
+      return;
+    }
+    if ((key === "Home" || key === "End") && !event.shiftKey && count) {
+      event.preventDefault();
+      onActive(key === "Home" ? 0 : count - 1);
+      return;
+    }
+    if ((key === "PageDown" || key === "PageUp") && count) {
+      event.preventDefault();
+      onActive(Math.min(count - 1, Math.max(0, active + (key === "PageDown" ? 6 : -6))));
+      return;
+    }
+    if (key === "Enter") {
+      event.preventDefault();
+      if (current) onRun(current.entry);
+    }
+  }
+
+  let index = -1;
 
   return (
-    <div className="w-full">
-      <ul
+    <>
+      <SheetHead titleId={titleId} title="Index" size="index" onClose={onClose} closeOnTouchOnly />
+
+      <div className="shrink-0 px-3.5 pt-3.5 pb-1.5 sm:px-[18px]">
+        <div
+          className={cn(
+            "flex h-12 items-center gap-2.5 rounded-pill border border-line-firm bg-background ps-4 pe-2.5 text-muted",
+            "transition-[border-color,box-shadow] duration-200 ease-out hover:border-[color-mix(in_oklab,var(--foreground)_45%,transparent)]",
+            "focus-within:border-cobalt focus-within:ring-[3px] focus-within:ring-cobalt/25 focus-within:hover:border-cobalt",
+          )}
+        >
+          <SearchIcon size={16} className="shrink-0" />
+          <input
+            ref={inputRef}
+            type="text"
+            role="combobox"
+            aria-labelledby={titleId}
+            aria-describedby={`${listId}-help`}
+            aria-expanded="true"
+            aria-controls={listId}
+            aria-autocomplete="list"
+            aria-activedescendant={current ? optionId(listId, current.entry) : undefined}
+            enterKeyHint="go"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            placeholder="Find a page, a project, a piece…"
+            value={query}
+            onChange={(event) => onQuery(event.target.value)}
+            onKeyDown={onKeyDown}
+            className="h-full min-w-0 flex-1 bg-transparent text-[16px] text-primary outline-none placeholder:text-muted"
+          />
+          {query.trim() ? (
+            <span aria-hidden="true" className="shrink-0 text-caption text-muted tabular-nums">
+              {flat.length} / {total}
+            </span>
+          ) : null}
+          <span aria-hidden="true" className="keys-hint hidden shrink-0 sm:inline-flex">
+            <kbd className="kbd">esc</kbd>
+          </span>
+        </div>
+        <p id={`${listId}-help`} className="sr-only">
+          Type to search. Up and down arrows move, Enter opens.
+        </p>
+      </div>
+
+      <div
         ref={listRef}
         id={listId}
         role="listbox"
-        aria-label="Shortcuts"
-        className="relative left-1/2 max-h-[min(50vh,380px,calc(var(--dock-room,100vh)_-_120px))] -translate-x-1/2 overflow-y-auto overscroll-contain p-1.5"
-        style={columnStyle}
+        aria-label="Index"
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pt-1 pb-3 sm:px-2.5"
       >
-        {items.length === 0 ? (
-          <li role="presentation" className="px-3 py-3 text-[14px] text-tertiary">
-            Nothing by that name. Try work, call or guestbook.
-          </li>
+        {flat.length === 0 ? (
+          <p className="px-3 py-9 text-center text-[15px] text-muted">
+            Nothing by that name. Try “lab”, “call” or a project’s name.
+          </p>
         ) : (
-          items.map((item, index) => (
-            <li
-              key={item.id}
-              id={optionId(listId, item)}
-              role="option"
-              aria-selected={index === active}
-              data-index={index}
-              onPointerMove={() => {
-                if (index !== active) onActive(index);
-              }}
-              onClick={() => onRun(item)}
-              className={cn(
-                "flex w-full cursor-pointer items-center gap-3 rounded-[14px] py-1.5 ps-1.5 pe-3 text-left select-none transition-[background-color] duration-100",
-                index === active && "bg-tile",
-              )}
-            >
-              <span className="grid size-8 shrink-0 place-items-center rounded-[8px] bg-well text-primary">
-                <ItemIcon item={item} />
-              </span>
-              <span className="min-w-0 flex-1 leading-[1.3]">
-                <span className="block truncate text-[14px] text-primary">{item.title}</span>
-                <span className="block truncate text-[12.5px] text-tertiary">{item.description}</span>
-              </span>
-            </li>
-          ))
+          groups.map((group) => {
+            const groupId = `${listId}-group-${group.group.replace(/\W+/g, "-").toLowerCase()}`;
+            return (
+              <div key={group.group} role="group" aria-labelledby={groupId}>
+                <div id={groupId} role="presentation" aria-hidden="true" className="kicker px-3 pt-3.5 pb-1.5 text-[11px]">
+                  {group.group}
+                </div>
+                {group.results.map(({ entry, hits }) => {
+                  index += 1;
+                  const at = index;
+                  const selected = at === active;
+                  return (
+                    <div
+                      key={entry.id}
+                      id={optionId(listId, entry)}
+                      role="option"
+                      aria-selected={selected}
+                      data-index={at}
+                      onPointerMove={() => {
+                        if (at === active) return;
+                        byPointer.current = true;
+                        onActive(at);
+                      }}
+                      onClick={() => onRun(entry)}
+                      className="group flex min-h-[42px] cursor-pointer items-center gap-3 rounded-[6px] px-3 py-1.5 text-[15px] leading-[1.3] text-primary select-none aria-selected:bg-band"
+                    >
+                      <Star
+                        size={11}
+                        variant={selected ? "solid" : "outline"}
+                        className={cn(
+                          "transition-[rotate,color] duration-[400ms] ease-out motion-reduce:transition-none",
+                          selected ? "rotate-45 text-terra-fill" : "text-line-firm",
+                        )}
+                      />
+                      <span className="min-w-0 flex-1 truncate py-[3px]">
+                        <Marked text={entry.label} hits={hits} />
+                      </span>
+                      {entry.hint ? (
+                        <span className="max-w-[52%] shrink-0 truncate text-[13px] text-muted max-sm:max-w-[44%]">
+                          {entry.hint}
+                        </span>
+                      ) : null}
+                      {entry.keycap ? (
+                        <kbd aria-hidden="true" className="kbd keys-hint">
+                          {entry.keycap}
+                        </kbd>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })
         )}
-      </ul>
-      <Hairline />
-    </div>
+      </div>
+
+      <div
+        aria-hidden="true"
+        className="keys-hint flex shrink-0 items-center justify-between gap-3 border-t border-line px-[18px] py-2.5 text-[12.5px] text-muted max-sm:hidden"
+      >
+        <span className="inline-flex items-center gap-1.5">
+          <kbd className="kbd">↑</kbd>
+          <kbd className="kbd">↓</kbd>
+          move
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <kbd className="kbd">↵</kbd>
+          open
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <kbd className="kbd">esc</kbd>
+          close
+        </span>
+      </div>
+    </>
   );
 }

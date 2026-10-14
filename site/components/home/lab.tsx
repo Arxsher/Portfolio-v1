@@ -1,34 +1,50 @@
-// Home: the lab section. Every lab piece runs live in its own tile, in a
-// masonry of three columns (two on phones), as on the reference home grid.
+// Home: Three · Lab. Every piece stands in a niche of an arcade, five over
+// four on desktop (three across on tablets, two on phones), running live
+// in its arched window once it nears the viewport, with its code-drawn
+// poster until then.
 //
-//   lab / 09 ....................................... All pieces ›
-//   ┌──────┐ ┌──────┐ ┌──────┐
-//   │  1   │ │  2   │ │      │
-//   │      │ └──────┘ │  3   │
-//   └──────┘ ┌──────┐ └──────┘
-//   ┌──────┐ │  5   │ ┌──────┐
-//   │  4   │ │      │ │  6   │
-//   …
+//   ✦────────────────────────────────────────────────────────────
+//   THREE · LAB                                Small interactive pieces …
+//   The lab ✦9                                 Walk through the lab →
 //
-// Columns read across (1/4/7, 2/5/8, 3/6/9). The tile shapes in each
-// piece's meta (tile.aspect) are chosen so the three columns end level at
-// the 204px desktop tile; see components/lab/masonry.tsx for the layout.
+//     ⌒     ⌒     ⌒     ⌒     ⌒
+//    01    02    03    04    05
+//        ⌒     ⌒     ⌒     ⌒
+//       06    07    08    09
+//
+// The posters are drawn here, on the server, and handed to the niches.
 
-import { LabTile } from "@/components/lab/lab-tile";
-import { Masonry } from "@/components/lab/masonry";
+import { PieceArt, artGround } from "@/components/lab/lab-art";
+import { LabNiche } from "@/components/lab/lab-tile";
+import { Arcade } from "@/components/lab/masonry";
 import { pieces } from "@/components/lab/registry";
 import { Section } from "@/components/section";
 
 export function Lab() {
   return (
-    <Section id="lab" label="lab" count={pieces.length} action={{ label: "All pieces", href: "/lab/" }}>
-      <Masonry
-        max={3}
+    <Section
+      id="lab"
+      label="lab"
+      numeral="Three"
+      title="The"
+      turn="lab"
+      count={pieces.length}
+      badge
+      note="Small interactive pieces: components, objects and generative scenes, drawn in code and running in your browser."
+      action={{ label: "Walk through the lab", href: "/lab/" }}
+    >
+      <Arcade
         label="Lab pieces"
-        items={pieces.map((piece) => ({
+        items={pieces.map((piece, index) => ({
           key: piece.slug,
-          aspect: piece.tile.aspect,
-          children: <LabTile piece={piece} />,
+          children: (
+            <LabNiche
+              piece={piece}
+              number={index + 1}
+              ground={artGround(piece.slug)}
+              poster={<PieceArt slug={piece.slug} uid={`home-${piece.slug}`} />}
+            />
+          ),
         }))}
       />
     </Section>

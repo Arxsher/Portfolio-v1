@@ -2,23 +2,28 @@
 
 // The interactive parts of a piece page (/lab/<slug>/):
 //
-//   <PieceStage>    the big rounded stage card the piece runs in, with full
-//                   screen (Fullscreen API, or a fixed overlay where the API
-//                   is missing, e.g. iPhone Safari) and its exit control
-//   <PieceActions>  full screen, Share (native share sheet, else copy the
-//                   link with a "Link copied" toast), previous / next; also
-//                   ← / → to step through the pieces while focus is outside
-//                   the stage and outside text fields
+//   <PieceStage>    the paper stage the piece runs in: full width, a gently
+//                   domed top edge with a hairline moulding around it and a
+//                   terracotta keystone at the crown (575px tall from md,
+//                   the piece's own aspect on phones). Full screen through
+//                   the Fullscreen API, or a fixed overlay where the API is
+//                   missing (e.g. iPhone Safari), with its exit control.
+//   <PieceActions>  "Full screen" and "Copy link" pills; also ← / → to step
+//                   through the pieces while focus is outside the stage,
+//                   outside text fields and outside dialogs.
 //
 // The rest of the page is server-rendered (app/lab/[slug]/page.tsx).
+// Controls floating on the stage read --lab-dome to keep clear of the dome
+// (components/lab/ui.tsx).
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import { Check } from "@/components/icons";
+import { Star } from "@/components/ornament";
 import { cn } from "@/lib/cn";
+import { isTypingTarget } from "@/lib/shortcuts";
 import { useInView, usePageVisible } from "./hooks";
-import { ChevronLeft, ChevronRightSmall, Expand, Share, Shrink } from "./lab-icons";
+import { Expand, LinkIcon, Shrink } from "./lab-icons";
 import { LoadPiece } from "./load-piece";
 
 const STAGE_ID = "lab-stage";
@@ -106,7 +111,25 @@ function exitFullscreen() {
 
 const stageCss = `
 html[data-lab-expanded] { overflow: hidden; }
-.lab-stage:fullscreen { border-radius: 0; }
+.lab-stage {
+  --lab-dome: 30px;
+  border-radius: 50% 50% 10px 10px / var(--lab-dome) var(--lab-dome) 10px 10px;
+  background-color: var(--paper);
+  box-shadow: 0 0 0 1px var(--line), 0 1px 0 rgb(var(--shadow-rgb) / var(--shadow-a1)),
+    0 22px 48px -26px rgb(var(--shadow-rgb) / var(--shadow-a2));
+  outline: 1px solid var(--line);
+  outline-offset: 6px;
+}
+@media (min-width: 768px) {
+  .lab-stage { --lab-dome: 64px; }
+}
+.lab-stage:fullscreen,
+.lab-stage[data-expanded] {
+  --lab-dome: 0px;
+  border-radius: 0;
+  outline: none;
+  box-shadow: none;
+}
 .lab-stage[data-expanded] {
   position: fixed;
   inset: 0;
@@ -115,7 +138,18 @@ html[data-lab-expanded] { overflow: hidden; }
   height: 100%;
   min-height: 0;
   aspect-ratio: auto;
-  border-radius: 0;
+}
+.lab-stage__key {
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  translate: -50% -50%;
+  box-sizing: content-box;
+  padding: 3px 5px;
+  border-radius: 50%;
+  color: var(--terra-fill);
+  background-color: var(--background);
+  pointer-events: none;
 }
 `;
 
@@ -124,18 +158,20 @@ export function PieceStage({
   title,
   aspect = 4 / 5,
   minHeight = 360,
+  poster,
 }: {
   slug: string;
   title: string;
   /** Phone aspect (width / height); from md up the stage is 575px tall. */
   aspect?: number;
   minHeight?: number;
+  /** Shown while the piece loads, and instead of a piece that is still being built. */
+  poster?: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const onScreen = useInView(ref);
   const visible = usePageVisible();
   const fullscreen = useStageFullscreen();
-  const exitRef = useRef<HTMLButtonElement>(null);
 
   // Esc closes the overlay fallback (native full screen handles its own).
   useEffect(() => {
@@ -154,32 +190,35 @@ export function PieceStage({
   useEffect(() => () => setExpanded(false), []);
 
   return (
-    <div
-      ref={ref}
-      id={STAGE_ID}
-      data-lab-stage=""
-      data-expanded={expanded && fullscreen ? "" : undefined}
-      role="region"
-      aria-label={`${title}, interactive piece`}
-      className="lab-stage relative isolate w-full overflow-hidden rounded-[24px] bg-tile aspect-(--stage-aspect) min-h-(--stage-min) md:aspect-auto md:h-[575px] md:min-h-0"
-      style={{ "--stage-aspect": aspect, "--stage-min": `${minHeight}px` } as CSSProperties}
-    >
+    <div className="relative">
       <style href="lab-stage" precedence="default">
         {stageCss}
       </style>
-      <LoadPiece slug={slug} mode="stage" active={(onScreen || fullscreen) && visible} />
-      {fullscreen ? (
-        <button
-          ref={exitRef}
-          type="button"
-          onClick={exitFullscreen}
-          aria-label="Exit full screen"
-          title="Exit full screen"
-          className="absolute end-3 top-3 z-30 flex size-9 cursor-pointer items-center justify-center rounded-[12px] bg-float text-secondary shadow-float outline-none transition-[color,scale] duration-150 ease-out hover:text-primary active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary sm:end-4 sm:top-4"
-        >
-          <Shrink size={15} />
-        </button>
-      ) : null}
+      <div
+        ref={ref}
+        id={STAGE_ID}
+        data-lab-stage=""
+        data-expanded={expanded && fullscreen ? "" : undefined}
+        role="region"
+        aria-label={`${title}, interactive piece`}
+        className="lab-stage relative isolate w-full overflow-hidden aspect-(--stage-aspect) min-h-(--stage-min) md:aspect-auto md:h-[575px] md:min-h-0"
+        style={{ "--stage-aspect": aspect, "--stage-min": `${minHeight}px` } as CSSProperties}
+      >
+        <LoadPiece slug={slug} mode="stage" active={(onScreen || fullscreen) && visible} poster={poster} />
+        {fullscreen ? (
+          <button
+            type="button"
+            onClick={exitFullscreen}
+            aria-label="Exit full screen"
+            title="Exit full screen"
+            className="btn btn-soft btn-icon absolute end-3 top-3 z-30 bg-paper shadow-[0_0_0_1px_var(--line),0_10px_24px_-14px_rgb(var(--shadow-rgb)/var(--shadow-a2))] sm:end-4 sm:top-4"
+          >
+            <Shrink size={15} />
+          </button>
+        ) : null}
+      </div>
+      {/* the keystone at the crown of the dome (still: only niche keystones turn) */}
+      <Star size={14} variant="inlaid" className="lab-stage__key" />
     </div>
   );
 }
@@ -188,29 +227,37 @@ export function PieceStage({
 /* actions                                                                 */
 /* ---------------------------------------------------------------------- */
 
-const actionClass =
-  "inline-flex h-9 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-[12px] bg-well text-[13px] font-medium text-primary outline-none transition-[background-color,scale] duration-150 ease-out hover:bg-well-hover active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary";
-
-const stepClass =
-  "flex h-9 w-[34px] items-center justify-center text-secondary outline-none transition-[color,background-color] duration-150 ease-out hover:bg-well-hover hover:text-primary focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary";
-
-function isTypingTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  return target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName);
-}
-
 type Neighbour = { slug: string; title: string };
+
+async function copyText(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return;
+  } catch {
+    // Older browsers: a hidden field and execCommand.
+  }
+  const field = document.createElement("textarea");
+  field.value = text;
+  field.setAttribute("readonly", "");
+  field.style.cssText = "position:fixed;opacity:0;pointer-events:none";
+  document.body.appendChild(field);
+  field.select();
+  document.execCommand("copy");
+  field.remove();
+}
 
 export function PieceActions({
   title,
-  summary,
   previous,
   next,
+  className,
 }: {
   title: string;
-  summary: string;
+  /** Kept for older callers (it was the share sheet's text). */
+  summary?: string;
   previous: Neighbour;
   next: Neighbour;
+  className?: string;
 }) {
   const router = useRouter();
   const [copied, setCopied] = useState(false);
@@ -219,15 +266,21 @@ export function PieceActions({
   useEffect(() => () => window.clearTimeout(timer.current), []);
 
   // ← / → step through the lab, unless focus is in the stage (the piece
-  // may use the arrows), in a field, or in an open dialog.
+  // may use the arrows), in a field, on a control that uses arrows, or in
+  // an open dialog.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
       if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
       if (isTypingTarget(event.target) || isStageFullscreen()) return;
       const active = document.activeElement;
-      if (active?.closest("[data-lab-stage], [role='dialog'], [role='slider'], [role='radiogroup'], [role='tablist']")) return;
-      if (document.querySelector("[role='dialog'][data-open]")) return;
+      if (
+        active?.closest(
+          "[data-lab-stage], [role='dialog'], dialog, [role='slider'], [role='radiogroup'], [role='tablist'], [data-shortcuts='off']",
+        )
+      )
+        return;
+      if (document.querySelector("[role='dialog'][data-open], dialog[open]")) return;
       event.preventDefault();
       router.push(`/lab/${event.key === "ArrowLeft" ? previous.slug : next.slug}/`);
     };
@@ -235,84 +288,33 @@ export function PieceActions({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [router, previous.slug, next.slug]);
 
-  const share = async () => {
-    const url = window.location.href;
-    if (typeof navigator.share === "function") {
-      try {
-        await navigator.share({ title, text: summary, url });
-        return;
-      } catch (error) {
-        // Closing the share sheet is not a failure.
-        if (error instanceof DOMException && error.name === "AbortError") return;
-      }
-    }
-    try {
-      await navigator.clipboard.writeText(url);
-    } catch {
-      // Older browsers: a hidden field and execCommand.
-      const field = document.createElement("textarea");
-      field.value = url;
-      field.setAttribute("readonly", "");
-      field.style.cssText = "position:fixed;opacity:0;pointer-events:none";
-      document.body.appendChild(field);
-      field.select();
-      document.execCommand("copy");
-      field.remove();
-    }
+  const copy = async () => {
+    await copyText(window.location.href.split("#")[0]);
     setCopied(true);
     window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => setCopied(false), 1800);
   };
 
   return (
-    <div className="flex shrink-0 items-center gap-2">
-      <button
-        type="button"
-        onClick={() => void enterFullscreen()}
-        aria-label="Full screen"
-        title="Full screen"
-        className={cn(actionClass, "w-[34px]")}
-      >
-        <Expand size={14} />
+    <div className={cn("flex flex-wrap items-center gap-2", className)}>
+      <button type="button" onClick={() => void enterFullscreen()} className="btn btn-soft btn-sm">
+        <Expand size={13} />
+        Full screen
+        <span className="sr-only">: {title}</span>
       </button>
-      <span className="relative">
-        <button type="button" onClick={() => void share()} className={cn(actionClass, "w-[34px] sm:w-auto sm:ps-3 sm:pe-3.5")}>
-          <Share size={14} />
-          <span className="sr-only sm:not-sr-only">Share</span>
-        </button>
-        <span
-          aria-hidden="true"
-          className={cn(
-            "pointer-events-none absolute end-0 top-full z-20 mt-2 flex h-7 items-center gap-1.5 rounded-[9px] bg-ink px-2.5 text-[12px] font-medium whitespace-nowrap text-on-ink shadow-float transition-[opacity,translate,filter] duration-200 ease-out",
-            copied ? "translate-y-0 opacity-100 blur-none" : "-translate-y-1 opacity-0 blur-[2px]",
-          )}
-        >
-          <Check size={12} />
-          Link copied
+      <button type="button" onClick={() => void copy()} className="btn btn-soft btn-sm">
+        <span className="icon-swap" data-keep-transition="">
+          <span data-hidden={copied ? "true" : undefined} className="flex">
+            <LinkIcon size={13} />
+          </span>
+          <span data-hidden={copied ? undefined : "true"} className="flex text-green">
+            <Check size={13} />
+          </span>
         </span>
-        <span className="sr-only" aria-live="polite">
-          {copied ? "Link copied" : ""}
-        </span>
-      </span>
-      <span className="flex rounded-[12px] bg-well">
-        <Link
-          href={`/lab/${previous.slug}/`}
-          aria-label={`Previous: ${previous.title}`}
-          title={`Previous: ${previous.title}`}
-          aria-keyshortcuts="ArrowLeft"
-          className={cn(stepClass, "rounded-s-[12px]")}
-        >
-          <ChevronLeft size={14} />
-        </Link>
-        <Link
-          href={`/lab/${next.slug}/`}
-          aria-label={`Next: ${next.title}`}
-          title={`Next: ${next.title}`}
-          aria-keyshortcuts="ArrowRight"
-          className={cn(stepClass, "rounded-e-[12px]")}
-        >
-          <ChevronRightSmall size={14} />
-        </Link>
+        {copied ? "Copied" : "Copy link"}
+      </button>
+      <span className="sr-only" aria-live="polite">
+        {copied ? "Link to this piece copied" : ""}
       </span>
     </div>
   );

@@ -1,19 +1,28 @@
-// Masonry for the lab tiles, without JavaScript and without layout shift.
+// Layouts for lab pieces.
 //
-// Every tile's place is worked out ahead of time for each column count
-// (2 on phones, 3 from a 560px wide container, 4 from 900px when allowed),
-// in units of the column width, and written onto the tile as CSS custom
-// properties. Container queries pick the set that applies and the tile is
-// absolutely positioned with calc() against `100cqw`, so the markup is the
-// same for everyone (static export, no hydration mismatch) and keeps the
-// natural reading order 1, 2, 3 … in the DOM.
+// <Arcade>: the current one (home and lab index). Niches stand in rows like
+// a run of arches: five to a row on desktop, three on tablets, two on
+// phones, every row centred, so nine pieces read five over four with the
+// second row sitting between the first row's arches, and any count after
+// that keeps the same rhythm (rows of five, the remainder centred under
+// them, like the last bay of an arcade). Pure CSS, the same markup for
+// everyone (static export, no hydration mismatch).
+//
+//   <Arcade label="Lab pieces" items={pieces.map((p) => ({ key: p.slug, children: <LabNiche piece={p} … /> }))} />
+//
+// <Masonry>: the older masonry of tiles, kept for any caller that still
+// wants it. Every tile's place is worked out ahead of time for each column
+// count (2 on phones, 3 from a 560px wide container, 4 from 900px when
+// allowed), in units of the column width, and written onto the tile as CSS
+// custom properties. Container queries pick the set that applies and the
+// tile is absolutely positioned with calc() against `100cqw`, so the
+// markup is the same for everyone and keeps the natural reading order.
 //
 //   <Masonry max={3} items={pieces.map((p) => ({ key: p.slug, aspect: p.tile.aspect, children: <LabTile piece={p} /> }))} />
 //
-// Placement: with three columns the tiles go strictly across the rows
-// (columns hold 1/4/7, 2/5/8, 3/6/9), as the home grid is designed; with
-// two or four, each tile drops into the shortest column so the ends stay
-// level. Pass `rows` to change which counts read strictly across.
+// Placement: with three columns the tiles go strictly across the rows;
+// with two or four, each tile drops into the shortest column so the ends
+// stay level. Pass `rows` to change which counts read strictly across.
 
 import type { CSSProperties, ReactNode } from "react";
 
@@ -198,5 +207,79 @@ export function Masonry({
         </div>
       ))}
     </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* the arcade                                                              */
+/* ---------------------------------------------------------------------- */
+
+const arcadeCss = `
+.lab-arcade {
+  --cols: 2;
+  --gap-x: 16px;
+  --gap-y: 30px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--gap-y) var(--gap-x);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.lab-arcade > li {
+  flex: none;
+  width: calc((100% - (var(--cols) - 1) * var(--gap-x)) / var(--cols));
+  min-width: 0;
+}
+.lab-arcade[data-animate] > li {
+  animation: fade-up 420ms var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 40ms);
+}
+@media (min-width: 640px) {
+  .lab-arcade {
+    --cols: 3;
+    --gap-x: 22px;
+    --gap-y: 36px;
+  }
+}
+@media (min-width: 1024px) {
+  .lab-arcade {
+    --cols: 5;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lab-arcade[data-animate] > li {
+    animation: none;
+  }
+}
+`;
+
+export type ArcadeItem = { key: string; children: ReactNode };
+
+export function Arcade({
+  items,
+  label,
+  animate = false,
+  className,
+}: {
+  items: readonly ArcadeItem[];
+  /** Accessible name for the list. */
+  label?: string;
+  /** Let niches rise into place (when the set changes on the lab index). */
+  animate?: boolean;
+  className?: string;
+}) {
+  return (
+    <ol aria-label={label} data-animate={animate ? "" : undefined} className={`lab-arcade ${className ?? ""}`}>
+      <style href="lab-arcade" precedence="default">
+        {arcadeCss}
+      </style>
+      {items.map((item, index) => (
+        <li key={item.key} style={{ "--i": index } as CSSProperties}>
+          {item.children}
+        </li>
+      ))}
+    </ol>
   );
 }

@@ -1,7 +1,7 @@
-// Zakaria's picture for the profile row and the social panels. It fills
-// its parent (which sets the size, shape and tile colour). Until
-// site.avatar points at a photo, the "arsher" mark stands in, centred on
-// the tile.
+// Zakaria's picture for the panels that show who you are writing to. It
+// fills its parent (which sets the size and shape). Until site.avatar
+// points at a photo, the star mark stands in, in cobalt on a band-coloured
+// tile. (The home page has no avatar block: the name is the hero.)
 
 import { Logo } from "@/components/logo";
 import { site } from "@/content/site";
@@ -23,7 +23,7 @@ export function AvatarFill({ mark = 24, eager = false }: { mark?: number; eager?
     );
   }
   return (
-    <span aria-hidden="true" className="flex size-full items-center justify-center text-primary">
+    <span aria-hidden="true" className="flex size-full items-center justify-center bg-band text-cobalt">
       <Logo size={mark} />
     </span>
   );

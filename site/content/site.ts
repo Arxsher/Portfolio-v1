@@ -15,7 +15,7 @@ export const site = {
   description:
     "Designer, developer and builder crafting digital experiences at the intersection of design, technology, and user experience.",
   // Profile photo, e.g. "/images/avatar.jpg" (put the file in public/).
-  // Empty shows the "arsher" mark on a soft tile instead.
+  // Used by the contact panels; empty shows the star mark instead.
   avatar: "",
   // Social preview image (1200 x 630) for links shared on X, LinkedIn …
   ogImage: "/og.png",
@@ -50,8 +50,8 @@ export const site = {
     { name: "Spotify", href: "https://open.spotify.com/user/arxsher", handle: "Arxsher" },
   ],
 
-  // Intro copy. `strong` segments render in the foreground colour; `chip`
-  // segments render as the small inline pills.
+  // Intro copy. `strong` segments render in ink (with `href`, as an
+  // underlined link); `chip` segments render as small outlined pills.
   intro: [
     [
       { text: "Hey, I'm " },
@@ -88,8 +88,10 @@ export const site = {
     },
   ],
 
-  // Shown in the footer. Remove if you'd rather not credit the inspiration.
-  credit: { label: "Design inspired by anishfn", href: "https://www.anishfn.ink/" },
+  // Shown in the footer's colophon. The look is now the site's own; the
+  // idea of a lab of small pieces with a page each came from anishfn's lab.
+  // Remove if you'd rather not credit it.
+  credit: { label: "Lab format inspired by anishfn", href: "https://www.anishfn.ink/" },
 } as const;
 
 export { projects, contributions };

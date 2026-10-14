@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
+import { PageHeader } from "@/components/section";
 import { WritingList } from "@/components/writing-row";
 import { site } from "@/content/site";
 
-const intro = "Things I’ve written, newest first.";
+const intro = "Longer thoughts, newest first. Posts published on their own sites open in a new tab.";
 
 export const metadata: Metadata = {
   title: "Writing",
@@ -19,16 +20,13 @@ export const metadata: Metadata = {
   },
 };
 
+// The writing index (DESIGN.md → Writing): the page heading, then every
+// post as a numbered row.
 export default function WritingPage() {
   return (
     <>
-      <header className="mt-16">
-        <h1 className="page-title">Writing</h1>
-        <p className="page-lede mt-3">{intro}</p>
-      </header>
-      <div className="mt-10">
-        <WritingList posts={site.writing} />
-      </div>
+      <PageHeader kicker="Writing" title="Notes &" turn="essays" count={site.writing.length} lede={intro} />
+      <WritingList posts={site.writing} />
     </>
   );
 }

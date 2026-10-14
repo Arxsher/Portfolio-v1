@@ -1,8 +1,11 @@
 "use client";
 
-// The floating stage controls: small white trays with a soft shadow that
-// sit over a piece (the look of the swatch tray and the "Columns − 11 +"
-// stepper on the reference lab pages, drawn with this site's tokens).
+// The floating stage controls: paper pills that rest on the stage over a
+// piece, in the site's own material (DESIGN.md → Lab → Control trays):
+// warm paper at 90% with a little blur, a hairline ring and a soft drop,
+// 32px controls (40px on touch screens), small-caps labels, round glaze
+// swatches with an ink ring, ink pills for the chosen option, sliders with
+// an ink thumb on a cobalt track, keycap steppers and a cobalt focus ring.
 //
 //   <StageControls placement="top">
 //     <Tray>
@@ -21,9 +24,12 @@
 // Every control works with mouse, touch and keyboard and carries proper
 // roles: Swatches and Segmented are radio groups (arrow keys move and
 // select), Stepper is a spinbutton (↑ ↓ PageUp PageDown Home End), Slider
-// is a slider, Toggle a switch. Controls are 40px tall inside a 48px tray.
-// Everything inside StageControls / Tray is marked data-lab-controls, so
-// usePointer() on the piece below ignores presses that start on them.
+// is a slider, Toggle a switch. Controls are 32px tall inside a 40px tray
+// (40px in a 48px tray on touch screens). Everything inside StageControls /
+// Tray is marked data-lab-controls, so usePointer() on the piece below
+// ignores presses that start on them. On the piece page the stage's top
+// edge is domed: top placements read --lab-dome (set by the stage) to keep
+// clear of it.
 
 import {
   useCallback,
@@ -48,10 +54,25 @@ import { Minus, Plus, Return, SpeakerOff, SpeakerOn } from "./lab-icons";
 /* ---------------------------------------------------------------------- */
 
 const css = `
-@keyframes lab-roll-up { from { translate: 0 55%; opacity: 0; filter: blur(2px); } }
-@keyframes lab-roll-down { from { translate: 0 -55%; opacity: 0; filter: blur(2px); } }
-.lab-roll[data-dir="up"] { animation: lab-roll-up 260ms cubic-bezier(0.23, 1, 0.32, 1) both; }
-.lab-roll[data-dir="down"] { animation: lab-roll-down 260ms cubic-bezier(0.23, 1, 0.32, 1) both; }
+@keyframes lab-roll-up { from { translate: 0 60%; opacity: 0; } }
+@keyframes lab-roll-down { from { translate: 0 -60%; opacity: 0; } }
+.lab-roll[data-dir="up"] { animation: lab-roll-up 280ms var(--ease-out) both; }
+.lab-roll[data-dir="down"] { animation: lab-roll-down 280ms var(--ease-out) both; }
+.lab-key {
+  border: 1px solid var(--line-firm);
+  border-bottom-width: 2px;
+  background-color: color-mix(in oklab, var(--background) 70%, var(--paper));
+  transition: translate 120ms var(--ease-out), border-bottom-width 120ms var(--ease-out),
+    color 160ms var(--ease-out), border-color 160ms var(--ease-out);
+}
+.lab-key:hover:not(:disabled) {
+  border-color: color-mix(in oklab, var(--foreground) 45%, transparent);
+  color: var(--foreground);
+}
+.lab-key:active:not(:disabled) {
+  translate: 0 1px;
+  border-bottom-width: 1px;
+}
 @media (prefers-reduced-motion: reduce) {
   .lab-roll[data-dir] { animation: none; }
 }
@@ -66,19 +87,24 @@ function UIStyles() {
   );
 }
 
-/** The tray surface: white (float) with a hairline ring and a soft drop. */
+/** The tray surface: a paper pill at 90% with a little blur, a hairline ring and a soft warm drop. */
 export const trayClass =
-  "pointer-events-auto flex max-w-full items-center gap-0.5 rounded-[16px] bg-float p-1 text-[13px] text-primary shadow-[0_0_0_1px_rgb(0_0_0/0.07),0_1px_2px_-1px_rgb(0_0_0/0.08),0_6px_16px_-6px_rgb(0_0_0/0.12)] dark:shadow-[0_0_0_1px_rgb(255_255_255/0.08),0_1px_2px_-1px_rgb(0_0_0/0.4),0_10px_24px_-8px_rgb(0_0_0/0.6)]";
+  "pointer-events-auto flex max-w-full items-center gap-0.5 rounded-pill bg-paper/90 p-1 text-[13px] text-primary backdrop-blur-md backdrop-saturate-[1.2] shadow-[0_0_0_1px_var(--line),0_1px_0_rgb(var(--shadow-rgb)/var(--shadow-a1)),0_14px_32px_-16px_rgb(var(--shadow-rgb)/var(--shadow-a2))]";
 
-/** A 40px control inside a tray. */
-const controlBase =
-  "relative inline-flex h-10 shrink-0 cursor-pointer select-none items-center justify-center rounded-[12px] outline-none transition-[background-color,color,scale,opacity] duration-150 ease-out active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary disabled:pointer-events-none disabled:opacity-40";
-/** Quiet look: secondary glyph, hover fills with the well colour. */
-const controlQuiet = "text-secondary hover:bg-well hover:text-primary";
+/** Focus: the site's cobalt ring, kept inside the tray's padding. */
+const focusClass = "outline-none focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--focus)";
 
-const labelClass = "shrink-0 whitespace-nowrap ps-2.5 pe-1 text-[13px] text-secondary";
+/** A 32px control inside a tray (40px on touch screens). */
+const controlBase = cn(
+  "relative inline-flex h-8 shrink-0 cursor-pointer select-none items-center justify-center rounded-pill transition-[background-color,color,scale,opacity] duration-150 ease-out active:scale-[0.96] disabled:pointer-events-none disabled:opacity-40 pointer-coarse:h-10",
+  focusClass,
+);
+/** Quiet look: secondary glyph, a wash of ink on hover. */
+const controlQuiet = "text-secondary hover:bg-wash hover:text-primary";
 
-const trackFill = "bg-[color-mix(in_oklab,var(--foreground)_14%,transparent)]";
+const labelClass = "caps shrink-0 whitespace-nowrap ps-3 pe-1.5 text-muted";
+
+const trackFill = "bg-line-firm";
 
 /* ---------------------------------------------------------------------- */
 /* layout                                                                  */
@@ -86,11 +112,16 @@ const trackFill = "bg-[color-mix(in_oklab,var(--foreground)_14%,transparent)]";
 
 export type Placement = "top" | "bottom" | "top-left" | "top-right" | "bottom-left" | "bottom-right";
 
+// Top placements step down under the stage's dome (--lab-dome is its
+// height, 0 everywhere else): most in the corners, a little in the middle
+// (on phones the middle keeps level with the corners).
 const placementClass: Record<Placement, string> = {
-  top: "top-3 inset-x-3 justify-center sm:top-4",
+  top: "top-[calc(var(--lab-dome,0px)*0.85+12px)] inset-x-3 justify-center sm:top-[calc(var(--lab-dome,0px)*0.3+16px)]",
   bottom: "bottom-3 inset-x-3 justify-center sm:bottom-4",
-  "top-left": "top-3 start-3 justify-start sm:top-4 sm:start-4",
-  "top-right": "top-3 end-3 justify-end sm:top-4 sm:end-4",
+  "top-left":
+    "top-[calc(var(--lab-dome,0px)*0.85+12px)] start-3 justify-start sm:top-[calc(var(--lab-dome,0px)*0.85+16px)] sm:start-4",
+  "top-right":
+    "top-[calc(var(--lab-dome,0px)*0.85+12px)] end-3 justify-end sm:top-[calc(var(--lab-dome,0px)*0.85+16px)] sm:end-4",
   "bottom-left": "bottom-3 start-3 justify-start sm:bottom-4 sm:start-4",
   "bottom-right": "bottom-3 end-3 justify-end sm:bottom-4 sm:end-4",
 };
@@ -142,7 +173,7 @@ export function TrayRow({ className, children }: { className?: string; children:
 }
 
 /**
- * The white control pill. Give it a `placement` to position it on its own,
+ * The paper control pill. Give it a `placement` to position it on its own,
  * or put it inside <StageControls>.
  */
 export function Tray({
@@ -176,10 +207,10 @@ export function Tray({
 
 /** A hairline between groups inside a tray. */
 export function TrayDivider() {
-  return <span aria-hidden="true" className="mx-1 h-5 w-px shrink-0 bg-border" />;
+  return <span aria-hidden="true" className="mx-1 h-4 w-px shrink-0 bg-line" />;
 }
 
-/** Small caption under or above a tray ("Click anywhere to re-glaze"). */
+/** Small caption under or above a tray ("Click anywhere to re-glaze"), on a paper chip. */
 export function StageHint({
   placement,
   className,
@@ -192,7 +223,7 @@ export function StageHint({
   const hint = (
     <p
       className={cn(
-        "pointer-events-none max-w-full text-center text-[12px] leading-[1.4] text-balance text-tertiary",
+        "pointer-events-none max-w-full rounded-[14px] bg-paper/92 px-3 py-1 text-center text-caption text-balance text-muted shadow-[0_0_0_1px_var(--line)] backdrop-blur-sm",
         className,
       )}
     >
@@ -209,9 +240,10 @@ export function StageHint({
 type ButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children" | "type">;
 
 /**
- * A square icon button (40px in a tray, 32px with size="sm"). `label`
- * becomes the accessible name and the tooltip; `pressed` makes it a toggle
- * button (aria-pressed) with a filled look while on.
+ * A round icon button (32px in a tray, 28px with size="sm"; 40 / 36px on
+ * touch screens). `label` becomes the accessible name and the tooltip;
+ * `pressed` makes it a toggle button (aria-pressed) sitting in a sand well
+ * while on.
  */
 export function IconButton({
   label,
@@ -235,8 +267,8 @@ export function IconButton({
       className={cn(
         controlBase,
         controlQuiet,
-        size === "md" ? "size-10" : "size-8 rounded-[10px]",
-        pressed && "bg-well text-primary",
+        size === "md" ? "size-8 pointer-coarse:size-10" : "size-7 pointer-coarse:size-9",
+        pressed && "bg-band text-primary shadow-[inset_0_0_0_1px_var(--line)] hover:bg-band-deep",
         className,
       )}
       {...props}
@@ -247,8 +279,8 @@ export function IconButton({
 }
 
 /**
- * A text button for a tray ("Play", "Choose image"), with an optional
- * leading icon. `variant="solid"` is the dark primary action.
+ * A text pill for a tray ("Play", "Choose image"), with an optional
+ * leading icon. `variant="solid"` is the ink primary action (cobalt on hover).
  */
 export function TrayButton({
   icon,
@@ -262,8 +294,8 @@ export function TrayButton({
       type="button"
       className={cn(
         controlBase,
-        "gap-1.5 px-3 text-[13px] font-medium",
-        variant === "quiet" ? "text-primary hover:bg-well" : "bg-ink text-on-ink hover:opacity-90",
+        "gap-1.5 px-3.5 text-[13px] font-[550]",
+        variant === "quiet" ? "text-primary hover:bg-wash" : "bg-ink text-on-ink hover:bg-cobalt hover:text-on-cobalt",
         className,
       )}
       {...props}
@@ -320,7 +352,7 @@ export type SwatchOption<T extends string | number = string> = {
   swatch: string;
 };
 
-/** Colour / palette picker: 24px swatches with a dark ring around the chosen one. */
+/** Colour / palette picker: round glazes, the chosen one ringed in ink. */
 export function Swatches<T extends string | number>({
   label,
   options,
@@ -355,20 +387,23 @@ export function Swatches<T extends string | number>({
             tabIndex={checked ? 0 : -1}
             onClick={() => onChange(option.value)}
             className={cn(
-              "group/swatch relative grid size-10 shrink-0 cursor-pointer place-items-center rounded-[12px] outline-none transition-[box-shadow] duration-200 ease-out focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary",
-              checked
-                ? "shadow-[inset_0_0_0_2px_var(--foreground)]"
-                : "hover:shadow-[inset_0_0_0_2px_color-mix(in_oklab,var(--foreground)_14%,transparent)]",
+              "group/swatch relative grid size-8 shrink-0 cursor-pointer place-items-center rounded-full pointer-coarse:size-10",
+              focusClass,
             )}
           >
             <span
               aria-hidden="true"
               className={cn(
-                "block size-6 rounded-[7px] shadow-[inset_0_0_0_1px_rgb(0_0_0/0.1),inset_0_1px_0_rgb(255_255_255/0.35)] transition-[scale] duration-200 ease-out dark:shadow-[inset_0_0_0_1px_rgb(255_255_255/0.12),inset_0_1px_0_rgb(255_255_255/0.2)]",
-                !checked && "group-hover/swatch:scale-[1.06] group-active/swatch:scale-95",
+                "relative block size-5 overflow-hidden rounded-full transition-[scale,box-shadow] duration-200 ease-out pointer-coarse:size-6",
+                checked
+                  ? "shadow-[0_0_0_2px_var(--paper),0_0_0_4px_var(--ink)]"
+                  : "shadow-[inset_0_0_0_1px_rgb(0_0_0/0.12)] group-hover/swatch:scale-[1.08] group-hover/swatch:shadow-[0_0_0_2px_var(--paper),0_0_0_3px_var(--line-firm)] group-active/swatch:scale-95 dark:shadow-[inset_0_0_0_1px_rgb(255_255_255/0.14)]",
               )}
               style={{ background: option.swatch }}
-            />
+            >
+              {/* the glaze: a soft highlight up and to the left */}
+              <span className="absolute inset-0 rounded-full bg-[radial-gradient(circle_at_34%_28%,rgb(255_255_255/0.5),transparent_46%)]" />
+            </span>
           </button>
         );
       })}
@@ -385,7 +420,7 @@ export type SegmentOption<T extends string | number = string> = {
   iconOnly?: boolean;
 };
 
-/** A row of mutually exclusive options with a sliding highlight ("33 | 45", "Ink | Sunset | Tide"). */
+/** A row of mutually exclusive options; an ink pill slides to the chosen one ("33 | 45", "Ink | Sunset | Tide"). */
 export function Segmented<T extends string | number>({
   label,
   options,
@@ -448,7 +483,7 @@ export function Segmented<T extends string | number>({
           <span
             aria-hidden="true"
             className={cn(
-              "absolute inset-y-0 start-0 rounded-[12px] bg-well",
+              "absolute inset-y-0 start-0 rounded-pill bg-ink",
               animate && "transition-[translate,width] duration-300 ease-out motion-reduce:transition-none",
             )}
             style={{ width: box.width, translate: `${box.left}px 0` }}
@@ -471,10 +506,10 @@ export function Segmented<T extends string | number>({
               onClick={() => onChange(option.value)}
               className={cn(
                 controlBase,
-                "gap-1.5",
-                option.iconOnly ? "w-10" : "px-3",
-                checked ? "text-primary" : "text-secondary hover:text-primary",
-                !box && checked && "bg-well",
+                "gap-1.5 text-[13px] font-[550] transition-[color,scale] duration-200",
+                option.iconOnly ? "w-8 pointer-coarse:w-10" : "px-3.5",
+                checked ? "text-on-ink" : "text-secondary hover:text-primary",
+                !box && checked && "bg-ink",
               )}
             >
               {option.icon}
@@ -527,9 +562,10 @@ function useRepeat() {
 }
 
 /**
- * "Columns − 11 +": a labelled number with minus / plus buttons. The value
- * is a spinbutton (focusable; ↑ ↓ change it, PageUp / PageDown by five
- * steps, Home / End jump to the ends); the buttons repeat while held.
+ * "ROSETTE [−] 12 [+]": a labelled number between two keycaps that press
+ * down. The value (Fraunces numerals) is a spinbutton (focusable; ↑ ↓
+ * change it, PageUp / PageDown by five steps, Home / End jump to the
+ * ends); the keys repeat while held.
  */
 export function Stepper({
   label,
@@ -595,10 +631,13 @@ export function Stepper({
   };
 
   const text = format ? format(value) : String(value);
-  const buttonClass = cn(controlBase, controlQuiet, "w-8");
+  const buttonClass = cn(
+    "lab-key grid size-7 shrink-0 cursor-pointer select-none place-items-center rounded-[8px] text-secondary disabled:pointer-events-none disabled:opacity-40 pointer-coarse:size-9",
+    focusClass,
+  );
 
   return (
-    <div className={cn("flex items-center", className)}>
+    <div className={cn("flex items-center pe-1", !showLabel && "ps-1", className)}>
       {showLabel ? (
         <span id={labelId} className={labelClass}>
           {label}
@@ -619,7 +658,7 @@ export function Stepper({
         }}
         className={buttonClass}
       >
-        <Minus size={14} />
+        <Minus size={12} />
       </button>
       <span
         role="spinbutton"
@@ -631,7 +670,10 @@ export function Stepper({
         aria-valuemax={max}
         aria-valuetext={format ? text : undefined}
         onKeyDown={onKeyDown}
-        className="relative flex h-10 min-w-[3ch] cursor-default items-center justify-center overflow-hidden rounded-[10px] px-1.5 text-[15px] text-primary tabular-nums outline-none select-none focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
+        className={cn(
+          "relative mx-0.5 flex h-8 min-w-[3.2ch] cursor-default items-center justify-center overflow-hidden rounded-[8px] px-1.5 font-display text-[17px] text-primary tabular-nums select-none [font-variation-settings:'SOFT'_100,'WONK'_0] pointer-coarse:h-10",
+          focusClass,
+        )}
       >
         <span key={text} className="lab-roll block" data-dir={dir}>
           {text}
@@ -651,15 +693,16 @@ export function Stepper({
         }}
         className={buttonClass}
       >
-        <Plus size={14} />
+        <Plus size={12} />
       </button>
     </div>
   );
 }
 
 /**
- * A labelled slider: "Grout ——●—— 0.6". Drag or click the track, or focus
- * it and use the arrow keys (PageUp / PageDown move by ten steps).
+ * A labelled slider: "GROUT ━━━●── 0.6", a cobalt filled track and an ink
+ * thumb. Drag or click the track, or focus it and use the arrow keys
+ * (PageUp / PageDown move by ten steps).
  */
 export function Slider({
   label,
@@ -723,7 +766,7 @@ export function Slider({
   };
 
   return (
-    <div className={cn("flex h-10 items-center gap-2.5 pe-2.5", !showLabel && "ps-2.5", className)}>
+    <div className={cn("flex h-8 items-center gap-2.5 pe-3 pointer-coarse:h-10", !showLabel && "ps-3", className)}>
       {showLabel ? (
         <span id={labelId} className={labelClass}>
           {label}
@@ -755,22 +798,25 @@ export function Slider({
         onPointerUp={() => setDragging(false)}
         onPointerCancel={() => setDragging(false)}
         onLostPointerCapture={() => setDragging(false)}
-        className="group/slider relative flex h-10 shrink-0 cursor-pointer touch-none items-center rounded-[8px] outline-none focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
+        className={cn(
+          "group/slider relative flex h-8 shrink-0 cursor-pointer touch-none items-center rounded-[6px] pointer-coarse:h-10",
+          focusClass,
+        )}
         style={{ width }}
       >
-        <span aria-hidden="true" className={cn("absolute inset-x-0 h-1 rounded-full", trackFill)} />
-        <span aria-hidden="true" className="absolute start-0 h-1 rounded-full bg-ink" style={{ width: `${t * 100}%` }} />
+        <span aria-hidden="true" className={cn("absolute inset-x-0 h-[3px] rounded-full", trackFill)} />
+        <span aria-hidden="true" className="absolute start-0 h-[3px] rounded-full bg-cobalt" style={{ width: `${t * 100}%` }} />
         <span
           aria-hidden="true"
           className={cn(
-            "absolute top-1/2 size-4 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#fff] shadow-[0_0_0_1px_rgb(0_0_0/0.12),0_1px_3px_rgb(0_0_0/0.18)] transition-[scale] duration-150 ease-out group-hover/slider:scale-110 dark:bg-[#e8e8e8] dark:shadow-[0_0_0_1px_rgb(0_0_0/0.4),0_1px_3px_rgb(0_0_0/0.5)]",
-            dragging && "scale-[1.18] group-hover/slider:scale-[1.18]",
+            "absolute top-1/2 size-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-ink shadow-[0_0_0_2px_var(--paper),0_2px_5px_rgb(var(--shadow-rgb)/0.3)] transition-[scale] duration-150 ease-out group-hover/slider:scale-115 pointer-coarse:size-4.5",
+            dragging && "scale-[1.25] group-hover/slider:scale-[1.25]",
           )}
           style={{ left: `${t * 100}%` }}
         />
       </div>
       {showValue ? (
-        <span aria-hidden="true" className="min-w-[3.5ch] text-end text-[13px] text-primary tabular-nums">
+        <span aria-hidden="true" className="min-w-[3.5ch] text-end text-[12.5px] font-[550] text-primary tabular-nums">
           {text}
         </span>
       ) : null}
@@ -782,7 +828,7 @@ export function Slider({
 /* switch                                                                  */
 /* ---------------------------------------------------------------------- */
 
-/** A labelled on / off switch ("Motion ●○"). Space or Enter flips it. */
+/** A labelled on / off switch ("MOTION ●○"): an ink track when on. Space or Enter flips it. */
 export function Toggle({
   label,
   checked,
@@ -805,23 +851,25 @@ export function Toggle({
       onClick={() => onChange(!checked)}
       className={cn(
         controlBase,
-        "gap-2.5 px-2.5 hover:bg-well",
-        checked ? "text-primary" : "text-secondary hover:text-primary",
+        "gap-2.5 ps-3 pe-2 hover:bg-wash",
+        checked ? "text-primary" : "text-muted hover:text-primary",
         className,
       )}
     >
-      {showLabel ? <span className="text-[13px]">{label}</span> : null}
+      {showLabel ? <span className="caps">{label}</span> : null}
       <span
         aria-hidden="true"
         className={cn(
-          "relative h-[18px] w-[30px] shrink-0 rounded-full transition-[background-color] duration-200 ease-out",
-          checked ? "bg-ink" : trackFill,
+          "relative h-[18px] w-[30px] shrink-0 rounded-full transition-[background-color,box-shadow] duration-200 ease-out",
+          checked ? "bg-ink" : "bg-band shadow-[inset_0_0_0_1px_var(--line-firm)]",
         )}
       >
         <span
           className={cn(
-            "absolute top-[2px] start-[2px] size-[14px] rounded-full shadow-[0_1px_2px_rgb(0_0_0/0.2)] transition-[translate,background-color] duration-300 ease-spring motion-reduce:transition-none",
-            checked ? "translate-x-3 bg-on-ink" : "bg-[#fff] dark:bg-[#a3a3a3]",
+            "absolute top-[2px] start-[2px] size-[14px] rounded-full transition-[translate,background-color] duration-300 ease-spring motion-reduce:transition-none",
+            checked
+              ? "translate-x-3 bg-paper"
+              : "bg-paper shadow-[0_0_0_1px_var(--line-firm),0_1px_2px_rgb(var(--shadow-rgb)/0.2)]",
           )}
         />
       </span>
@@ -834,8 +882,9 @@ export function Toggle({
 /* ---------------------------------------------------------------------- */
 
 /**
- * A text field for a tray, optionally with a solid submit button
- * ("type a message [Flip ↵]"). Enter submits; Esc blurs.
+ * A pill text field for a tray (sand ground, cobalt ring when focused),
+ * optionally with an ink submit pill ("type a message [Flip ↵]"). Enter
+ * submits; Esc blurs.
  */
 export function TextInput({
   label,
@@ -885,14 +934,17 @@ export function TextInput({
           event.stopPropagation();
           if (event.key === "Escape") event.currentTarget.blur();
         }}
-        className="h-10 min-w-0 shrink rounded-[12px] bg-transparent px-3 text-[16px] text-primary outline-none placeholder:text-tertiary focus-visible:bg-well/60 sm:text-[14px]"
+        className="h-8 min-w-0 shrink rounded-pill bg-background/80 px-3.5 text-[16px] text-primary shadow-[inset_0_0_0_1px_var(--line)] outline-none transition-[box-shadow] duration-200 ease-out placeholder:text-muted hover:shadow-[inset_0_0_0_1px_var(--line-firm)] focus-visible:shadow-[inset_0_0_0_1.5px_var(--cobalt)] sm:text-[14px] pointer-coarse:h-10"
         style={{ width }}
         {...inputProps}
       />
       {onSubmit && submitLabel ? (
         <button
           type="submit"
-          className="me-1 inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-[10px] bg-ink px-2.5 text-[12.5px] font-medium text-on-ink outline-none transition-[opacity,scale] duration-150 ease-out hover:opacity-90 active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
+          className={cn(
+            "inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-pill bg-ink ps-3.5 pe-3 text-[12.5px] font-[550] text-on-ink transition-[background-color,color,scale] duration-150 ease-out hover:bg-cobalt hover:text-on-cobalt active:scale-[0.96] pointer-coarse:h-10",
+            focusClass,
+          )}
         >
           {submitLabel}
           <Return size={12} className="opacity-70" />
