@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <rect width="32" height="32" rx="8" fill="#000000"/>
+  <text 
+    x="16" 
+    y="22" 
+    font-family="system-ui, -apple-system, sans-serif" 
+    font-size="18" 
+    font-weight="900" 
+    fill="#ff3a32" 
+    text-anchor="middle"
+    style="letter-spacing: -1px; stroke: #ff3a32; stroke-width: 0.8px; stroke-linejoin: round;"
+  >
+    Za
+  </text>
+</svg>
