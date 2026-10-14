@@ -26,8 +26,8 @@
 // motion: still boards, changes land at once.
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from "react";
-import { Star } from "@/components/ornament";
-import { casaTime } from "@/lib/clock";
+import { Logo } from "@/components/logo";
+import { casaTime } from "./clock";
 import { ensureAudio } from "../../audio";
 import { useElementSize, useFrame, useIsoLayoutEffect } from "../../hooks";
 import { Reset, Shuffle } from "../../lab-icons";
@@ -435,7 +435,7 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
           ))}
           <div className="sf-head">
             <div className="sf-title">
-              <Star variant="inlaid" />
+              <Logo size={14} />
               <span className="sf-departs">Départs</span>
               {wide ? <span className="sf-caps">Departures</span> : null}
             </div>

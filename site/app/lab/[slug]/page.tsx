@@ -1,23 +1,21 @@
-// A lab piece's page: the paper stage with the piece running in it, then
-// the title with the description, how it is made, a fiche of the facts with
-// the page's two actions, and the pieces either side as two small niches.
+// A lab piece's page: the big stage with the piece running in it, then the
+// title with its actions (full screen, share, previous / next), the
+// description and the tech it uses, an "About" on how it is made, a
+// details card, and cards for the previous and next pieces.
 //
-//   ╭──────────────────────── ✦ ────────────────────────╮
-//   │                 [ controls ]                       │
-//   │                  the piece                         │   575px (aspect on phones)
-//   │                 [ controls ]                       │
-//   └────────────────────────────────────────────────────┘
-//   ✦──────────────────────────────────────────────────────
-//   LAB / ZELLIGE                          [⤢ Full screen] [⛓ Copy link]
-//   Zellige                                ──────────────────────────
-//   A wall of Moroccan zellige …           KIND        Generative
-//                                          MADE WITH   (Canvas 2D) (Springs)
-//   How it is made                         INSPIRED BY …
-//   …                                      CONTROLS    …
+//   ┌───────────────────────────────────────────────┐
+//   │                  [ controls ]                 │
+//   │                    the piece                  │   575px (aspect on phones)
+//   │                  [ controls ]                 │
+//   └───────────────────────────────────────────────┘
+//   Title                        [⤢] [Share] [‹ ›]
+//   Description …
+//   Uses [Canvas 2D] [Web Audio]
 //
-//                          ──── ✦ ────
-//   ⌒ ← PREVIOUS                                            NEXT → ⌒
-//     Seal                                               Macropad
+//   About
+//   …
+//   ┌ Built with · Inspired by · Controls · Sound ──┐
+//   ‹ Previous            Next ›
 
 import fs from "node:fs";
 import path from "node:path";
@@ -25,14 +23,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
-import { PieceArt, artGround } from "@/components/lab/lab-art";
+import { ChevronLeft, ChevronRightSmall } from "@/components/lab/lab-icons";
 import { PieceActions, PieceStage } from "@/components/lab/piece-page";
-import { aboutParagraphs, getNeighbours, getPiece, pieceNumber, pieces } from "@/components/lab/registry";
+import { aboutParagraphs, getNeighbours, getPiece, pieces } from "@/components/lab/registry";
 import { CATEGORY_SINGULAR, type PieceMeta } from "@/components/lab/types";
-import { ArchFrame, Arrow, StarRule } from "@/components/ornament";
 import { site } from "@/content/site";
 import { cn } from "@/lib/cn";
-import { pad } from "@/lib/format";
 
 export const dynamicParams = false;
 
@@ -82,43 +78,26 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   };
 }
 
-/** The facts about the piece, for the fiche. */
-function facts(piece: PieceMeta): Array<{ label: string; value: ReactNode }> {
-  return [
-    { label: "Kind", value: CATEGORY_SINGULAR[piece.category] },
-    ...(piece.uses.length
-      ? [
-          {
-            label: "Made with",
-            value: (
-              <ul aria-label="Made with" className="-mt-0.5 flex flex-wrap gap-1.5">
-                {piece.uses.map((use) => (
-                  <li key={use} className="tag">
-                    {use}
-                  </li>
-                ))}
-              </ul>
-            ),
-          },
-        ]
-      : []),
-    ...(piece.inspiredBy ? [{ label: "Inspired by", value: piece.inspiredBy }] : []),
-    ...(piece.controlsHint ? [{ label: "Controls", value: piece.controlsHint }] : []),
-    ...(piece.sound ? [{ label: "Sound", value: "Made in the browser as you play. One mute switch serves every piece." }] : []),
-  ];
+/** "Canvas 2D, Web Audio and Springs", with each item in the foreground colour. */
+function listOf(items: readonly string[]): ReactNode {
+  return items.map((item, index) => (
+    <span key={item}>
+      {index > 0 ? (index === items.length - 1 ? " and " : ", ") : null}
+      <span className="text-primary">{item}</span>
+    </span>
+  ));
 }
 
-/** The poster on the stage while the piece loads (or while it is still being built): the drawing in an arch. */
-function StagePoster({ slug }: { slug: string }) {
-  return (
-    <div className="absolute inset-0 flex flex-col items-center justify-center bg-paper pt-[5%] pb-[9%] [--background:var(--paper)]">
-      <ArchFrame className="h-[78%] max-h-[400px]" keystoneSize={16} windowStyle={{ background: artGround(slug) }}>
-        <PieceArt slug={slug} uid={`stage-${slug}`} />
-      </ArchFrame>
-      {/* the sill */}
-      <span aria-hidden="true" className="h-px w-[min(72%,420px)] bg-line-firm" />
-    </div>
-  );
+function details(piece: PieceMeta): Array<{ label: string; value: ReactNode }> {
+  return [
+    { label: "Built with", value: <>{listOf([...piece.uses, "React"].filter((v, i, all) => all.indexOf(v) === i))}</> },
+    ...(piece.inspiredBy ? [{ label: "Inspired by", value: piece.inspiredBy }] : []),
+    ...(piece.controlsHint ? [{ label: "Controls", value: piece.controlsHint }] : []),
+    ...(piece.sound
+      ? [{ label: "Sound", value: "Made in the browser as you play. The mute switch is shared by every piece." }]
+      : []),
+    { label: "Category", value: CATEGORY_SINGULAR[piece.category] },
+  ];
 }
 
 export default async function LabPiecePage({ params }: PageProps) {
@@ -139,126 +118,107 @@ export default async function LabPiecePage({ params }: PageProps) {
   };
 
   return (
-    <div data-wide-page="" className="flex flex-col">
+    <div data-wide-page="" className="mt-8 flex flex-col sm:mt-10">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData).replace(/</g, "\\u003c") }}
       />
 
-      <div className="mt-[clamp(32px,4.5vw,56px)]">
-        <PieceStage
-          slug={piece.slug}
-          title={piece.title}
-          aspect={piece.stage?.aspect}
-          minHeight={piece.stage?.minHeight}
-          poster={<StagePoster slug={piece.slug} />}
-        />
+      <PieceStage
+        slug={piece.slug}
+        title={piece.title}
+        aspect={piece.stage?.aspect}
+        minHeight={piece.stage?.minHeight}
+      />
+
+      <div className="px-1 sm:px-1">
+        <header className="mt-7 flex items-start justify-between gap-4 sm:mt-8">
+          <h1 className="min-w-0 pt-0.5 text-[22px]/[1.3] font-medium tracking-[-0.015em] text-balance text-primary">
+            {piece.title}
+          </h1>
+          <PieceActions
+            title={piece.title}
+            summary={piece.summary}
+            previous={{ slug: previous.slug, title: previous.title }}
+            next={{ slug: next.slug, title: next.title }}
+          />
+        </header>
+
+        <p className="mt-3 max-w-[620px] text-[15px]/[1.65] text-pretty">{piece.description}</p>
+
+        {piece.uses.length ? (
+          <div className="mt-3.5 flex flex-wrap items-center gap-1.5">
+            <span className="me-0.5 text-[13px] text-tertiary">Uses</span>
+            <ul aria-label="Uses" className="flex flex-wrap gap-1.5">
+              {piece.uses.map((use) => (
+                <li key={use} className="rounded-[7px] bg-well px-2 py-0.5 text-[12.5px] leading-[1.5] text-secondary">
+                  {use}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        <section aria-labelledby="about" className="mt-12">
+          <h2 id="about" className="text-[15px] font-medium text-primary">
+            About
+          </h2>
+          <div className="mt-2.5 flex max-w-[620px] flex-col gap-3.5 text-[14.5px]/[1.65] text-pretty">
+            {aboutParagraphs(piece).map((paragraph, index) => (
+              <p key={index}>{paragraph}</p>
+            ))}
+          </div>
+        </section>
       </div>
 
-      <div className="mt-[clamp(48px,6vw,80px)]">
-        <StarRule />
-        <div className="mt-[22px] grid gap-x-[clamp(32px,6vw,96px)] [grid-template-areas:'head'_'aside'_'about'] md:grid-cols-[minmax(0,1fr)_minmax(0,340px)] md:grid-rows-[auto_1fr] md:[grid-template-areas:'head_aside'_'about_aside']">
-          <header className="min-w-0 [grid-area:head]">
-            <nav aria-label="Breadcrumb" className="mb-3">
-              <ol className="kicker flex flex-wrap items-center gap-x-2 gap-y-1">
-                <li>
-                  <Link
-                    href="/lab/"
-                    className="rounded-[4px] underline decoration-transparent underline-offset-[3px] transition-colors duration-200 hover:decoration-current focus-ring"
-                  >
-                    Lab
-                  </Link>
-                </li>
-                <li aria-hidden="true" className="text-line-firm">
-                  /
-                </li>
-                <li aria-current="page" className="text-muted">
-                  <span className="numeral me-1.5 text-[13px] tracking-normal">{pad(pieceNumber(piece.slug))}</span>
-                  {piece.title}
-                </li>
-              </ol>
-            </nav>
-            <h1 id="page-title" className="section-head__title font-display text-display-3">
-              {piece.title}
-            </h1>
-            <p className="page-lede mt-5">{piece.description}</p>
-          </header>
+      <dl className="mt-7 overflow-hidden rounded-[18px] bg-tile text-[13px]/[1.5]">
+        {details(piece).map((row, index) => (
+          <div
+            key={row.label}
+            className={cn(
+              "grid grid-cols-1 gap-y-0.5 px-4 py-3 sm:grid-cols-[136px_1fr] sm:gap-x-4 sm:py-3.5",
+              index > 0 && "border-t border-border",
+            )}
+          >
+            <dt className="text-primary">{row.label}</dt>
+            <dd className="text-secondary">{row.value}</dd>
+          </div>
+        ))}
+      </dl>
 
-          <aside aria-label="About this piece" className="mt-9 min-w-0 [grid-area:aside] md:mt-0 md:pt-[30px]">
-            <PieceActions
-              title={piece.title}
-              previous={{ slug: previous.slug, title: previous.title }}
-              next={{ slug: next.slug, title: next.title }}
-            />
-            <dl className="fiche mt-5">
-              {facts(piece).map((row) => (
-                <div key={row.label}>
-                  <dt>{row.label}</dt>
-                  <dd>{row.value}</dd>
-                </div>
-              ))}
-            </dl>
-            <p className="keys-hint mt-4 flex items-center gap-1.5 text-caption text-muted max-sm:hidden">
-              <kbd className="kbd">←</kbd>
-              <kbd className="kbd">→</kbd>
-              <span className="ms-1">walk to the next niche</span>
-            </p>
-          </aside>
-
-          <section aria-labelledby="piece-made" className="mt-[clamp(44px,5vw,64px)] min-w-0 [grid-area:about]">
-            <h2 id="piece-made" className="font-display text-title-2 text-primary">
-              How it is <em className="turn">made</em>
-            </h2>
-            <div className="mt-4 flex max-w-[64ch] flex-col gap-4 text-copy text-pretty text-body">
-              {aboutParagraphs(piece).map((paragraph, index) => (
-                <p key={index}>{paragraph}</p>
-              ))}
-            </div>
-          </section>
-        </div>
-      </div>
-
-      <nav aria-label="More pieces" className="mt-[var(--section-gap)]">
-        <StarRule align="center" />
-        <div className="mt-[clamp(28px,4vw,48px)] grid grid-cols-1 gap-y-8 sm:grid-cols-2 sm:gap-x-8">
-          <NeighbourNiche piece={previous} direction="previous" />
-          <NeighbourNiche piece={next} direction="next" />
-        </div>
+      <nav aria-label="More pieces" className="mt-14 grid grid-cols-2 gap-2 sm:gap-3">
+        <NeighbourCard piece={previous} label="Previous" />
+        <NeighbourCard piece={next} label="Next" align="end" />
       </nav>
     </div>
   );
 }
 
-function NeighbourNiche({ piece, direction }: { piece: PieceMeta; direction: "previous" | "next" }) {
-  const isNext = direction === "next";
-  const word = isNext ? "Next" : "Previous";
+function NeighbourCard({ piece, label, align }: { piece: PieceMeta; label: string; align?: "end" }) {
+  const end = align === "end";
   return (
     <Link
       href={`/lab/${piece.slug}/`}
-      rel={isNext ? "next" : "prev"}
-      data-row=""
-      aria-label={`${word} piece: ${piece.title}`}
-      aria-keyshortcuts={isNext ? "ArrowRight" : "ArrowLeft"}
+      rel={end ? "next" : "prev"}
       className={cn(
-        "group flex items-end gap-4 rounded-[4px] text-primary focus-ring-far sm:gap-6",
-        isNext && "flex-row-reverse text-end",
+        "group flex min-h-[72px] items-center gap-3 rounded-[16px] bg-tile px-4 py-3 outline-none transition-[background-color,scale] duration-150 ease-out hover:bg-tile-hover active:scale-[0.99] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary sm:px-5",
+        end && "flex-row-reverse text-end",
       )}
     >
-      <ArchFrame className="w-[72px] shrink-0 sm:w-[104px]" keystoneSize={12} windowStyle={{ background: artGround(piece.slug) }}>
-        <div className="absolute inset-0 transition-[scale,translate] duration-700 ease-out group-hover:-translate-y-[2%] group-hover:scale-[1.06] group-focus-visible:scale-[1.06] motion-reduce:transition-none motion-reduce:group-hover:translate-y-0 motion-reduce:group-hover:scale-100 motion-reduce:group-focus-visible:scale-100">
-          <PieceArt slug={piece.slug} uid={`${direction}-${piece.slug}`} />
-        </div>
-      </ArchFrame>
-      <span aria-hidden="true" className="min-w-0 pb-1">
-        <span className={cn("caps flex items-center gap-2 text-muted", isNext && "justify-end")}>
-          {isNext ? null : <Arrow className="rotate-180 group-hover:-translate-x-1" />}
-          {word}
-          {isNext ? <Arrow className="group-hover:translate-x-1" /> : null}
-        </span>
-        <span className="mt-2 block font-display text-[22px] leading-[1.15] tracking-[-0.015em] text-balance text-primary transition-colors duration-300 group-hover:turn group-focus-visible:turn sm:text-title-2">
-          {piece.title}
-        </span>
-        <span className="caps mt-1.5 block text-muted">{CATEGORY_SINGULAR[piece.category]}</span>
+      {end ? (
+        <ChevronRightSmall
+          size={14}
+          className="text-tertiary transition-[translate,color] duration-200 ease-out group-hover:translate-x-0.5 group-hover:text-primary"
+        />
+      ) : (
+        <ChevronLeft
+          size={14}
+          className="text-tertiary transition-[translate,color] duration-200 ease-out group-hover:-translate-x-0.5 group-hover:text-primary"
+        />
+      )}
+      <span className="min-w-0 flex-1 leading-[1.35]">
+        <span className="block text-[12px] text-tertiary">{label}</span>
+        <span className="mt-0.5 block truncate text-[15px] text-primary">{piece.title}</span>
       </span>
     </Link>
   );

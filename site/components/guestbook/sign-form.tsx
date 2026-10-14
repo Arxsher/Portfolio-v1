@@ -1,26 +1,16 @@
 "use client";
 
-// The "sign the guestbook" form that the Index sheet shows in its guestbook
-// panel (DESIGN.md → Guestbook and sign form):
+// The "sign the guestbook" form that the command bar shows in its guestbook
+// panel: name and message side by side, the signature pad, then the live
+// counter and the Sign button. After a successful signature the fields
+// fade out, the signature traces itself in with a short thank-you, the
+// counter ticks up, and onDone runs a moment later.
 //
-//   NAME              MESSAGE                                   0 / 120
-//   [ field        ]  [ field                                         ]
-//   SIGNATURE
-//   ┌ ruled paper ─────────────────────────────────────────────────────┐
-//   │  × · · · · · · · · · · · · · · · · · · · · · · · · · · · [Clear] │
-//   └──────────────────────────────────────────────────────────────────┘
-//   0083 names in the book.                                    [✦ Sign]
-//
-// After a successful signature the fields fade out, the signature traces
-// itself in cobalt with a short thank-you, the count rolls up, and onDone
-// runs a moment later.
-//
-// The panel chrome around it (title, back and close buttons) belongs to
-// the command area; GUESTBOOK_PANEL has the title and description to use.
+// The panel chrome around it (icon tile, title, close button) belongs to
+// the command bar; GUESTBOOK_PANEL has the title and description to use.
 
 import { useEffect, useId, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import { Star } from "@/components/ornament";
 import { GUESTBOOK_LIMITS, GuestbookError, cleanEntry } from "@/lib/guestbook";
 import { cn } from "@/lib/cn";
 import { useGuestbookClient, useGuestbookCount } from "./data";
@@ -31,14 +21,14 @@ import { SignaturePad, type SignaturePadHandle } from "./signature-pad";
 /** Copy for the panel header the command bar renders above the form. */
 export const GUESTBOOK_PANEL = {
   title: "Sign the guestbook",
-  description: "Write a line, then draw your name on it.",
+  description: "Write a short note, then sign it by hand.",
 } as const;
 
 /** How long the "signed" state shows before onDone. */
 const DONE_DELAY = 1800;
 
-const fieldClass = "field disabled:cursor-default disabled:opacity-60";
-const labelClass = "caps text-muted";
+const fieldClass =
+  "w-full rounded-pill bg-float px-4 py-2 text-[16px] text-primary shadow-lift outline-none transition-[box-shadow] duration-150 ease-out placeholder:text-tertiary hover:shadow-lift-hover focus:shadow-[0_0_0_1px_color-mix(in_oklab,var(--foreground)_45%,transparent),0_0_0_4px_color-mix(in_oklab,var(--foreground)_9%,transparent)] disabled:cursor-default disabled:opacity-60 sm:text-[15px]";
 
 type Phase = "idle" | "sending" | "done";
 
@@ -127,13 +117,13 @@ export function GuestbookSignForm({
         <div
           inert={done}
           className={cn(
-            "col-start-1 row-start-1 flex flex-col gap-4 transition-[opacity,translate] duration-300 ease-out motion-reduce:transition-opacity",
-            done && "pointer-events-none -translate-y-2 opacity-0 motion-reduce:translate-y-0",
+            "col-start-1 row-start-1 flex flex-col gap-3 transition-[opacity,translate,filter] duration-300 ease-out motion-reduce:transition-opacity",
+            done && "pointer-events-none -translate-y-2 opacity-0 blur-[4px] motion-reduce:translate-y-0 motion-reduce:blur-none",
           )}
         >
           <div className="flex flex-col gap-3 min-[500px]:flex-row">
-            <div className="flex flex-col gap-2 min-[500px]:w-[190px]">
-              <label htmlFor={ids.name} className={labelClass}>
+            <div className="flex flex-col gap-1.5 min-[500px]:w-[190px]">
+              <label htmlFor={ids.name} className="ps-1 text-[13px] text-secondary">
                 Name
               </label>
               <input
@@ -152,20 +142,19 @@ export function GuestbookSignForm({
                 className={fieldClass}
               />
             </div>
-            <div className="flex flex-col gap-2 min-[500px]:flex-1">
-              <div className="flex items-end justify-between gap-2">
-                <label htmlFor={ids.message} className={labelClass}>
+            <div className="flex flex-col gap-1.5 min-[500px]:flex-1">
+              <div className="flex items-baseline justify-between gap-2">
+                <label htmlFor={ids.message} className="ps-1 text-[13px] text-secondary">
                   Message
                 </label>
                 <span
                   id={ids.counter}
                   className={cn(
-                    "text-caption leading-none tabular-nums transition-colors duration-150",
-                    messageLength >= GUESTBOOK_LIMITS.message ? "text-terra" : "text-muted",
+                    "pe-1 text-[13px] tabular-nums transition-colors duration-150",
+                    messageLength >= GUESTBOOK_LIMITS.message ? "text-primary" : "text-tertiary",
                   )}
                 >
-                  {messageLength} / {GUESTBOOK_LIMITS.message}
-                  <span className="sr-only"> characters</span>
+                  {messageLength}/{GUESTBOOK_LIMITS.message}
                 </span>
               </div>
               <input
@@ -174,7 +163,7 @@ export function GuestbookSignForm({
                 name="message"
                 value={message}
                 onChange={(event) => setMessage(event.target.value)}
-                placeholder="A line for the book…"
+                placeholder="Write a short note…"
                 maxLength={GUESTBOOK_LIMITS.message}
                 autoComplete="off"
                 enterKeyHint="send"
@@ -186,8 +175,8 @@ export function GuestbookSignForm({
               />
             </div>
           </div>
-          <div className="flex flex-col gap-2">
-            <span id={ids.signature} className={labelClass}>
+          <div className="flex flex-col gap-1.5">
+            <span id={ids.signature} className="ps-1 text-[13px] text-secondary">
               Signature
             </span>
             <SignaturePad
@@ -217,15 +206,15 @@ export function GuestbookSignForm({
           )}
         >
           {done && signed ? (
-            <Signature path={signed} align="center" draw className="h-[70px] w-full max-w-[260px] text-cobalt" />
+            <Signature path={signed} align="center" draw className="h-[70px] w-full max-w-[260px] text-primary" />
           ) : null}
           <p
             className={cn(
-              "serif-italic text-[22px] text-primary transition-[opacity,translate] duration-300 ease-out motion-reduce:transition-opacity",
+              "text-[15px] transition-[opacity,translate] duration-300 ease-out motion-reduce:transition-opacity",
               done ? "delay-200" : "translate-y-1 opacity-0 motion-reduce:translate-y-0",
             )}
           >
-            Signed. You&apos;re in the book now.
+            <span className="font-medium text-primary">Signed.</span> You&apos;re on the wall now.
           </p>
         </div>
       </div>
@@ -234,31 +223,27 @@ export function GuestbookSignForm({
         id={ids.status}
         role={error ? "alert" : undefined}
         aria-live={error ? undefined : "polite"}
-        className={cn(status ? "mt-3" : "sr-only", error ? "text-small text-danger" : "text-small text-muted")}
+        className={cn(status ? "mt-3" : "sr-only", error ? "text-[14px] text-primary" : "text-[13px] text-tertiary")}
       >
         {status}
       </p>
 
-      <div className="mt-5 flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
-        <p className="flex items-baseline gap-2 text-small text-body">
-          <Odometer value={enabled ? count : 0} />
-          <span>{count === 1 ? "name" : "names"} in the book.</span>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+        <p className="-ms-1.5">
+          <Odometer value={enabled ? count : 0} className="mx-1.5" /> notes on the wall.
         </p>
         <button
           type="submit"
           disabled={!enabled || done}
           aria-busy={sending}
           className={cn(
-            "btn btn-solid shrink-0",
-            // While the thank-you shows the button just rests; faded only
-            // when signing is actually unavailable.
-            done && "disabled:opacity-100",
+            "relative inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-pill bg-ink px-5 py-2 text-[15px] font-medium text-on-ink transition-[opacity,scale] duration-150 ease-out hover:opacity-85 active:scale-[0.96] disabled:cursor-default disabled:active:scale-100 focus-ring",
+            // While the thank-you shows the button just rests; greyed out
+            // only when signing is actually unavailable.
+            done ? "disabled:hover:opacity-100" : "disabled:opacity-60",
           )}
         >
-          <span className={cn("inline-flex items-center gap-2 transition-opacity duration-150", sending && "opacity-0")}>
-            <Star size={13} className="text-terra-fill" />
-            Sign
-          </span>
+          <span className={cn("transition-opacity duration-150", sending && "opacity-0")}>Sign</span>
           {sending ? (
             <span className="absolute inset-0 flex items-center justify-center" aria-hidden="true">
               <Spinner />

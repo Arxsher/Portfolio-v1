@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Fraunces, Instrument_Sans, Reem_Kufi } from "next/font/google";
+import { GeistSans } from "geist/font/sans";
 import type { ReactNode } from "react";
 import { CommandBar } from "@/components/command/command-bar";
 import { Footer } from "@/components/footer";
@@ -7,36 +7,8 @@ import { Header } from "@/components/header";
 import { pieces } from "@/components/lab/registry";
 import { ScrollTop } from "@/components/scroll-top";
 import { projects, site } from "@/content/site";
-import { palette } from "@/lib/palette";
 import { themeScript } from "@/lib/theme-script";
 import "./globals.css";
-
-// Type (DESIGN.md → Type). next/font downloads these at build time and
-// serves them from the site itself; no requests to Google at runtime.
-//   Fraunces         display serif: the name, titles, project names, italic turns
-//   Instrument Sans  text and UI, letter-spaced small caps for labels
-//   Reem Kufi        the city's Arabic name only (Arabic subset)
-const display = Fraunces({
-  subsets: ["latin"],
-  axes: ["SOFT", "WONK", "opsz"],
-  style: ["normal", "italic"],
-  variable: "--font-fraunces",
-  display: "swap",
-});
-
-const sans = Instrument_Sans({
-  subsets: ["latin"],
-  axes: ["wdth"],
-  variable: "--font-instrument",
-  display: "swap",
-});
-
-const arabic = Reem_Kufi({
-  subsets: ["arabic"],
-  variable: "--font-reem-kufi",
-  display: "swap",
-  preload: false,
-});
 
 const xHandle = site.socials.find((social) => social.name === "X")?.handle;
 
@@ -80,13 +52,12 @@ export const viewport: Viewport = {
   initialScale: 1,
   colorScheme: "light dark",
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: palette.light.ground },
-    { media: "(prefers-color-scheme: dark)", color: palette.dark.ground },
+    { media: "(prefers-color-scheme: light)", color: "#fbfbfb" },
+    { media: "(prefers-color-scheme: dark)", color: "#1a1a1a" },
   ],
 };
 
-// Titles of detail pages keyed by "segment/slug"; the header uses them to
-// tell real pages from the 404.
+// Breadcrumb titles for detail pages, keyed by "segment/slug".
 const pageTitles = Object.fromEntries([
   ...projects.map((project) => [`projects/${project.slug}`, project.name]),
   ...pieces.map((piece) => [`lab/${piece.slug}`, piece.title]),
@@ -94,27 +65,29 @@ const pageTitles = Object.fromEntries([
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html
-      lang="en"
-      className={`${display.variable} ${sans.variable} ${arabic.variable} h-full`}
-      suppressHydrationWarning
-    >
+    <html lang="en" className={`${GeistSans.variable} h-full antialiased`} suppressHydrationWarning>
       <head>
         {/* Applies the saved theme before first paint (see lib/theme.ts). */}
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body className="flex min-h-full flex-col">
-        <a href="#main" className="skip-link">
+        <a
+          href="#main"
+          className="pointer-events-none fixed top-3 left-3 z-50 -translate-y-[calc(100%+24px)] rounded-[10px] bg-float px-3 py-2 text-[13px] font-medium text-primary opacity-0 shadow-float transition-[translate,opacity] duration-150 ease-out focus-visible:pointer-events-auto focus-visible:translate-y-0 focus-visible:opacity-100"
+        >
           Skip to content
         </a>
-        {/* The shell (DESIGN.md → Shell): a sticky bar, the page in the
-            1200px frame, the night footer. Pages lay themselves out inside
-            the frame; reading pages use the `column` utility. */}
-        <Header name={site.name} handle={site.handle} pages={pageTitles} />
-        <main id="main" tabIndex={-1} className="frame flex flex-1 flex-col outline-none">
-          {children}
-        </main>
-        <Footer />
+        {/* The 628px content column (676px with its 24px gutters); lab pages
+            widen it (see "Wide pages" in globals.css). */}
+        <div className="site-column mx-auto flex w-full max-w-content flex-1 flex-col px-6 pt-6">
+          <Header handle={site.handle} pages={pageTitles} />
+          <main id="main" tabIndex={-1} className="flex flex-col outline-none">
+            {children}
+          </main>
+          <Footer />
+        </div>
+        {/* Room for the floating dock so it never covers the footer. */}
+        <div aria-hidden="true" className="h-24 shrink-0" />
         <CommandBar />
         <ScrollTop />
       </body>

@@ -1,18 +1,18 @@
 "use client";
 
-// "Book a call", the second tab of the contact sheet.
-//
-// With site.calLink set it holds the cal.com month view in a sand well,
-// with a calendar-shaped skeleton until the embed has loaded. Without one
-// it says so plainly: no calendar is connected yet, so it offers an email
-// with a few times in it (the mail app opens with a short template) or
-// the note form instead.
+// "Book a call": the cal.com month view in a rounded well, with a calendar
+// shaped skeleton until the embed has loaded. Without site.calLink the
+// same well holds a short note and a way over to "Say hi".
 
 import { useMemo, useState } from "react";
-import { Arrow } from "@/components/ornament";
+import { Calendar } from "@/components/icons";
 import { site } from "@/content/site";
 import { cn } from "@/lib/cn";
 import { useResolvedTheme } from "@/lib/theme";
+import { VIEWS } from "../items";
+import { Panel, panelButtonClass } from "./panel";
+
+const wellClass = "relative h-[min(460px,52vh)] overflow-hidden rounded-[16px] bg-tile";
 
 /** Which of the 35 skeleton days read as unavailable: days gone by and weekends. */
 function useDimmedDays(): boolean[] {
@@ -30,33 +30,33 @@ function useDimmedDays(): boolean[] {
 
 function CalendarSkeleton({ hidden }: { hidden: boolean }) {
   const dimmed = useDimmedDays();
-  const bone = "rounded-[5px] bg-[color-mix(in_oklab,var(--foreground)_8%,transparent)]";
+  const bone = "skeleton bg-well";
   return (
     <div
       aria-hidden="true"
       className={cn(
-        "skeleton pointer-events-none absolute inset-0 transition-opacity duration-300 ease-out",
+        "pointer-events-none absolute inset-0 transition-opacity duration-300 ease-out",
         hidden ? "opacity-0" : "opacity-100",
       )}
     >
-      <div className="flex size-full flex-col gap-4 p-5">
+      <div className="flex size-full animate-fade-in [animation-delay:150ms] [animation-duration:300ms] flex-col gap-4 p-5">
         <div className="flex items-center gap-3">
           <span className={cn(bone, "size-8 rounded-full")} />
           <div className="space-y-1.5">
-            <span className={cn(bone, "block h-3 w-24")} />
-            <span className={cn(bone, "block h-3.5 w-36")} />
+            <span className={cn(bone, "block h-3 w-24 rounded-[6px]")} />
+            <span className={cn(bone, "block h-3.5 w-36 rounded-[6px]")} />
           </div>
         </div>
         <div className="flex items-center justify-between pt-2">
-          <span className={cn(bone, "h-4 w-28")} />
+          <span className={cn(bone, "h-4 w-28 rounded-[6px]")} />
           <span className="flex gap-1.5">
-            <span className={cn(bone, "size-7 rounded-full")} />
-            <span className={cn(bone, "size-7 rounded-full")} />
+            <span className={cn(bone, "size-7 rounded-[8px]")} />
+            <span className={cn(bone, "size-7 rounded-[8px]")} />
           </span>
         </div>
         <div className="grid flex-1 grid-cols-7 content-start gap-1.5">
           {dimmed.map((dim, index) => (
-            <span key={index} className={cn(bone, "aspect-square max-h-11 w-full", dim && "opacity-45")} />
+            <span key={index} className={cn(bone, "aspect-square max-h-11 w-full rounded-[8px]", dim && "opacity-50")} />
           ))}
         </div>
       </div>
@@ -71,11 +71,11 @@ function CalEmbed({ link }: { link: string }) {
   const loaded = loadedSrc === src;
 
   return (
-    <div className="relative h-[min(460px,52vh)] overflow-hidden rounded-paper bg-band max-sm:h-[60vh]">
+    <div className={wellClass}>
       <iframe
         key={src}
         src={src}
-        title={`Book a call with ${site.name}: a calendar`}
+        title={VIEWS["book-call"].title}
         allow="payment"
         onLoad={() => setLoadedSrc(src)}
         className={cn(
@@ -88,45 +88,37 @@ function CalEmbed({ link }: { link: string }) {
   );
 }
 
-const TEMPLATE = `Hi ${site.name},\n\nCould we talk? A few times that work for me:\n\n- \n- \n- \n\nMy time zone: `;
-
-function NoCalendar({ onWriteInstead }: { onWriteInstead: () => void }) {
-  const href = `mailto:${site.email}?subject=${encodeURIComponent("A call")}&body=${encodeURIComponent(TEMPLATE)}`;
+function NoCalendar({ onSayHi }: { onSayHi: () => void }) {
   return (
-    <div className="rounded-paper bg-band px-6 py-7 text-center">
-      <p className="serif-italic text-[26px] leading-[1.15] text-primary">No calendar connected yet.</p>
-      <p className="mx-auto mt-2 max-w-[42ch] text-[15px] leading-[1.55] text-body">
-        Send two or three times that suit you, with your time zone, and we can set the call up by email. I am in
-        Casablanca.
+    <div className="flex h-[min(280px,40vh)] min-h-[220px] flex-col items-center justify-center rounded-[16px] bg-tile px-6 text-center">
+      <span className="mb-3 flex size-10 items-center justify-center rounded-[12px] bg-float text-primary shadow-lift">
+        <Calendar size={16} />
+      </span>
+      <p className="text-[15px] font-medium text-primary">No booking calendar yet</p>
+      <p className="mt-1 max-w-[320px] text-[13px] leading-[1.5] text-secondary">
+        Calls can’t be booked from here for now. Send me a note instead and we’ll find a time that works.
       </p>
-      <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
-        <a href={href} className="btn btn-solid">
-          Email some times
-          <Arrow />
-        </a>
-        <button type="button" onClick={onWriteInstead} className="btn btn-ghost">
-          Write a note instead
-        </button>
-      </div>
+      <button type="button" onClick={onSayHi} className={cn(panelButtonClass, "mt-4")}>
+        Say hi instead
+      </button>
     </div>
   );
 }
 
-export function BookCall({
-  onWriteInstead,
+export function BookCallPanel({
+  onClose,
+  onSayHi,
   calLink = site.calLink,
 }: {
-  onWriteInstead: () => void;
+  onClose: () => void;
+  onSayHi: () => void;
   /** Defaults to site.calLink. */
   calLink?: string;
 }) {
-  if (calLink) {
-    return (
-      <div className="flex flex-col gap-3">
-        <p className="text-small text-muted">Choose a free slot; times show in your own time zone.</p>
-        <CalEmbed link={calLink} />
-      </div>
-    );
-  }
-  return <NoCalendar onWriteInstead={onWriteInstead} />;
+  const info = VIEWS["book-call"];
+  return (
+    <Panel title={info.title} description={info.description} icon="calendar" onClose={onClose}>
+      {calLink ? <CalEmbed link={calLink} /> : <NoCalendar onSayHi={onSayHi} />}
+    </Panel>
+  );
 }

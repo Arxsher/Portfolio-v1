@@ -1,619 +1,695 @@
 "use client";
 
-// The Index: the site's command palette and the panels it opens
-// (DESIGN.md → Shell → The Index).
+// The floating "Jump to…" bar at the bottom of every page, and everything
+// it opens.
 //
-// Nothing of it shows while it is closed. It opens from the Index pill in
-// the top bar and the footer (both call openCommand() from lib/command.ts),
-// from "/" outside a text field (handled here), from Ctrl/Cmd+K (handled
-// by the header, which also calls openCommand), and from any page button
-// with openCommand(view, prefill).
+// Closed, it is a 300×48 pill: the mark, an input, and a "/" hint. Open,
+// it widens to 540px and grows upward into a panel over the page (no
+// backdrop): the list of shortcuts, or one of the views (Say hi, Book a
+// call, the guestbook, Work, Theme …). The input stays at the bottom the
+// whole time and drives it: typing filters the list, typing a view's name
+// opens that view, and typing a note ("hi, i'm sam, sam@site.com, love
+// your work") opens Say hi with the form filled in.
 //
-// Open, it is a native modal <dialog>: an arched paper sheet anchored near
-// the top of the screen over a dimmed page. The browser keeps focus inside
-// it and makes the page inert; Esc, the close button, a press outside the
-// sheet or Ctrl/Cmd+K again close it, and focus goes back to whatever
-// opened it. The sheet shows either the Index (a search field over a
-// grouped list) or one panel: the contact sheet (Write a note / Book a
-// call), the guestbook, the work, the lab, the writing, day & night,
-// GitHub, X, Instagram, Spotify. Panels have a back arrow to the Index,
-// which keeps what you had typed. On phones the sheet fills the screen,
-// above the on-screen keyboard.
+// Open with "/" (outside a text field), by clicking the bar,
+// or from anywhere through lib/command.ts: openCommand("say-hi", prefill).
+// Close with Esc, the "esc" chip, a view's ×, or a click outside.
 //
-// Commands that work quietly (copy the address, switch to night, turn the
-// single-key shortcuts off) close the Index and say what they did in a
-// short echo under the Index pill (echo.tsx).
+// Motion (see motion.ts): the width eases over 240ms, the height follows
+// a spring, views cross-fade, and the "/" and "esc" chips swap with a
+// blur-and-scale pop. Reduced motion turns it all into plain cuts.
 
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useId, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useReducer, useRef } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
+import { Logo } from "@/components/logo";
 import { site } from "@/content/site";
 import { cn } from "@/lib/cn";
 import { onCommand, type CommandPrefill, type CommandView } from "@/lib/command";
-import { isTypingTarget, setSingleKeyShortcuts, useSingleKeyShortcuts } from "@/lib/shortcuts";
-import { getResolvedTheme, toggleTheme, useResolvedTheme, useThemePreference } from "@/lib/theme";
-import styles from "./command.module.css";
-import { EchoToast, echo } from "./echo";
-import {
-  PANELS,
-  SECTION_LABELS,
-  buildEntries,
-  panelKey,
-  search as searchEntries,
-  type Entry,
-  type PageSection,
-  type PanelView,
-  type SheetView,
-} from "./items";
-import { playExit, playResize, prefersReducedMotion } from "./motion";
-import { IndexView } from "./palette";
-import { ContactPanel, copyText } from "./panels/contact";
+import { SOCIAL_VIEWS, VIEWS, paletteItems, resolveQuery, type DockView, type PaletteItem, type PanelView } from "./items";
+import { EASE_OUT, SPRING_FOLD, SPRING_GROW, Spring, VIEW_IN_MS, VIEW_OUT_MS, prefersReducedMotion } from "./motion";
+import { Palette, optionId } from "./palette";
+import { BookCallPanel } from "./panels/book-call";
 import { GitHubPanel } from "./panels/github";
 import { GuestbookPanel } from "./panels/guestbook";
 import { LabPanel } from "./panels/lab";
+import { Panel } from "./panels/panel";
+import { SayHiPanel } from "./panels/say-hi";
 import { SocialPanel } from "./panels/social";
 import { ThemePanel } from "./panels/theme";
 import { WorkPanel } from "./panels/work";
 import { WritingPanel } from "./panels/writing";
 
+const WIDTH_CLOSED = 300;
+const WIDTH_OPEN = 540;
+
 /* ---------------------------------------------------------------------- */
 /* state                                                                   */
 /* ---------------------------------------------------------------------- */
 
-type State = {
-  open: boolean;
-  view: SheetView;
-  /** What is typed in the Index; kept while a panel is open, so Back returns to it. */
+/** What the open bar shows. */
+type Live = {
+  view: DockView;
   query: string;
+  /** Active row of the list. */
   active: number;
   prefill: CommandPrefill;
-  /** The prefill was read from the typed query (the note shows what it picked up). */
+  /** The prefill was read from the typed query (Say hi shows what it picked up). */
   fromTyping: boolean;
-  /** The note should put the caret in its first empty field when it mounts. */
-  focusField: boolean;
+  /** The view should move focus into its first field when it mounts. */
+  autoFocus: boolean;
 };
 
-const CLOSED: State = {
-  open: false,
-  view: "palette",
-  query: "",
-  active: 0,
-  prefill: {},
-  fromTyping: false,
-  focusField: false,
-};
+/** One rendered view. The current one has no `frozen`; views on their way out keep the state they left with. */
+type Entry = { key: number; view: DockView; frozen?: Live };
+
+type State = { open: boolean; live: Live; entries: Entry[]; seq: number };
 
 type Action =
-  | {
-      type: "show";
-      view: SheetView;
-      prefill?: CommandPrefill;
-      fromTyping?: boolean;
-      focusField?: boolean;
-      fresh?: boolean;
-    }
-  | { type: "tab"; view: "say-hi" | "book-call" }
-  | { type: "query"; query: string }
+  | { type: "show"; live: Live }
   | { type: "active"; index: number }
-  | { type: "closed" };
+  | { type: "close" }
+  | { type: "exited"; key: number };
+
+const IDLE: Live = { view: "palette", query: "", active: 0, prefill: {}, fromTyping: false, autoFocus: false };
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
     case "show": {
-      const fresh = !state.open || action.fresh;
-      return {
-        open: true,
-        view: action.view,
-        query: fresh ? "" : state.query,
-        active: fresh ? 0 : state.active,
-        prefill: action.prefill ?? {},
-        fromTyping: action.fromTyping ?? false,
-        focusField: action.focusField ?? false,
-      };
+      const current = state.entries.find((entry) => !entry.frozen);
+      if (state.open && current && current.view === action.live.view) return { ...state, live: action.live };
+      const seq = state.seq + 1;
+      const entries = state.entries.map((entry) => (entry === current ? { ...entry, frozen: state.live } : entry));
+      return { open: true, live: action.live, entries: [...entries, { key: seq, view: action.live.view }], seq };
     }
-    case "tab":
-      return state.view === action.view ? state : { ...state, view: action.view };
-    case "query":
-      return { ...state, query: action.query, active: 0 };
     case "active":
-      return action.index === state.active ? state : { ...state, active: action.index };
-    case "closed":
-      return CLOSED;
+      return action.index === state.live.active ? state : { ...state, live: { ...state.live, active: action.index } };
+    case "close":
+      if (!state.open) return state;
+      return {
+        ...state,
+        open: false,
+        live: IDLE,
+        entries: state.entries.map((entry) => (entry.frozen ? entry : { ...entry, frozen: state.live })),
+      };
+    case "exited":
+      return { ...state, entries: state.entries.filter((entry) => entry.key !== action.key) };
   }
 }
 
-/** Where focus goes once a view has rendered. */
-type FocusTarget = "input" | "title" | "field" | "first";
+/** The state a typed query leads to. */
+function fromQuery(query: string): Live {
+  const resolved = resolveQuery(query);
+  if ("parsed" in resolved) {
+    const { name, email, message } = resolved.parsed;
+    return { view: "say-hi", query, active: 0, prefill: { name, email, message }, fromTyping: true, autoFocus: false };
+  }
+  return { ...IDLE, view: resolved.view, query };
+}
+
+const viewLive = (view: PanelView, prefill: CommandPrefill = {}, autoFocus = false): Live => ({
+  view,
+  query: VIEWS[view].input,
+  active: 0,
+  prefill,
+  fromTyping: false,
+  autoFocus,
+});
 
 /* ---------------------------------------------------------------------- */
 /* helpers                                                                 */
 /* ---------------------------------------------------------------------- */
 
-const finePointer = () => window.matchMedia("(pointer: fine)").matches;
+function isTypingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName);
+}
+
+const finePointer = () => typeof window !== "undefined" && window.matchMedia("(pointer: fine)").matches;
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), textarea:not([disabled]), select:not([disabled]), iframe, [tabindex]:not([tabindex="-1"])';
 
-/** What Tab can reach inside the sheet, in order. */
 function focusablesIn(root: HTMLElement): HTMLElement[] {
   return [...root.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
-    (element) => element.tabIndex >= 0 && !element.closest("[inert], [aria-hidden='true']") && element.getClientRects().length > 0,
+    (element) =>
+      element.tabIndex >= 0 &&
+      !element.closest("[inert]") &&
+      !element.closest('[aria-hidden="true"]') &&
+      element.getClientRects().length > 0,
   );
 }
 
-const FORMS: ReadonlySet<PanelView> = new Set(["say-hi", "guestbook"]);
-const LISTS: ReadonlySet<PanelView> = new Set(["work", "lab", "writing"]);
+/** One view, fading in when it mounts and out when it is replaced or the bar closes. */
+function ViewSlot({ leaving, onExited, children }: { leaving: boolean; onExited: () => void; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const exited = useRef(onExited);
+  useLayoutEffect(() => {
+    exited.current = onExited;
+  });
 
-/** Focus for a panel opened from inside the Index (the visitor is already in the sheet). */
-function focusFromIndex(view: PanelView): FocusTarget {
-  if (FORMS.has(view)) return finePointer() ? "field" : "title";
-  if (LISTS.has(view)) return "first";
-  return "title";
-}
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element || prefersReducedMotion()) return;
+    element.animate([{ opacity: 0 }, { opacity: 1 }], { duration: VIEW_IN_MS, easing: EASE_OUT });
+  }, []);
 
-const isHome = (pathname: string) => pathname === "/" || pathname === "";
-
-/** The sections of the page, top to bottom, for "On this page". */
-function readSections(pathname: string): PageSection[] {
-  const home = isHome(pathname);
-  const found: PageSection[] = [];
-  for (const section of document.querySelectorAll<HTMLElement>("main section[id]")) {
-    if (!section.getClientRects().length) continue;
-    const heading =
-      document.getElementById(`${section.id}-title`) ?? section.querySelector<HTMLElement>("h2, h1");
-    const text = (heading?.textContent ?? "").replace(/\d+$/, "").replace(/[.\s]+$/, "").trim();
-    const label = (home ? SECTION_LABELS[section.id] : undefined) ?? text;
-    if (label && !found.some((entry) => entry.id === section.id)) found.push({ id: section.id, label });
-  }
-  // Pages without sections (a project, a lab piece): their headings.
-  if (!found.length) {
-    for (const heading of document.querySelectorAll<HTMLElement>("main h2[id]")) {
-      const label = (heading.textContent ?? "").trim();
-      if (label && heading.getClientRects().length) found.push({ id: heading.id, label });
+  useLayoutEffect(() => {
+    if (!leaving) return;
+    const element = ref.current;
+    if (!element || prefersReducedMotion()) {
+      exited.current();
+      return;
     }
-  }
-  return found;
-}
+    const from = getComputedStyle(element).opacity;
+    element.getAnimations().forEach((animation) => animation.cancel());
+    const animation = element.animate([{ opacity: from }, { opacity: 0 }], {
+      duration: VIEW_OUT_MS,
+      easing: EASE_OUT,
+      fill: "forwards",
+    });
+    animation.onfinish = () => exited.current();
+    return () => animation.cancel();
+  }, [leaving]);
 
-const scrollBehavior = (): ScrollBehavior => (prefersReducedMotion() ? "auto" : "smooth");
-
-/** Scroll to a section of the page and hand focus to its heading. */
-function goToSection(id: string) {
-  const section = document.getElementById(id);
-  if (!section) return;
-  section.scrollIntoView({ behavior: scrollBehavior(), block: "start" });
-  history.replaceState(history.state, "", `#${id}`);
-  const heading = /^H[1-6]$/.test(section.tagName)
-    ? section
-    : (document.getElementById(`${id}-title`) ?? section.querySelector<HTMLElement>("h2, h1"));
-  if (heading) {
-    if (!heading.hasAttribute("tabindex")) heading.setAttribute("tabindex", "-1");
-    heading.focus({ preventScroll: true });
-  }
-}
-
-function goToTop() {
-  window.scrollTo({ top: 0, behavior: scrollBehavior() });
-  document.getElementById("main")?.focus({ preventScroll: true });
+  return (
+    <div
+      ref={ref}
+      inert={leaving}
+      aria-hidden={leaving || undefined}
+      className={leaving ? "pointer-events-none absolute inset-x-0 top-0" : "relative"}
+    >
+      {children}
+    </div>
+  );
 }
 
 /* ---------------------------------------------------------------------- */
-/* the sheet                                                               */
+/* the bar                                                                 */
 /* ---------------------------------------------------------------------- */
 
 export function CommandBar() {
   const router = useRouter();
-  const pathname = usePathname() ?? "/";
-  const uid = useId();
-  const titleId = `${uid}-title`;
-  const listId = `${uid}-list`;
-  const [state, dispatch] = useReducer(reducer, CLOSED);
-  const [sections, setSections] = useState<PageSection[]>([]);
+  const pathname = usePathname();
+  const listId = useId();
+  const [state, dispatch] = useReducer(reducer, { open: false, live: IDLE, entries: [], seq: 0 });
+  const { open, live } = state;
 
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  const sheetRef = useRef<HTMLDivElement>(null);
+  const dockRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const heightRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
-  const pendingFocus = useRef<FocusTarget | null>(null);
-  const afterClose = useRef<(() => void) | null>(null);
-  const exiting = useRef(0);
-  /** The sheet is open as far as closing is concerned (finishClose runs once per open). */
-  const isShown = useRef(false);
-  const pressedOutside = useRef(false);
+  const pendingFocus = useRef<"input" | "field" | "panel" | null>(null);
 
-  const dark = useResolvedTheme() === "dark";
-  const theme = useThemePreference();
-  const singleKeys = useSingleKeyShortcuts();
+  const items = useMemo(() => (live.view === "palette" ? paletteItems(live.query) : []), [live.view, live.query]);
 
-  const entries = useMemo(
-    () => buildEntries({ pathname, sections, dark, theme, singleKeys }),
-    [pathname, sections, dark, theme, singleKeys],
-  );
-  const results = useMemo(() => searchEntries(entries, state.query), [entries, state.query]);
-  const active = Math.min(state.active, Math.max(0, results.flat.length - 1));
-
-  // Latest values for listeners registered once.
-  const latest = useRef({ state, pathname });
+  // Latest values for the window listeners below.
+  const latest = useRef({ open, live, items, pathname });
   useLayoutEffect(() => {
-    latest.current = { state, pathname };
+    latest.current = { open, live, items, pathname };
   });
+
+  /* height: a spring toward the current view's height ------------------ */
+
+  useLayoutEffect(() => {
+    const wrap = heightRef.current;
+    const content = contentRef.current;
+    if (!wrap || !content) return;
+    const motion = new Spring((value) => {
+      wrap.style.height = `${Math.max(0, value)}px`;
+    });
+    motion.set(0);
+    let pending = 0;
+    const observer = new ResizeObserver(() => {
+      // To the nearest pixel, like the reference: a view 372.4px tall gets a
+      // 372px wrapper and its bottom hairline is shaved by a fraction.
+      const target = Math.round(content.getBoundingClientRect().height);
+      cancelAnimationFrame(pending);
+      if (prefersReducedMotion()) {
+        motion.set(target);
+        return;
+      }
+      // The height starts a frame after the width does (open and close
+      // alike), so the dock widens a beat before it grows or folds.
+      pending = requestAnimationFrame((frame) => motion.to(target, target === 0 ? SPRING_FOLD : SPRING_GROW, frame));
+    });
+    observer.observe(content);
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(pending);
+      motion.stop();
+    };
+  }, []);
+
+  /* on-screen keyboards ------------------------------------------------ */
+
+  // Phones lay the keyboard over the page without moving fixed elements,
+  // so the bar rides on top of the visual viewport instead, and its views
+  // cap their height to the room that is left (--dock-room).
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    const dock = dockRef.current;
+    if (!viewport || !dock) return;
+    const update = () => {
+      const zoomed = Math.abs(viewport.scale - 1) > 0.01;
+      const lift = zoomed ? 0 : Math.max(0, Math.round(window.innerHeight - viewport.height - viewport.offsetTop));
+      dock.style.setProperty("--dock-lift", `${lift}px`);
+      dock.style.setProperty("--dock-room", `${Math.round(zoomed ? window.innerHeight : viewport.height)}px`);
+    };
+    update();
+    viewport.addEventListener("resize", update);
+    viewport.addEventListener("scroll", update);
+    return () => {
+      viewport.removeEventListener("resize", update);
+      viewport.removeEventListener("scroll", update);
+    };
+  }, []);
 
   /* opening and closing ------------------------------------------------ */
 
-  function show(
-    view: SheetView,
-    { prefill, fromTyping, focus, fresh }: { prefill?: CommandPrefill; fromTyping?: boolean; focus: FocusTarget; fresh?: boolean },
-  ) {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    if (exiting.current) {
-      // Asked to open again while the exit is playing: stay open.
-      exiting.current = 0;
-      afterClose.current = null;
-      dialog.getAnimations({ subtree: true }).forEach((animation) => animation.cancel());
-    }
-    if (!latest.current.state.open) {
-      const current = document.activeElement;
-      returnFocus.current = current instanceof HTMLElement && current !== document.body ? current : null;
-    }
-    isShown.current = true;
-    if (view === "palette") setSections(readSections(latest.current.pathname));
+  function rememberFocus() {
+    if (latest.current.open) return;
+    const current = document.activeElement;
+    returnFocus.current = current instanceof HTMLElement && current !== document.body ? current : null;
+  }
+
+  function show(next: Live, focus: "input" | "field" | "panel" | null = null) {
+    rememberFocus();
     pendingFocus.current = focus;
-    dispatch({ type: "show", view, prefill, fromTyping, fresh, focusField: focus === "field" });
+    dispatch({ type: "show", live: next });
+  }
+
+  function openPalette(focus = true) {
+    if (latest.current.open && latest.current.live.view === "palette") {
+      if (focus) inputRef.current?.focus({ preventScroll: true });
+      return;
+    }
+    show({ ...IDLE }, focus ? "input" : null);
   }
 
   /**
-   * Close the sheet: a short exit, then the native close, then focus goes
-   * back to what opened it and `after` runs (scroll to a section, echo a
-   * message …).
+   * Open a view from outside the bar (page buttons, openCommand). Like the
+   * reference, with a mouse or trackpad focus stays on the button that
+   * opened it, so no field lights up; Tab goes straight into the panel.
+   * Touch screens move focus to the panel itself (no keyboard pops up).
    */
-  async function close({ after, quick = false }: { after?: () => void; quick?: boolean } = {}) {
-    const dialog = dialogRef.current;
-    if (after) afterClose.current = after;
-    if (!dialog?.open) {
-      // Already closed by the browser (its "close" event still on its way).
-      if (isShown.current) return finishClose();
-      if (latest.current.state.open) dispatch({ type: "closed" });
-      const run = afterClose.current;
-      afterClose.current = null;
-      run?.();
-      return;
-    }
-    if (exiting.current) return;
-    const token = Date.now();
-    exiting.current = token;
-    if (!quick) await playExit(dialog, sheetRef.current);
-    if (exiting.current !== token) return;
-    dialog.close();
-    // Not waiting for the "close" event: a busy page can hold it back for
-    // a second or more, and the page should come back at once.
-    finishClose();
+  function openFromOutside(view: CommandView, prefill?: CommandPrefill) {
+    if (view === "palette") return openPalette(true);
+    show(viewLive(view, prefill ?? {}), finePointer() ? null : "panel");
   }
 
-  /** After the dialog has closed (by us, or by the browser on its own). */
-  function finishClose() {
-    if (!isShown.current) return;
-    isShown.current = false;
-    exiting.current = 0;
-    dispatch({ type: "closed" });
+  /**
+   * Fold the bar away. `restore` puts focus back where it was before the
+   * bar opened (Esc, ×, "esc"); without it focus is left alone (a click
+   * outside already moved it) unless `blur` lets go of it (navigation, so
+   * keys on the next page do not land in the bar).
+   */
+  function close({ restore, blur = false }: { restore: boolean; blur?: boolean }) {
+    if (!latest.current.open) return;
+    dispatch({ type: "close" });
+    const panel = panelRef.current;
     const target = returnFocus.current;
     returnFocus.current = null;
-    if (target?.isConnected) target.focus({ preventScroll: true });
-    const run = afterClose.current;
-    afterClose.current = null;
-    run?.();
-  }
-
-  // Open the native dialog once the state says so (before focus is placed).
-  useLayoutEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog || !state.open || dialog.open) return;
-    dialog.showModal();
-  }, [state.open]);
-
-  // Focus requests run once the view they point into has rendered.
-  useLayoutEffect(() => {
-    const want = pendingFocus.current;
-    const sheet = sheetRef.current;
-    if (!want || !state.open || !sheet) return;
-    pendingFocus.current = null;
-    const title = () => sheet.querySelector<HTMLElement>("[data-sheet-title]");
-    if (want === "input") {
-      inputRef.current?.focus({ preventScroll: true });
-    } else if (want === "title") {
-      title()?.focus({ preventScroll: true });
-    } else if (want === "first") {
-      const link = sheet.querySelector<HTMLElement>("[data-sheet-body] a[href], [data-sheet-body] button");
-      (link ?? title())?.focus({ preventScroll: true });
-    } else {
-      // Forms fill themselves in on mount; the note places its own caret.
-      title()?.focus({ preventScroll: true });
-    }
-  });
-
-  // The sheet's height eases from one view to the next (desktop; on phones
-  // it is the screen).
-  const lastHeight = useRef(0);
-  const lastView = useRef<SheetView | null>(null);
-  useLayoutEffect(() => {
-    const sheet = sheetRef.current;
-    if (!state.open || !sheet) {
-      lastView.current = null;
+    const active = document.activeElement;
+    const focusInside = active instanceof HTMLElement && Boolean(panel?.contains(active));
+    if (!restore) {
+      if (blur && focusInside) (active as HTMLElement).blur();
       return;
     }
-    if (lastView.current && lastView.current !== state.view && window.innerWidth >= 640) {
-      playResize(sheet, lastHeight.current);
+    if (target && target.isConnected && !panel?.contains(target)) target.focus({ preventScroll: true });
+    else if (target !== inputRef.current && focusInside) (active as HTMLElement).blur();
+  }
+
+  // Focus requests run once the view they point into has rendered.
+  useEffect(() => {
+    const want = pendingFocus.current;
+    if (!want) return;
+    pendingFocus.current = null;
+    if (want === "input") {
+      inputRef.current?.focus({ preventScroll: true });
+      return;
     }
-    lastView.current = state.view;
-  });
-  useEffect(() => {
-    const sheet = sheetRef.current;
-    if (!state.open || !sheet) return;
-    const observer = new ResizeObserver(() => {
-      lastHeight.current = sheet.getBoundingClientRect().height;
+    if (want === "panel") {
+      panelRef.current?.focus({ preventScroll: true });
+      return;
+    }
+    // A frame later, so a form that fills itself in on mount has done so.
+    requestAnimationFrame(() => {
+      const slot = contentRef.current?.querySelector<HTMLElement>(":scope > div:not([inert])");
+      const field = slot?.querySelector<HTMLElement>('input:not([type="checkbox"]):not([disabled]), textarea:not([disabled])');
+      (field ?? inputRef.current)?.focus({ preventScroll: true });
     });
-    observer.observe(sheet);
-    return () => observer.disconnect();
-  }, [state.open]);
-
-  // While the sheet is open the page underneath keeps still: no scrolling,
-  // and the scrollbar's width is made up so nothing shifts sideways.
-  useEffect(() => {
-    if (!state.open) return;
-    const html = document.documentElement;
-    // Only a classic scrollbar leaves a gap worth making up (on phones the
-    // difference is page overflow, not a scrollbar).
-    const classic = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
-    const gap = classic ? Math.min(40, Math.max(0, window.innerWidth - html.clientWidth)) : 0;
-    const before = { overflow: html.style.overflow, paddingRight: html.style.paddingRight };
-    html.style.overflow = "hidden";
-    if (gap > 0) html.style.paddingRight = `${gap}px`;
-    return () => {
-      html.style.overflow = before.overflow;
-      html.style.paddingRight = before.paddingRight;
-    };
-  }, [state.open]);
-
-  // Phones lay the keyboard over the page: the sheet takes the room that
-  // is left (--room) and rides along with the visual viewport (--room-top).
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    const viewport = window.visualViewport;
-    if (!state.open || !dialog) return;
-    const update = () => {
-      const zoomed = !viewport || Math.abs(viewport.scale - 1) > 0.01;
-      const room = zoomed ? window.innerHeight : viewport.height;
-      dialog.style.setProperty("--room", `${Math.round(room)}px`);
-      dialog.style.setProperty("--room-top", `${zoomed ? 0 : Math.round(viewport.offsetTop)}px`);
-      // The visible width: a page that overflows sideways widens the layout
-      // viewport on phones, and the sheet must still fit the screen.
-      dialog.style.setProperty("--room-w", `${Math.round(zoomed ? document.documentElement.clientWidth : viewport.width)}px`);
-      dialog.style.setProperty("--room-left", `${zoomed ? 0 : Math.round(viewport.offsetLeft)}px`);
-    };
-    update();
-    viewport?.addEventListener("resize", update);
-    viewport?.addEventListener("scroll", update);
-    window.addEventListener("resize", update);
-    return () => {
-      viewport?.removeEventListener("resize", update);
-      viewport?.removeEventListener("scroll", update);
-      window.removeEventListener("resize", update);
-    };
-  }, [state.open]);
+  });
 
   /* actions ------------------------------------------------------------ */
 
-  function navigate(href: string) {
-    router.push(href);
-    void close();
+  const scrollBehavior = (): ScrollBehavior => (prefersReducedMotion() ? "auto" : "smooth");
+
+  function goHome() {
+    close({ restore: false, blur: true });
+    if (latest.current.pathname !== "/") router.push("/");
+    window.scrollTo({ top: 0, behavior: scrollBehavior() });
   }
 
-  function run(entry: Entry) {
-    const action = entry.action;
-    switch (action.type) {
-      case "view":
-        return show(action.view, { focus: focusFromIndex(action.view) });
-      case "message":
-        return show("say-hi", { prefill: action.prefill, fromTyping: true, focus: focusFromIndex("say-hi") });
-      case "route":
-        return navigate(action.href);
-      case "external":
-        window.open(action.href, "_blank", "noopener,noreferrer");
-        return void close();
-      case "section":
-        return void close({ after: () => goToSection(action.id) });
-      case "top":
-        return void close({ after: goToTop });
-      case "copy-email":
-        // Copy while the press still counts as a user gesture, then say so.
-        return void copyText(site.email).then((ok) =>
-          close({
-            after: () =>
-              ok ? echo("Copied the address") : echo(`Could not reach the clipboard. The address is ${site.email}`, "error"),
-          }),
-        );
-      case "toggle-theme": {
-        const next = getResolvedTheme() === "dark" ? "day" : "night";
-        return void close({
-          after: () => {
-            toggleTheme();
-            // After the page's 360ms cross-fade: an echo born during the
-            // view transition would not start its entrance.
-            window.setTimeout(() => echo(`Switched to ${next}`), 420);
-          },
-        });
+  function navigate(href: string) {
+    close({ restore: false, blur: true });
+    router.push(href);
+  }
+
+  function openProfile(view: PanelView) {
+    const name = (Object.keys(SOCIAL_VIEWS) as Array<keyof typeof SOCIAL_VIEWS>).find((key) => SOCIAL_VIEWS[key] === view);
+    const profile = site.socials.find((entry) => entry.name === name);
+    if (!profile) return;
+    window.open(profile.href, "_blank", "noopener,noreferrer");
+    close({ restore: true });
+  }
+
+  function run(item: PaletteItem | undefined) {
+    if (!item) return;
+    if (item.kind === "project") return navigate(`/projects/${item.slug}/`);
+    if (item.kind === "piece") return navigate(`/lab/${item.slug}/`);
+    if (item.kind === "message") {
+      const resolved = resolveQuery(latest.current.live.query);
+      const parsed = "parsed" in resolved ? resolved.parsed : null;
+      return show(viewLive("say-hi", { name: parsed?.name, email: parsed?.email, message: item.message }));
+    }
+    if (item.view === "home") return goHome();
+    show(viewLive(item.view));
+  }
+
+  /** Enter while a view is open. */
+  function runView(view: DockView) {
+    switch (view) {
+      case "home":
+        return goHome();
+      case "work":
+        return navigate("/projects/");
+      case "writing":
+        return navigate("/writing/");
+      case "lab":
+        return navigate("/lab/");
+      case "github":
+      case "x":
+      case "instagram":
+      case "spotify":
+        return openProfile(view);
+      case "book-call":
+        if (!site.calLink) show(viewLive("say-hi"));
+        return;
+      case "say-hi":
+      case "guestbook": {
+        const slot = contentRef.current?.querySelector<HTMLElement>(":scope > div:not([inert])");
+        const fields = [...(slot?.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("input:not([type=checkbox]), textarea") ?? [])];
+        (fields.find((field) => !field.value.trim()) ?? fields[0])?.focus({ preventScroll: true });
+        return;
       }
-      case "toggle-keys": {
-        const on = !singleKeys;
-        setSingleKeyShortcuts(on);
-        return void close({
-          after: () => echo(on ? "Single-key shortcuts on" : "Single-key shortcuts off. / and Ctrl K still open the index"),
-        });
-      }
+      default:
+        return;
     }
   }
 
-  const back = () => show("palette", { focus: "input" });
-  const closeRestoring = () => void close();
-
   /* listeners ---------------------------------------------------------- */
 
-  const handlers = useRef({ show, close });
+  // The latest handlers for listeners registered once.
+  const handlers = useRef({ openPalette, openFromOutside, close });
   useLayoutEffect(() => {
-    handlers.current = { show, close };
+    handlers.current = { openPalette, openFromOutside, close };
   });
 
   useEffect(
     () =>
       onCommand((event) => {
-        const { show, close } = handlers.current;
-        if (event.type === "close") return void close();
-        const view: CommandView = event.view;
-        const { state } = latest.current;
-        if (view === "palette") {
-          // Ctrl/Cmd+K a second time closes the Index; from a panel it goes back to it.
-          if (state.open && state.view === "palette") return void close();
-          return show("palette", { focus: "input" });
-        }
-        // From a page button: with a mouse no field lights up; touch screens
-        // get no keyboard either. Focus rests on the sheet's title.
-        show(view, { prefill: event.prefill ?? {}, focus: "title", fresh: !state.open });
+        if (event.type === "close") handlers.current.close({ restore: true });
+        else handlers.current.openFromOutside(event.view, event.prefill);
       }),
     [],
   );
 
-  // "/" outside a text field opens the Index (Ctrl/Cmd+K is the header's).
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing) return;
-      if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
-      if (latest.current.state.open || isTypingTarget(event.target)) return;
-      // Lab stages and games keep their own keys (as the single-key shortcuts do).
-      if (event.target instanceof Element && event.target.closest("[data-lab-stage], [data-shortcuts='off']")) return;
-      event.preventDefault();
-      handlers.current.show("palette", { focus: "input" });
+      const isOpen = latest.current.open;
+      const mod = event.metaKey || event.ctrlKey;
+      if (event.key === "/" && !mod && !event.altKey && !isOpen && !isTypingTarget(event.target)) {
+        event.preventDefault();
+        handlers.current.openPalette(true);
+        return;
+      }
+      if (!isOpen) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        handlers.current.close({ restore: true });
+        return;
+      }
+      // Tab from outside the open panel lands inside it.
+      const panel = panelRef.current;
+      if (event.key === "Tab" && panel && !panel.contains(document.activeElement)) {
+        const nodes = focusablesIn(panel);
+        if (nodes.length) {
+          event.preventDefault();
+          (event.shiftKey ? nodes[nodes.length - 1] : nodes[0]).focus({ preventScroll: true });
+        }
+      }
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      if (!latest.current.open) return;
+      if (panelRef.current?.contains(event.target as Node)) return;
+      handlers.current.close({ restore: false });
     };
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("pointerdown", onPointerDown, true);
+    };
   }, []);
 
-  // Leaving the page (a link, back / forward) closes the sheet.
+  // Leaving the page (back/forward, a link elsewhere) folds the bar away.
   const lastPath = useRef(pathname);
   useEffect(() => {
     if (lastPath.current === pathname) return;
     lastPath.current = pathname;
-    if (latest.current.state.open) void handlers.current.close({ quick: true });
+    handlers.current.close({ restore: false });
   }, [pathname]);
+
+  /* input -------------------------------------------------------------- */
+
+  function onInputKeyDown(event: ReactKeyboardEvent<HTMLInputElement>) {
+    if (event.nativeEvent.isComposing) return;
+    const { key } = event;
+    if (!open) {
+      if (key === "ArrowDown" || key === "ArrowUp" || key === "Enter" || key === "/") {
+        event.preventDefault();
+        openPalette(true);
+      }
+      return;
+    }
+    const list = live.view === "palette" ? items : null;
+    if (list && (key === "ArrowDown" || key === "ArrowUp")) {
+      event.preventDefault();
+      if (!list.length) return;
+      const next = Math.min(list.length - 1, Math.max(0, live.active + (key === "ArrowDown" ? 1 : -1)));
+      dispatch({ type: "active", index: next });
+      return;
+    }
+    if (list && (key === "Home" || key === "End") && list.length) {
+      event.preventDefault();
+      dispatch({ type: "active", index: key === "Home" ? 0 : list.length - 1 });
+      return;
+    }
+    if (key === "Enter") {
+      event.preventDefault();
+      if (list) run(list[live.active]);
+      else runView(live.view);
+    }
+  }
+
+  function onInputChange(value: string) {
+    if (!open) rememberFocus();
+    dispatch({ type: "show", live: fromQuery(value) });
+  }
+
+  /** Tab stays inside the open panel. */
+  function onPanelKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "Tab" || !open || !panelRef.current) return;
+    const nodes = focusablesIn(panelRef.current);
+    if (nodes.length === 0) return;
+    const first = nodes[0];
+    const last = nodes[nodes.length - 1];
+    const current = document.activeElement;
+    if (event.shiftKey && (current === first || current === panelRef.current)) {
+      event.preventDefault();
+      last.focus({ preventScroll: true });
+    } else if (!event.shiftKey && current === last) {
+      event.preventDefault();
+      first.focus({ preventScroll: true });
+    }
+  }
 
   /* views -------------------------------------------------------------- */
 
-  function renderView() {
-    const panel = { titleId, onBack: back, onClose: closeRestoring };
-    switch (state.view) {
-      case "palette":
+  const closeRestoring = () => close({ restore: true });
+  const closeForNavigation = () => close({ restore: false, blur: true });
+
+  function renderView(entry: Entry) {
+    const view = entry.frozen ?? live;
+    switch (entry.view) {
+      case "palette": {
+        const list = entry.frozen ? paletteItems(view.query) : items;
         return (
-          <IndexView
-            titleId={titleId}
-            listId={listId}
-            inputRef={inputRef}
-            search={results}
-            query={state.query}
-            active={active}
-            onQuery={(query) => dispatch({ type: "query", query })}
+          <Palette
+            listId={entry.frozen ? `${listId}-out-${entry.key}` : listId}
+            items={list}
+            active={Math.min(view.active, Math.max(0, list.length - 1))}
             onActive={(index) => dispatch({ type: "active", index })}
             onRun={run}
+          />
+        );
+      }
+      case "say-hi":
+        return (
+          <SayHiPanel prefill={view.prefill} fromTyping={view.fromTyping} autoFocus={view.autoFocus} onClose={closeRestoring} />
+        );
+      case "book-call":
+        return <BookCallPanel onClose={closeRestoring} onSayHi={() => show(viewLive("say-hi", {}, finePointer()))} />;
+      case "guestbook":
+        return (
+          <GuestbookPanel
+            prefill={{ name: view.prefill.name, message: view.prefill.message }}
             onClose={closeRestoring}
           />
         );
-      case "say-hi":
-      case "book-call":
-        return (
-          <ContactPanel
-            {...panel}
-            tab={state.view}
-            onTab={(view) => dispatch({ type: "tab", view })}
-            prefill={state.prefill}
-            fromTyping={state.fromTyping}
-            focusField={state.focusField}
-          />
-        );
-      case "guestbook":
-        return <GuestbookPanel {...panel} prefill={{ name: state.prefill.name, message: state.prefill.message }} />;
       case "work":
-        return <WorkPanel {...panel} onNavigate={closeRestoring} />;
-      case "lab":
-        return <LabPanel {...panel} onNavigate={closeRestoring} />;
+        return <WorkPanel onClose={closeRestoring} onNavigate={closeForNavigation} />;
       case "writing":
-        return <WritingPanel {...panel} onNavigate={closeRestoring} />;
+        return <WritingPanel onClose={closeRestoring} onNavigate={closeForNavigation} />;
+      case "lab":
+        return <LabPanel onClose={closeRestoring} onNavigate={closeForNavigation} />;
       case "theme":
-        return <ThemePanel {...panel} />;
+        return <ThemePanel onClose={closeRestoring} />;
       case "github":
-        return <GitHubPanel {...panel} />;
+        return <GitHubPanel onClose={closeRestoring} />;
       case "x":
       case "instagram":
       case "spotify":
-        return <SocialPanel {...panel} view={state.view} />;
+        return <SocialPanel view={entry.view} onClose={closeRestoring} />;
+      case "home":
+        return <Panel title={VIEWS.home.title} description={VIEWS.home.description} icon="home" onClose={closeRestoring} />;
     }
   }
 
   /* render ------------------------------------------------------------- */
 
-  const count = results.flat.length;
-  const announcement =
-    state.open && state.view === "palette" && state.query.trim()
-      ? count
-        ? `${count} ${count === 1 ? "result" : "results"}`
-        : "No results"
-      : "";
+  const showEsc = open && (live.query !== "" || live.view !== "palette");
+  const listOpen = open && live.view === "palette";
+  const activeItem = listOpen ? items[Math.min(live.active, items.length - 1)] : undefined;
+  const title = live.view === "palette" ? "Jump to" : VIEWS[live.view].title;
+  const announcement = !open
+    ? ""
+    : live.view === "palette"
+      ? live.query
+        ? items.length
+          ? `${items.length} ${items.length === 1 ? "result" : "results"}`
+          : "No results"
+        : ""
+      : title;
+
+  const chip =
+    "flex h-7 items-center rounded-[10px] bg-well px-2.5 text-[11px] text-secondary transition-[opacity,scale,filter] duration-[280ms] ease-swap [grid-area:1/1] motion-reduce:transition-opacity";
+  // The hidden chip is taken out of flow, so the slot (and the room left for
+  // the input) is only as wide as the chip on show.
+  const chipHidden =
+    "pointer-events-none absolute end-0 top-0 scale-[0.25] opacity-0 blur-[4px] motion-reduce:scale-100 motion-reduce:blur-none";
 
   return (
-    <>
-      <dialog
-        ref={dialogRef}
-        className={styles.dialog}
-        aria-labelledby={state.open ? titleId : undefined}
-        aria-label={state.open ? undefined : "Index"}
-        onCancel={(event) => {
-          event.preventDefault();
-          void close();
-        }}
-        onClose={finishClose}
-        onKeyDown={(event) => {
-          // Tab cycles through the sheet instead of leaving for the browser's own controls.
-          if (event.key !== "Tab" || !sheetRef.current) return;
-          const nodes = focusablesIn(sheetRef.current);
-          if (!nodes.length) return;
-          const first = nodes[0];
-          const last = nodes[nodes.length - 1];
-          const current = document.activeElement;
-          const inside = current instanceof HTMLElement && nodes.includes(current);
-          if (event.shiftKey && (current === first || !inside)) {
-            event.preventDefault();
-            last.focus();
-          } else if (!event.shiftKey && (current === last || !inside)) {
-            event.preventDefault();
-            first.focus();
-          }
-        }}
+    <div
+      ref={dockRef}
+      className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex translate-y-[calc(-1*var(--dock-lift,0px))] justify-center px-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:pb-6"
+      style={{ viewTransitionName: "site-dock" }}
+    >
+      <div
+        ref={panelRef}
+        role={open ? "dialog" : undefined}
+        aria-modal={open ? false : undefined}
+        aria-label={open ? title : undefined}
+        tabIndex={-1}
+        data-open={open || undefined}
+        onKeyDown={onPanelKeyDown}
         onPointerDown={(event) => {
-          pressedOutside.current = event.target === event.currentTarget;
+          if (open || event.button !== 0) return;
+          // A press anywhere on the closed pill opens it with the caret in the input.
+          if (event.target !== inputRef.current) event.preventDefault();
+          openPalette(true);
         }}
-        onClick={(event) => {
-          if (pressedOutside.current && event.target === event.currentTarget) void close();
-          pressedOutside.current = false;
-        }}
+        className={cn(
+          "pointer-events-auto max-w-full overflow-hidden rounded-[20px] bg-float shadow-float outline-none transition-[width] duration-[240ms] ease-out motion-reduce:transition-none",
+          "[&:not([data-open]):has(input:focus-visible)]:outline-2 [&:not([data-open]):has(input:focus-visible)]:outline-offset-2 [&:not([data-open]):has(input:focus-visible)]:outline-primary [&:not([data-open]):has(input:focus-visible)]:outline-solid",
+        )}
+        style={{ width: open ? WIDTH_OPEN : WIDTH_CLOSED }}
       >
-        {state.open ? (
-          <div ref={sheetRef} data-view={state.view} className={cn(styles.sheet, "sheet sheet-arch")}>
-            <div key={panelKey(state.view)} className={styles.view}>
-              {renderView()}
-            </div>
-            <p className="sr-only" aria-live="polite" aria-atomic="true">
-              {announcement}
-            </p>
+        <div ref={heightRef} className="overflow-hidden" style={{ height: 0 }}>
+          <div ref={contentRef} className="relative">
+            {state.entries.map((entry) => (
+              <ViewSlot
+                key={entry.key}
+                leaving={Boolean(entry.frozen)}
+                onExited={() => dispatch({ type: "exited", key: entry.key })}
+              >
+                {renderView(entry)}
+              </ViewSlot>
+            ))}
           </div>
-        ) : null}
-      </dialog>
-      <EchoToast />
-    </>
+        </div>
+
+        <div className="flex h-12 items-center gap-x-3 ps-4 pe-2.5">
+          <Logo className="size-4 text-primary" />
+          <input
+            ref={inputRef}
+            type="text"
+            role="combobox"
+            aria-label="Jump to"
+            aria-expanded={listOpen}
+            aria-controls={listOpen ? listId : undefined}
+            aria-autocomplete="list"
+            aria-activedescendant={activeItem ? optionId(listId, activeItem) : undefined}
+            enterKeyHint="go"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            placeholder={open ? "try “hey, i’m ada, ada@mail.com, nice work”" : "Jump to…"}
+            value={live.query}
+            onChange={(event) => onInputChange(event.target.value)}
+            onKeyDown={onInputKeyDown}
+            className="h-full min-w-0 flex-1 cursor-text bg-transparent text-[16px] text-primary outline-none placeholder:text-tertiary sm:text-[14px]"
+          />
+          <span className="relative grid shrink-0 justify-items-end">
+            <button
+              type="button"
+              aria-label="Close bar"
+              aria-keyshortcuts="Escape"
+              aria-hidden={!showEsc || undefined}
+              tabIndex={showEsc ? 0 : -1}
+              onClick={() => close({ restore: true })}
+              className={cn(
+                chip,
+                "cursor-pointer outline-none hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-primary",
+                !showEsc && chipHidden,
+              )}
+            >
+              esc
+            </button>
+            <kbd aria-hidden="true" className={cn(chip, "font-sans", showEsc && chipHidden)}>
+              /
+            </kbd>
+          </span>
+        </div>
+      </div>
+      <p className="sr-only" aria-live="polite" aria-atomic="true">
+        {announcement}
+      </p>
+    </div>
   );
 }

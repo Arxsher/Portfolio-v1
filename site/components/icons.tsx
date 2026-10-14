@@ -1,8 +1,6 @@
-// Icon set. Every icon is drawn on a 16×16 grid (the day/night pair on
-// 24×24), renders at 16px by default and paints with currentColor, so
-// colour comes from the text colour of the parent (`text-muted
-// hover:text-primary` …). The site's ornament (the eight-pointed star, the
-// long arrow, the arch) lives in components/ornament.tsx, not here.
+// Icon set. Every icon is drawn on a 16×16 grid, renders at 16px by default
+// and paints with currentColor, so colour comes from the text colour of the
+// parent (`text-secondary hover:text-primary` …).
 //
 //   <Mail />  <ArrowUpRight size={13} />  <GitHub className="size-5" />
 //
@@ -326,53 +324,6 @@ export function Verified(props: IconProps) {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-    </Svg>
-  );
-}
-
-/* ---------------------------------------------------------------------- */
-/* day / night (the top bar's switch)                                      */
-/* ---------------------------------------------------------------------- */
-
-const RAYS = Array.from({ length: 8 }, (_, i) => {
-  const angle = (i * Math.PI) / 4;
-  const inner = 7;
-  const outer = i % 2 ? 9 : 10.5;
-  const f = (n: number) => n.toFixed(2);
-  return `M${f(12 + inner * Math.cos(angle))} ${f(12 + inner * Math.sin(angle))}L${f(12 + outer * Math.cos(angle))} ${f(12 + outer * Math.sin(angle))}`;
-}).join("");
-
-/** The sun as an eight-rayed star (rays alternate long and short). */
-export function SunStar(props: IconProps) {
-  return (
-    <Svg {...props} viewBox="0 0 24 24">
-      <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="1.5" />
-      <path d={RAYS} stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </Svg>
-  );
-}
-
-/** A thin crescent moon. */
-export function Crescent(props: IconProps) {
-  return (
-    <Svg {...props} viewBox="0 0 24 24">
-      <path
-        d="M15.5 3.6a8.6 8.6 0 1 0 4.9 13.9A7.2 7.2 0 0 1 15.5 3.6Z"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinejoin="round"
-      />
-    </Svg>
-  );
-}
-
-/** A long, fine arrow pointing up (back to top). */
-export function ArrowUp(props: IconProps) {
-  return (
-    <Svg {...props}>
-      <Stroke width={1.3}>
-        <path d="M8 14V2.5M3.5 7 8 2.5 12.5 7" />
-      </Stroke>
     </Svg>
   );
 }

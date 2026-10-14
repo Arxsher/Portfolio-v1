@@ -1,212 +1,157 @@
-// Home, section One · About (DESIGN.md → Home → About): an identity sheet
-// (the fiche) beside a short letter set from site.intro, closed by a line
-// in Zakaria's own words from content/about.json. Two sidenotes from the
-// same page sit under the fiche on wide screens and after the letter, as
-// a starred list, on phones.
+// Home hero, part 3: the intro paragraphs from site.intro and the row of
+// actions under them (Say hi, Book a call, social links).
 //
-//   ✦──────────────────────────────────────────────────────────────
-//   ONE · ABOUT
-//   A builder from Casablanca                         The short version …
-//
-//   NAME      Zakaria                 Hey, I'm Zakaria. I'm a designer …
-//             goes by arsher · @Arxsher
-//   PRACTICE  …                       By day I'm IT Administrator & Lead
-//   BY DAY    …                       Developer at Extra Immobilien …
-//   BASED IN  Casablanca, Morocco
-//   STATUS    ✦ Available for work    “Software should feel physically …”
-//
-// Intro segments (content/site.ts):
-//   { text }               running copy
-//   { strong }             emphasis, in ink
-//   { strong, href }       a link-strong (terracotta underline)
-//   { chip, icon, href }   an outlined chip (GitHub mark for github, a star otherwise)
+// Intro segments (see content/site.ts):
+//   { text }                 plain copy in the secondary colour
+//   { strong }               emphasis, in the foreground colour
+//   { strong, href }         the same, as a link (underline firms up on hover)
+//   { chip, icon, href }     a small inline pill with an icon (github | sparkle | folder)
 
 import Link from "next/link";
-import type { ReactNode } from "react";
-import { GitHub } from "@/components/icons";
-import { Star } from "@/components/ornament";
-import { Section } from "@/components/section";
-import about from "@/content/about.json";
+import type { ComponentType, ReactNode } from "react";
+import { CommandButton } from "@/components/home/hero-client";
+import { Calendar, Folder, GitHub, Mail, SocialIcons, Sparkle, type IconProps } from "@/components/icons";
 import { site } from "@/content/site";
+
+/**
+ * A heavier X mark for the social row. The shared icon is the fine brand
+ * outline, which reads small and light next to the solid GitHub mark; this
+ * one is a solid stroke-drawn X on the same 16px grid (about 13 x 13.5px
+ * of ink, the optical size of the reference's 20px glyph), so the four
+ * glyphs carry the same weight.
+ */
+function XMark({ size = 16, className }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="none"
+      aria-hidden="true"
+      focusable="false"
+      className={className ? `shrink-0 ${className}` : "shrink-0"}
+    >
+      <path
+        d="M2.6 2h2.1l8.6 12h-2.1z"
+        fill="currentColor"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        strokeLinejoin="round"
+      />
+      <path d="M13.75 2.05 2.25 13.95" stroke="currentColor" strokeWidth={1.55} strokeLinecap="round" />
+    </svg>
+  );
+}
+
+const socialIcons: Record<string, ComponentType<IconProps>> = { ...SocialIcons, X: XMark };
 
 type Segment = (typeof site.intro)[number][number];
 
+const chipIcons: Record<string, ComponentType<IconProps>> = {
+  github: GitHub,
+  sparkle: Sparkle,
+  folder: Folder,
+};
+
 const isExternal = (href: string) => /^https?:\/\//.test(href);
 
-const NEW_TAB = <span className="sr-only"> (opens in a new tab)</span>;
+/** target/rel for links that leave the site. */
+function linkProps(href: string) {
+  return isExternal(href) ? { target: "_blank", rel: "noopener noreferrer" } : {};
+}
 
-function segment(part: Segment, key: number): ReactNode {
-  if ("chip" in part) {
+// The focus ring hugs the chip (1px off its edge) instead of the global 2px,
+// so a chip at the start of a line stays within the text column.
+const chipClass =
+  "mx-0.5 inline-flex cursor-pointer items-center gap-1.5 rounded-[8px] bg-well px-1.5 py-0.5 align-middle text-[15px]/[1.3] text-primary [translate:0_-1px] transition-[scale,background-color] duration-150 ease-out hover:bg-well-hover active:scale-[0.96] focus-visible:outline-offset-1";
+
+function renderSegment(segment: Segment, key: number): ReactNode {
+  if ("chip" in segment) {
+    const Icon = chipIcons[segment.icon];
     const content = (
       <>
-        {part.icon === "github" ? <GitHub size={13} /> : <Star size={11} />}
-        {part.chip}
+        {Icon ? <Icon size={13} /> : null}
+        {segment.chip}
       </>
     );
-    const className = "chip focus-ring";
-    if (isExternal(part.href)) {
+    // Pages of this site ("/lab/") navigate client-side; anchors and other
+    // sites stay plain links.
+    if (segment.href.startsWith("/")) {
       return (
-        <a key={key} className={className} href={part.href} target="_blank" rel="noopener noreferrer">
-          {content}
-          {NEW_TAB}
-        </a>
-      );
-    }
-    if (part.href.startsWith("/")) {
-      return (
-        <Link key={key} className={className} href={part.href}>
+        <Link key={key} href={segment.href} className={chipClass}>
           {content}
         </Link>
       );
     }
     return (
-      <a key={key} className={className} href={part.href}>
+      <a key={key} href={segment.href} {...linkProps(segment.href)} className={chipClass}>
         {content}
       </a>
     );
   }
-  if ("strong" in part) {
-    if ("href" in part && part.href) {
-      const external = isExternal(part.href);
+  if ("strong" in segment) {
+    if ("href" in segment && segment.href) {
       return (
-        <a
-          key={key}
-          className="link-strong rounded-[2px] focus-ring"
-          href={part.href}
-          {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
-        >
-          {part.strong}
-          {external ? NEW_TAB : null}
+        <a key={key} href={segment.href} {...linkProps(segment.href)} className="link rounded-[2px]">
+          {segment.strong}
         </a>
       );
     }
     return (
-      <strong key={key} className="font-semibold text-primary">
-        {part.strong}
-      </strong>
+      <span key={key} className="text-primary">
+        {segment.strong}
+      </span>
     );
   }
-  return <span key={key}>{part.text}</span>;
+  return segment.text;
 }
-
-// "Software should feel physically grounded and performant, with zero room
-// for unnecessary jank.", lifted from the about page as written.
-function groundedLine(): string | null {
-  const source = about.paragraphs.find((paragraph) => paragraph.includes("physically grounded"));
-  const match = source?.match(/software should feel[^.]*/i);
-  if (!match) return null;
-  const line = match[0].replace(/ or technical debt$/, "");
-  return `${line.charAt(0).toUpperCase()}${line.slice(1)}.`;
-}
-
-// The day job, from the intro copy ("… IT Administrator & Lead Developer at Extra Immobilien").
-const role = { title: "IT Administrator & Lead Developer", company: "Extra Immobilien" };
-const github = site.socials.find((social) => social.name === "GitHub");
-
-// Two notes in his own words (content/about.json).
-const sidenotes = [
-  { lead: "Resident Tinkerer.", text: "Autonomous, iterative and technically rigorous: the way I like to work." },
-  { lead: "In the trenches:", text: "Arch Linux, Hackintosh kernels and BIOS tuning, pushing hardware to its limit." },
-];
 
 export function Intro() {
-  const quote = groundedLine();
-
   return (
-    <Section
-      id="about"
-      label="About"
-      numeral="One"
-      title="A builder from"
-      turn="Casablanca"
-      note="The short version: who I am, what I do by day, and how I think software should feel."
-    >
-      <div className="grid gap-x-[clamp(32px,6vw,96px)] gap-y-10 md:grid-cols-[minmax(0,320px)_minmax(0,1fr)] md:[grid-template-areas:'fiche_letter'_'notes_letter'] lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)]">
-        <dl className="fiche self-start md:[grid-area:fiche]">
-          <div>
-            <dt>Name</dt>
-            <dd>
-              {site.name}
-              <span className="block text-[13.5px] text-muted">
-                goes by {site.handle}
-                {github ? (
-                  <>
-                    {" · "}
-                    <a href={github.href} target="_blank" rel="noopener noreferrer" className="link rounded-[2px] text-muted focus-ring">
-                      @{github.handle}
-                      {NEW_TAB}
-                    </a>
-                  </>
-                ) : null}
-              </span>
-            </dd>
-          </div>
-          <div>
-            <dt>Practice</dt>
-            <dd>{site.title}</dd>
-          </div>
-          <div>
-            <dt>By day</dt>
-            <dd>
-              {role.title}
-              <span className="block text-[13.5px] text-muted">{role.company}</span>
-            </dd>
-          </div>
-          <div>
-            <dt>Based in</dt>
-            <dd>
-              Casablanca, Morocco
-              <span className="block text-[13.5px] text-muted">On the Atlantic coast</span>
-            </dd>
-          </div>
-          <div>
-            <dt>Status</dt>
-            <dd>
-              <span className="inline-flex items-center gap-2 text-green">
-                <Star size={12} />
-                {site.status.label}
-              </span>
-            </dd>
-          </div>
-        </dl>
+    <>
+      <section className="mt-6 flex max-w-[600px] flex-col gap-4 text-[16px]/[1.65] text-pretty text-secondary">
+        {site.intro.map((paragraph, index) => (
+          <p key={index}>{paragraph.map(renderSegment)}</p>
+        ))}
+      </section>
 
-        <div className="min-w-0 md:[grid-area:letter]">
-          <div className="flex flex-col gap-[1.1em] text-lede tracking-[-0.005em] text-pretty text-body">
-            {site.intro.map((paragraph, index) => (
-              <p
-                key={index}
-                className={
-                  index === 0
-                    ? "first-letter:float-left first-letter:mt-[0.06em] first-letter:me-[0.12em] first-letter:-ms-[0.02em] first-letter:font-display first-letter:text-[4.1em] first-letter:leading-[0.8] first-letter:font-normal first-letter:text-terra-fill first-letter:italic first-letter:[font-variation-settings:'SOFT'_100,'WONK'_1]"
-                    : undefined
-                }
+      <div className="mt-6 flex flex-wrap items-center gap-x-2 gap-y-2">
+        {/* The shared 16-grid glyphs are drawn a touch larger than the
+            reference's, so they render at 13px inside a 14px slot (the
+            0.5px margins keep the button widths at 87 / 117px). */}
+        <CommandButton view="say-hi" className="btn btn-solid">
+          <Mail size={13} className="mx-[0.5px]" />
+          Say hi
+        </CommandButton>
+        <CommandButton view="book-call" className="btn btn-soft">
+          <Calendar size={13} className="mx-[0.5px]" />
+          Book a call
+        </CommandButton>
+        {/* Four 34px socials don't fit next to the buttons on a 390px phone,
+            so between 389px and `sm` they tighten to 30px (30 x 40 on touch
+            screens) to stay on one line. Narrower than that (388px and
+            down) they wrap onto their own line at full size (34px, or 40px
+            on touch, as .btn-icon sets), pulled left by the glyph's inset
+            so the first one lines up with the text above. */}
+        <span className="flex items-center max-[389px]:-ms-[9px] max-[389px]:basis-full max-[389px]:pointer-coarse:-ms-3 sm:ms-1">
+          {site.socials.map((social) => {
+            const Icon = socialIcons[social.name];
+            if (!Icon) return null;
+            return (
+              <a
+                key={social.name}
+                href={social.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={social.name}
+                className="btn btn-icon min-[389px]:max-sm:w-[30px]!"
               >
-                {paragraph.map(segment)}
-              </p>
-            ))}
-          </div>
-
-          {quote ? (
-            <figure className="mt-7 border-t border-line pt-[26px]">
-              <blockquote>
-                <p className="serif-italic text-title-2 font-[350] text-balance text-primary">“{quote}”</p>
-              </blockquote>
-              <figcaption className="mt-3 text-[14px] text-muted">Zakaria, on how software should feel</figcaption>
-            </figure>
-          ) : null}
-        </div>
-
-        <aside aria-label="Sidenotes" className="md:[grid-area:notes] md:self-start">
-          <ul className="list-star flex flex-col gap-3 text-[15px] leading-[1.5] text-body md:gap-5 md:border-s md:border-line md:ps-5 md:[&>li]:ps-0 md:[&>li]:before:hidden">
-            {sidenotes.map((note) => (
-              <li key={note.lead}>
-                <span className="serif-italic text-[17px] text-primary md:block md:text-[19px]">{note.lead}</span>{" "}
-                <span className="md:text-[14.5px] md:text-muted">{note.text}</span>
-              </li>
-            ))}
-          </ul>
-        </aside>
+                <Icon />
+              </a>
+            );
+          })}
+        </span>
       </div>
-    </Section>
+    </>
   );
 }

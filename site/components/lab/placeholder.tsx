@@ -1,12 +1,5 @@
-// Stand-in drawn by a piece that hasn't been built yet. Delete this file
-// once no piece imports it.
-//
-// Where the host gives LoadPiece a poster (the arcade niches, the stage),
-// LoadPiece sees the data-lab-placeholder mark, keeps the code-drawn
-// poster on show and hides this layer; the stage then adds a small "in the
-// works" note. Where there is no poster (the home hero window) this is what
-// shows: the piece's name set on the band. It draws no <canvas> or <svg>
-// on purpose, so hosts that wait for a drawn piece keep their own poster.
+// Stand-in drawn by a piece that hasn't been built yet: its title, centred
+// on a soft tile. Delete this file once no piece imports it.
 
 import type { PieceMode } from "./types";
 
@@ -14,14 +7,12 @@ export function PiecePlaceholder({ title, mode }: { title: string; mode: PieceMo
   const stage = mode === "stage";
   return (
     <div
-      data-lab-placeholder={mode}
-      className="absolute inset-0 grid place-items-center bg-band p-4 text-center"
+      className="absolute inset-0 grid place-items-center bg-tile bg-[radial-gradient(circle_at_center,color-mix(in_oklab,var(--foreground)_9%,transparent)_1px,transparent_1.5px)] [background-size:16px_16px]"
+      style={{ backgroundPosition: "center" }}
     >
-      <div>
-        <p className={stage ? "font-display text-title-2 text-primary" : "font-display text-title-3 text-primary"}>
-          {title}
-        </p>
-        <p className="mt-1.5 serif-italic text-small text-muted">in the works</p>
+      <div className="rounded-[12px] bg-tile px-3 py-2 text-center">
+        <p className={stage ? "text-[15px] font-medium text-primary" : "text-[13px] text-secondary"}>{title}</p>
+        <p className="mt-0.5 text-[12px] text-tertiary">In the works</p>
       </div>
     </div>
   );

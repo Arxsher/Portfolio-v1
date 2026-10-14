@@ -12,16 +12,12 @@ export type PieceTheme = "light" | "dark";
 
 export type PieceProps = {
   /**
-   * "tile": the home / index preview, shown in an arched niche window
-   * (100:125, about 222 × 278 px on desktop and 167 × 209 px on phones; the
-   * arch cuts the top corners, so keep the subject in the lower three
-   * quarters). Self-running, low DPR, no audio, no focusable controls (the
-   * whole niche is a link); a cheap hover reaction is fine.
+   * "tile": the home / index preview, about 204px wide on desktop and 170px
+   * on phones. Self-running, low DPR, no audio, no focusable controls (the
+   * whole tile is a link); a cheap hover reaction is fine.
    * "stage": the full interactive piece on /lab/<slug>/. Fills its container
    * (render `position: absolute; inset: 0` inside it) and draws its own
-   * floating controls with the kit in components/lab/ui.tsx. The stage is
-   * paper with a domed top edge (its height is --lab-dome); the kit's top
-   * placements already keep clear of it.
+   * floating controls with the kit in components/lab/ui.tsx.
    */
   mode: PieceMode;
   /** False while offscreen or the tab is hidden: stop every rAF loop and sound. */
@@ -46,10 +42,7 @@ export type PieceMeta = {
   category: Category;
   /** The craft or object it draws from, e.g. "Solari split-flap boards". */
   inspiredBy?: string;
-  /**
-   * Shape of the old masonry tile: width / height. The arcade niches are all
-   * 100:125 now; this only matters to callers that still use <Masonry>.
-   */
+  /** Home / index tile shape: width / height (at the 204px desktop tile). */
   tile: { aspect: number };
   /**
    * The stage is 575px tall from the md breakpoint up. On phones it is

@@ -1,93 +1,81 @@
 "use client";
 
-// Home: Six · Guestbook. The book lies open at its latest page:
-//
-//   ┌ ruled page ───────────────┐
-//   │  │ newest note            │    The first page is still blank.
-//   │  │ ~~signature~~   NAME   │    Like the book by the door of a riad …
-//   │  │ …                      │    [✦ Sign the guestbook]  Read the book →
-//   └───────────────────────────┘
-//
-// With signatures, the page shows the two newest (in the order they were
-// signed into the book) and the count rides on the title. Without any (or
-// while the guestbook isn't connected) it is the blank first page, never
-// made-up entries. Entries load in the browser; the static HTML holds the
-// loading page (or the blank one when there is no guestbook at all).
+// Home page guestbook: the five newest signatures (three on phones) in a
+// 3-column grid, closed by the dashed "Leave a note" card that opens the
+// sign form in the command bar. Entries load in the browser; until then
+// the cells hold skeletons of the same size. No entries, no fake ones:
+// just the note card and a quiet line.
 
-import Link from "next/link";
-import { BlankPage } from "@/components/guestbook/blank-page";
-import { BookPage } from "@/components/guestbook/book-page";
+import { EntryCard, EntryCardSkeleton } from "@/components/guestbook/entry-card";
 import { useGuestbook } from "@/components/guestbook/data";
-import { Entry, EntrySkeleton } from "@/components/guestbook/entry-card";
-import { SignButton } from "@/components/guestbook/sign-button";
-import { Arrow } from "@/components/ornament";
+import { Pen } from "@/components/icons";
 import { Section } from "@/components/section";
+import { cn } from "@/lib/cn";
+import { openCommand } from "@/lib/command";
 
-const SHOWN = 2;
-const HOW = "write a line, then draw your name with a mouse, a finger or a pen.";
+const SHOWN = 5;
+// The 4th and 5th entries only show from sm up (2×2 grid on phones).
+const cellVisibility = (index: number) => (index >= 3 ? "hidden sm:flex" : undefined);
 
 export function Guestbook() {
   const { status, entries, count, enabled } = useGuestbook(SHOWN);
   const loading = status === "loading";
-  const signed = entries.length > 0;
-  const total = count ?? (signed ? entries.length : null);
 
-  const [heading, body] = loading
-    ? ["The book is open.", `Like the book by the door of a riad: ${HOW}`]
-    : status === "error" && !signed
-      ? ["The book is out of reach.", "Couldn’t load the guestbook right now. Try again in a little while."]
+  const emptyLine =
+    status === "error"
+      ? "Couldn't load the guestbook right now."
       : !enabled
-        ? ["The first page is still blank.", `The book isn’t open for signing yet. When it is, ${HOW}`]
-        : signed
-          ? [
-              total !== null ? `${total} ${total === 1 ? "name" : "names"} in the book so far.` : "The book is open.",
-              `Add yours on the next free line: ${HOW}`,
-            ]
-          : ["The first page is still blank.", `Like the book by the door of a riad: ${HOW} The first line is yours.`];
+        ? "Signatures will show up here once the guestbook is live."
+        : status === "ready" && entries.length === 0
+          ? "No signatures yet. Yours could be the first."
+          : null;
 
   return (
     <Section
       id="guestbook"
       label="guestbook"
-      numeral="Six"
-      title="Sign the"
-      turn="book"
-      count={enabled && signed && total !== null ? total : undefined}
+      count={enabled && count !== null ? `${count} signed` : undefined}
+      action={{ label: "Read them all", href: "/guestbook/" }}
     >
-      <div className="group/sign grid grid-cols-[minmax(0,1fr)] items-center gap-x-[clamp(28px,5vw,72px)] gap-y-9 md:grid-cols-2">
-        {loading ? (
-          <BookPage folio="Latest page" className="min-h-[360px]">
-            <ul aria-busy="true" aria-label="Loading the latest signatures">
-              <EntrySkeleton wide />
-              <EntrySkeleton />
-            </ul>
-          </BookPage>
-        ) : signed ? (
-          <BookPage folio="Latest page" className="min-h-[360px]">
-            <ol aria-label="The latest signatures" className="animate-fade-in">
-              {entries.map((entry, index) => (
-                <Entry key={entry.id} entry={entry} number={total !== null ? total - index : undefined} />
-              ))}
-            </ol>
-          </BookPage>
-        ) : (
-          <BlankPage folio="Page 1" className="min-h-[360px]" />
-        )}
-
-        <div>
-          <h3 className="serif-italic text-title-2 text-balance text-primary">{heading}</h3>
-          <p className="mt-3.5 max-w-[42ch] text-[16.5px] leading-[1.6] text-pretty text-body">{body}</p>
-          <div className="mt-[26px] flex flex-wrap items-center gap-x-7 gap-y-4">
-            <SignButton />
-            {signed ? (
-              <Link href="/guestbook/" className="link-arrow focus-ring rounded-[4px]">
-                Read the book
-                <Arrow />
-              </Link>
-            ) : null}
-          </div>
-        </div>
-      </div>
+      <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3" aria-busy={loading || undefined}>
+        {loading
+          ? Array.from({ length: SHOWN }, (_, index) => (
+              <EntryCardSkeleton key={`skeleton-${index}`} className={cellVisibility(index)} />
+            ))
+          : entries.map((entry, index) => (
+              <EntryCard
+                key={entry.id}
+                entry={entry}
+                className={cn("animate-fade-in", cellVisibility(index))}
+              />
+            ))}
+        <li>
+          <LeaveNoteCard />
+        </li>
+        {emptyLine ? (
+          <li className="col-span-1 flex min-h-[148px] items-center px-3.5 text-[13px] leading-[1.5] text-tertiary text-pretty sm:col-span-2">
+            {emptyLine}
+          </li>
+        ) : null}
+      </ul>
     </Section>
+  );
+}
+
+function LeaveNoteCard() {
+  return (
+    <button
+      type="button"
+      onClick={() => openCommand("guestbook")}
+      className="group flex size-full min-h-[148px] cursor-pointer flex-col justify-between rounded-card border border-dashed border-line-firm p-3.5 text-start transition-[border-color,background-color] duration-200 ease-out hover:border-transparent hover:bg-tile focus-visible:border-transparent focus-visible:bg-tile focus-ring"
+    >
+      <span className="grid size-8 place-items-center rounded-[9px] bg-well text-secondary transition-[color] duration-200 group-hover:text-primary group-focus-visible:text-primary">
+        <Pen />
+      </span>
+      <span className="text-[13px] leading-[1.5]">
+        <span className="block text-primary">Leave a note</span>
+        <span className="block text-tertiary">Signed by hand, kept here</span>
+      </span>
+    </button>
   );
 }

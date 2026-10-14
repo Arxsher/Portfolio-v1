@@ -1,15 +1,17 @@
 "use client";
 
-// "Writing": the essays, newest first, as numbered rows ("N° 1" in italic
-// terracotta Fraunces, the title, the date and where it lives), and a way
-// on to the writing page.
+// "Writing": the posts, newest first. Each row has the title and month on
+// one line and where it lives under it; a last row opens the writing page.
 
 import Link from "next/link";
-import { Arrow } from "@/components/ornament";
+import { ArrowUpRight, ChevronRight } from "@/components/icons";
 import { site } from "@/content/site";
+import { cn } from "@/lib/cn";
 import { formatMonthYear } from "@/lib/format";
-import { PANELS } from "../items";
-import { Panel, panelNameClass, panelRowClass, type PanelProps } from "./panel";
+import { VIEWS } from "../items";
+import { Panel, panelRowClass } from "./panel";
+
+const rowClass = cn(panelRowClass, "flex-col items-stretch gap-0.5");
 
 function host(href: string) {
   try {
@@ -19,69 +21,49 @@ function host(href: string) {
   }
 }
 
-export function WritingPanel({
-  titleId,
-  onBack,
-  onClose,
-  onNavigate,
-}: PanelProps & { onNavigate: () => void }) {
-  const info = PANELS.writing;
+export function WritingPanel({ onClose, onNavigate }: { onClose: () => void; onNavigate: () => void }) {
+  const info = VIEWS.writing;
   const posts = [...site.writing].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
 
   return (
-    <Panel titleId={titleId} title={info.title} description={info.description} onBack={onBack} onClose={onClose}>
-      <ol className="rule-ink">
-        {posts.map((post, index) => {
-          const body = (
-            <>
-              <span className="serif-italic w-14 shrink-0 text-[26px] leading-none whitespace-nowrap text-terra-fill">
-                N°&nbsp;{posts.length - index}
-              </span>
-              <span className="flex min-w-0 flex-1 flex-col gap-1">
-                <span className={`${panelNameClass} whitespace-normal`}>{post.title}</span>
-                <span className="text-[13.5px] text-muted">
-                  {formatMonthYear(post.date, "long")}
-                  {post.external ? ` · ${host(post.href)}` : ""}
-                </span>
-              </span>
-              {post.external ? (
-                <span
-                  aria-hidden="true"
-                  className="grid size-9 shrink-0 place-items-center self-center rounded-full border border-line-firm transition-colors duration-200 group-hover:border-ink group-hover:bg-ink group-hover:text-on-ink"
-                >
-                  <Arrow external />
-                </span>
-              ) : null}
-            </>
+    <Panel title={info.title} description={info.description} icon="doc" onClose={onClose}>
+      <ul className="flex flex-col">
+        {posts.map((post) => {
+          const top = (
+            <span className="flex items-baseline justify-between gap-4">
+              <span className="min-w-0 truncate text-[14px] font-medium text-primary">{post.title}</span>
+              <span className="shrink-0 text-[12px] text-tertiary tabular-nums">{formatMonthYear(post.date)}</span>
+            </span>
           );
           return (
-            <li key={post.href} className="border-b border-line">
+            <li key={post.href}>
               {post.external ? (
-                <a
-                  href={post.href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={onClose}
-                  className={`${panelRowClass} items-start py-4`}
-                >
-                  {body}
-                  <span className="sr-only">(opens in a new tab)</span>
+                <a href={post.href} target="_blank" rel="noopener noreferrer" onClick={onClose} className={rowClass}>
+                  {top}
+                  <span className="flex items-center gap-1 text-[13px] text-secondary">
+                    <span className="truncate">On {host(post.href)}</span>
+                    <ArrowUpRight size={12} className="text-tertiary" />
+                    <span className="sr-only">(opens in a new tab)</span>
+                  </span>
                 </a>
               ) : (
-                <Link href={post.href} onClick={onNavigate} className={`${panelRowClass} items-start py-4`}>
-                  {body}
+                <Link href={post.href} onClick={onNavigate} className={rowClass}>
+                  {top}
                 </Link>
               )}
             </li>
           );
         })}
-      </ol>
-      <p className="mt-5 flex justify-end">
-        <Link href="/writing/" onClick={onNavigate} className="link-arrow focus-ring rounded-[4px]">
-          The writing page
-          <Arrow />
-        </Link>
-      </p>
+        <li>
+          <Link href="/writing/" onClick={onNavigate} className={rowClass}>
+            <span className="flex items-baseline justify-between gap-4">
+              <span className="text-[14px] font-medium text-primary">All writing</span>
+              <ChevronRight size={13} className="self-center text-tertiary" />
+            </span>
+            <span className="text-[13px] text-secondary">The writing page, with everything in one list.</span>
+          </Link>
+        </li>
+      </ul>
     </Panel>
   );
 }

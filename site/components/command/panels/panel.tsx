@@ -1,129 +1,127 @@
 "use client";
 
-// Shared chrome for the Index sheet and its panels (DESIGN.md → Command
-// palette and panels).
+// Shared chrome for every view of the command bar:
 //
-//                     ✦                         the inlaid star, centred under the dome
-//   [←]          Get in touch          [×]      back, the title in serif italic, close
-//            one quiet line about it
-//   ───────────────────────────────────────
-//   body …                                      scrolls inside the sheet
+//   ┌──────────────────────────────────────────────┐
+//   │ [▣]  Title                                 × │   36px tile, 15px title
+//   │      One line on what this is.               │   13px description
+//   │                                              │
+//   │  body …                                      │   scrolls past 64vh
+//   │ ──────────────────────────────────────────── │   hairline above the input
 //
-// The Index shows the same head without the back arrow (its close button
-// appears on touch screens and phones, where there is no Esc key). Every
-// title carries data-sheet-title so the sheet can hand focus to it.
+// The body keeps its full width while the dock widens around it (it is
+// centred and clipped), so nothing reflows during the open animation.
 
 import type { ReactNode } from "react";
-import { Close } from "@/components/icons";
-import { Arrow, Star } from "@/components/ornament";
-import { cn } from "@/lib/cn";
+import {
+  Calendar,
+  Close,
+  Doc,
+  Folder,
+  GitHub,
+  Home,
+  Instagram,
+  Mail,
+  Moon,
+  Pen,
+  Sparkle,
+  Spotify,
+  X,
+} from "@/components/icons";
+import type { IconName } from "../items";
 
-export function SheetHead({
-  titleId,
-  title,
-  description,
-  onBack,
-  onClose,
-  closeOnTouchOnly = false,
-  size = "panel",
-}: {
-  titleId: string;
-  title: ReactNode;
-  description?: ReactNode;
-  /** Back to the Index (panels only). */
-  onBack?: () => void;
-  onClose: () => void;
-  /** The Index: the close button only where there is no Esc key. */
-  closeOnTouchOnly?: boolean;
-  size?: "index" | "panel";
-}) {
-  return (
-    <div className="shrink-0 px-4 pt-[22px] text-center sm:px-5 sm:pt-6">
-      <Star size={size === "index" ? 18 : 15} variant="inlaid" className="mx-auto text-terra-fill" />
-      <div className="mt-1 grid min-h-11 grid-cols-[44px_minmax(0,1fr)_44px] items-center gap-2">
-        <span className="flex justify-start">
-          {onBack ? (
-            <button type="button" onClick={onBack} aria-label="Back to the index" className="btn btn-icon">
-              <Arrow className="rotate-180" />
-            </button>
-          ) : null}
-        </span>
-        <h2
-          id={titleId}
-          tabIndex={-1}
-          data-sheet-title=""
-          className={cn(
-            "serif-italic truncate leading-[1.2] text-primary outline-none",
-            size === "index" ? "text-[22px]" : "text-[20px]",
-          )}
-        >
-          {title}
-        </h2>
-        <span className="flex justify-end">
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className={cn(
-              "btn btn-icon max-sm:w-auto max-sm:px-3.5",
-              closeOnTouchOnly && "hidden max-sm:inline-flex pointer-coarse:inline-flex",
-            )}
-          >
-            <Close size={15} className="max-sm:hidden" />
-            <span aria-hidden="true" className="text-[13.5px] sm:hidden">
-              Close
-            </span>
-          </button>
-        </span>
-      </div>
-      {description ? (
-        <p className="mx-auto mt-0.5 max-w-[46ch] text-small text-pretty text-muted">{description}</p>
-      ) : null}
-    </div>
-  );
+/** Brand marks read a touch large next to the glyphs, so they draw smaller (X by 2px, GitHub and Spotify by 1px). */
+export function ViewIcon({ name, size = 14 }: { name: IconName; size?: number }) {
+  switch (name) {
+    case "home":
+      return <Home size={size} />;
+    case "pen":
+      return <Pen size={size} />;
+    case "calendar":
+      return <Calendar size={size} />;
+    case "mail":
+      return <Mail size={size} />;
+    case "folder":
+      return <Folder size={size} />;
+    case "doc":
+      return <Doc size={size} />;
+    case "sparkle":
+      return <Sparkle size={size} />;
+    case "moon":
+      return <Moon size={size} />;
+    case "github":
+      return <GitHub size={size - 1} />;
+    case "x":
+      return <X size={size - 2} />;
+    case "instagram":
+      return <Instagram size={size} />;
+    case "spotify":
+      return <Spotify size={size - 1} />;
+  }
+}
+
+/** The content column inside the dock: full panel width, centred while the dock animates. */
+export const columnStyle = { width: "min(540px, calc(100vw - 24px))" } as const;
+
+/** The hairline between a view and the input row. */
+export function Hairline() {
+  return <div aria-hidden="true" className="mx-3 h-px bg-border" />;
 }
 
 export function Panel({
-  titleId,
+  label,
   title,
   description,
-  onBack,
+  icon,
   onClose,
   children,
-  bodyClassName,
 }: {
-  titleId: string;
-  title: ReactNode;
-  description?: ReactNode;
-  onBack: () => void;
+  /** Accessible name of the view (defaults to the title). */
+  label?: string;
+  title: string;
+  description: ReactNode;
+  icon: IconName;
   onClose: () => void;
   children?: ReactNode;
-  bodyClassName?: string;
 }) {
   return (
-    <section aria-labelledby={titleId} className="flex min-h-0 flex-1 flex-col">
-      <SheetHead titleId={titleId} title={title} description={description} onBack={onBack} onClose={onClose} />
+    <section aria-label={label ?? title} className="w-full">
       <div
-        data-sheet-body=""
-        className={cn("min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pt-5 pb-6 sm:px-6", bodyClassName)}
+        className="relative left-1/2 max-h-[min(64vh,580px,calc(var(--dock-room,100vh)_-_120px))] -translate-x-1/2 overflow-y-auto overscroll-contain p-3"
+        style={columnStyle}
       >
+        <div className="mb-4 flex items-start gap-3">
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-[8px] bg-tile text-primary">
+            <ViewIcon name={icon} />
+          </span>
+          <div className="min-w-0 flex-1 leading-[1.35]">
+            <h2 className="text-[15px] font-medium text-primary">{title}</h2>
+            {typeof description === "string" ? (
+              <p className="text-[13px] text-secondary">{description}</p>
+            ) : (
+              description
+            )}
+          </div>
+          <button
+            type="button"
+            aria-label="Close"
+            onClick={onClose}
+            className="-me-1 -mt-1 flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-[12px] text-tertiary outline-none transition-colors duration-150 hover:bg-well hover:text-primary focus-visible:bg-well focus-visible:text-primary focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-primary"
+          >
+            <Close size={15} />
+          </button>
+        </div>
         {children}
       </div>
+      <Hairline />
     </section>
   );
 }
 
-/** Props every panel gets from the sheet. */
-export type PanelProps = {
-  titleId: string;
-  onBack: () => void;
-  /** Close and put focus back where it was. */
-  onClose: () => void;
-};
+/** The solid 36px button used inside panels (Send, Follow, Say hi instead). */
+export const panelButtonClass =
+  "relative inline-flex h-9 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-[12px] bg-ink px-4 text-[14px] font-medium text-on-ink transition-[opacity,scale] duration-150 ease-out hover:opacity-90 active:scale-[0.96] disabled:cursor-default disabled:opacity-60 disabled:active:scale-100 focus-ring";
 
-/** A row in a panel's list: the sand band rises on hover and focus (DESIGN.md → Rows). */
-export const panelRowClass = "group row-rise flex items-baseline gap-4 px-2 py-3 text-primary focus-ring";
-
-/** The serif name in a panel row; turns italic cobalt with its row. */
-export const panelNameClass =
-  "min-w-0 truncate font-display text-[19px] leading-[1.25] tracking-[-0.01em] group-hover:turn group-focus-visible:turn";
+/** The soft row used by list-like views (writing posts, projects). */
+export const panelRowClass =
+  "-mx-2 flex items-center gap-3 rounded-[14px] p-2 outline-none transition-colors duration-150 ease-out hover:bg-tile focus-visible:bg-tile focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-primary";

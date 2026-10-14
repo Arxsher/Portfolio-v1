@@ -1,7 +1,6 @@
 "use client";
 
-// Draw-your-signature canvas, on a slip of paper with a dotted line to
-// sign on (a terracotta cross at its start). Works with mouse, pen and touch (pointer
+// Draw-your-signature canvas. Works with mouse, pen and touch (pointer
 // events, touch-action: none so the page doesn't scroll mid-stroke), draws
 // crisp on high-DPI screens and smooths strokes with quadratic curves
 // through the midpoints of the sampled points.
@@ -244,25 +243,13 @@ export function SignaturePad({
       role="group"
       aria-labelledby={labelledBy}
       aria-describedby={statusId}
-      className={cn(
-        "relative touch-none overflow-hidden rounded-sheet bg-paper shadow-[inset_0_0_0_1px_var(--line-firm)]",
-        className,
-      )}
+      className={cn("relative touch-none", className)}
     >
       <span id={statusId} className="sr-only">
         {empty
           ? "Required. Draw your signature with a mouse, pen or finger, or use the sign button to sign with your name."
           : "Signed."}
       </span>
-      {/* the line to sign on, and its cross */}
-      <span aria-hidden="true" className="pointer-events-none absolute inset-x-[6%] top-[72%] border-t-[1.5px] border-dotted border-line-firm" />
-      <svg
-        aria-hidden="true"
-        viewBox="0 0 12 12"
-        className="pointer-events-none absolute top-[72%] left-[6%] size-3 -translate-y-[calc(100%+6px)] text-terra"
-      >
-        <path d="M1.5 1.5l9 9M10.5 1.5l-9 9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      </svg>
       <canvas
         ref={canvasRef}
         aria-hidden="true"
@@ -272,19 +259,18 @@ export function SignaturePad({
         onPointerCancel={endStroke}
         onLostPointerCapture={endStroke}
         className={cn(
-          // The stroke colour is read from here: the theme's ink.
-          "relative block aspect-2/1 w-full touch-none text-ink select-none sm:aspect-[4/1]",
+          "block aspect-2/1 w-full touch-none rounded-xl bg-float text-primary shadow-lift select-none sm:aspect-4/1",
           disabled ? "cursor-default" : "cursor-crosshair",
         )}
       />
       <span
         aria-hidden="true"
         className={cn(
-          "pointer-events-none absolute inset-x-0 top-[30%] px-4 text-center text-small text-muted transition-opacity duration-200 ease-out",
+          "pointer-events-none absolute inset-0 flex items-center justify-center text-[14px] text-tertiary transition-opacity duration-200 ease-out",
           empty ? "opacity-100" : "opacity-0",
         )}
       >
-        Sign on the line with a mouse, a pen or a finger
+        Sign here with your mouse or finger
       </span>
       {empty && !disabled ? (
         // Shows only while focused, over the hint; pointer presses go
@@ -293,7 +279,7 @@ export function SignaturePad({
           ref={typedRef}
           type="button"
           onClick={signWithName}
-          className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-sheet bg-paper px-4 text-center text-small font-[550] text-primary opacity-0 outline-none focus-visible:opacity-100 focus-visible:shadow-[inset_0_0_0_2px_var(--cobalt)]"
+          className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-xl bg-float px-4 text-center text-[14px] text-primary opacity-0 focus-visible:opacity-100 focus-ring"
         >
           {typedLabel}
         </button>
@@ -304,7 +290,7 @@ export function SignaturePad({
           type="button"
           onClick={clearByButton}
           aria-label="Clear signature"
-          className="btn btn-ghost btn-sm absolute end-1.5 bottom-1.5 animate-fade-in"
+          className="absolute end-1.5 bottom-1.5 cursor-pointer rounded-lg px-2 py-0.5 text-[13px] text-secondary outline-none transition-[color,background-color] duration-150 ease-out animate-fade-in hover:bg-wash hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
         >
           Clear
         </button>

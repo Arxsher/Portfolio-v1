@@ -1,17 +1,17 @@
-// The mark: an inlaid eight-pointed star, the khatam at the heart of every
-// zellige panel (an outline star with a solid star set in its centre). It
-// stands for the site in the top bar (cobalt), on the seal in the lab, on
-// the avatar tile and wherever "arsher" needs a sign. Paints with
-// currentColor; stays crisp from 12px up.
-//
-//   <Logo />                      16px, decorative
-//   <Logo size={20} className="text-cobalt" />
-//   <Logo title="arsher" />       with an accessible name
+// The "arsher" mark: a pixel arrowhead (an A without its crossbar, the
+// archer's point) with a single pixel dot where the bar would be. Drawn on
+// a 16×16 grid with crisp 2px blocks so it stays sharp at 14–16px.
 
-import { starPoints } from "@/lib/zellige";
-
-const OUTER = starPoints(12, 12, 10.6);
-const HEART = starPoints(12, 12, 5.2);
+const BLOCKS: ReadonlyArray<readonly [number, number, number, number]> = [
+  [7, 1, 2, 2], // tip
+  [5, 3, 2, 3],
+  [9, 3, 2, 3],
+  [3, 6, 2, 4],
+  [11, 6, 2, 4],
+  [1, 10, 2, 5], // feet
+  [13, 10, 2, 5],
+  [7, 10, 2, 2], // the dot
+];
 
 export function Logo({
   className,
@@ -26,23 +26,18 @@ export function Logo({
     <svg
       width={size}
       height={size}
-      viewBox="0 0 24 24"
-      className={className ? `shrink-0 ${className}` : "shrink-0"}
+      viewBox="0 0 16 16"
+      shapeRendering="crispEdges"
+      className={className ? `shrink-0 fill-current ${className}` : "shrink-0 fill-current"}
       role={title ? "img" : undefined}
       aria-hidden={title ? undefined : true}
       aria-label={title}
       focusable="false"
     >
       {title ? <title>{title}</title> : null}
-      <polygon
-        points={OUTER}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={size <= 14 ? 1.6 : 1.5}
-        strokeLinejoin="round"
-        vectorEffect="non-scaling-stroke"
-      />
-      <polygon points={HEART} fill="currentColor" />
+      {BLOCKS.map(([x, y, w, h]) => (
+        <rect key={`${x}-${y}`} x={x} y={y} width={w} height={h} />
+      ))}
     </svg>
   );
 }

@@ -4,11 +4,8 @@
 // follows the text colour of its tile in both themes. At render time each
 // drawing is centred and scaled to fill 18 of the 20 units (see FIT).
 //
-//   <ProjectIcon slug="laya" className="size-5 text-primary" />   // the Index rows
-//   <ProjectTile slug="laya" />   // the glyph set in a small paper seal
-//
-// The work index itself shows no marks (DESIGN.md: big-type rows, no icon
-// tiles); the glyphs live on in the Index (command palette) and its panels.
+//   <ProjectIcon slug="laya" className="size-5 text-primary" />
+//   <ProjectTile slug="laya" />   // the 44px rounded tile used in the rows
 
 import type { ReactNode } from "react";
 import { cn } from "@/lib/cn";
@@ -208,18 +205,19 @@ export function ProjectIcon({ slug, className, title }: GlyphProps & { slug: str
   );
 }
 
-/** The glyph set in a 44px paper seal: a round paper disc with a hairline
-    ring and the mark in cobalt. Not used by the work rows; kept for anything
-    that wants a project's mark at button size. */
+/** The 44px tile the glyph sits in (radius 13, surface fill, 20px glyph).
+    In light mode the glyph is dimmed with brightness(.82), which takes the
+    #171717 ink down to about rgb(19,19,19), the same depth as the marks on
+    the reference rows. Dark mode leaves it at full brightness. The filter is
+    on the svg, not on the tile, so it acts on the ink before it is laid over
+    the surface: solid strokes get darker, the .45 secondary tones barely move
+    (about 142 -> 141), and the tile fill is not touched. */
 export function ProjectTile({ slug, className }: { slug: string; className?: string }) {
   return (
     <span
-      className={cn(
-        "flex size-11 shrink-0 items-center justify-center rounded-full bg-paper text-cobalt ring-1 ring-line-firm",
-        className,
-      )}
+      className={cn("flex size-11 shrink-0 items-center justify-center rounded-[13px] bg-tile", className)}
     >
-      <ProjectIcon slug={slug} className="size-5" />
+      <ProjectIcon slug={slug} className="size-5 text-primary brightness-[.82] dark:brightness-100" />
     </span>
   );
 }

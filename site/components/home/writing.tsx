@@ -1,23 +1,19 @@
-// Home: Four · Writing. The newest posts as big numbered rows, with a way
-// on to /writing/.
+// Home: the writing section, the newest posts with a link to /writing.
 
 import { Section } from "@/components/section";
 import { WritingList } from "@/components/writing-row";
 import { site } from "@/content/site";
+import { pad } from "@/lib/format";
 
 /** How many posts the home page lists before "All writing". */
-const HOME_POSTS = 3;
+const HOME_POSTS = 5;
 
 export function Writing() {
   return (
     <Section
       id="writing"
       label="writing"
-      numeral="Four"
-      title="Notes &"
-      turn="essays"
-      count={site.writing.length}
-      note="Longer thoughts, newest first. Some are published on their own sites."
+      count={pad(site.writing.length, 2)}
       action={{ label: "All writing", href: "/writing/" }}
     >
       <WritingList posts={site.writing} limit={HOME_POSTS} />

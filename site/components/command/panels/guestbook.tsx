@@ -1,26 +1,25 @@
 "use client";
 
-// "Sign the guestbook": the sheet's chrome around the guestbook's own sign
-// form (components/guestbook/sign-form.tsx), which closes the sheet once
-// the signature is in.
+// "Sign the guestbook": the panel chrome around the guestbook's own sign
+// form (components/guestbook/sign-form.tsx), which closes the bar when the
+// signature is in.
 
 import { GuestbookSignForm } from "@/components/guestbook/sign-form";
 import type { CommandPrefill } from "@/lib/command";
-import { PANELS } from "../items";
-import { Panel, type PanelProps } from "./panel";
+import { VIEWS } from "../items";
+import { Panel } from "./panel";
 
 export function GuestbookPanel({
-  titleId,
-  onBack,
-  onClose,
   prefill,
-}: PanelProps & {
+  onClose,
+}: {
   /** Starting name and message, e.g. from openCommand("guestbook", prefill). */
   prefill?: Pick<CommandPrefill, "name" | "message">;
+  onClose: () => void;
 }) {
-  const info = PANELS.guestbook;
+  const info = VIEWS.guestbook;
   return (
-    <Panel titleId={titleId} title={info.title} description={info.description} onBack={onBack} onClose={onClose}>
+    <Panel title={info.title} description={info.description} icon="pen" onClose={onClose}>
       <GuestbookSignForm onDone={onClose} prefill={prefill} />
     </Panel>
   );

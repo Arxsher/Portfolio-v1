@@ -1,44 +1,18 @@
-// A project's own page (DESIGN.md §9, "Work list and project pages"):
-//
-//   ✦──────────────────────────────────────────────────────────────────
-//   WORK / AEGILABS
-//   AegiLabs                                         [Visit the live site ↗]
-//   AI agents for workflow automation                [Source on GitHub ↗]
-//
-//   ─────────────── (ink)       Overview paragraphs …
-//   KIND      AI agents
-//   DATE      August 2026       ✦────────────────────────────────
-//   TAGS      nextjs-16 …       Key features
-//   VIEWS     1,204             ✦ Marketing Site …
-//
-//   CONTENTS                    ✦────────────────────────────────
-//   01 Overview                 How it's built
-//   02 Key features             01  FRAMEWORK   Next.js 16 …
-//   03 How it's built
-//
-//   ✦──────────────────────────────────────────────────────────────────
-//   MORE WORK                                                  All work →
-//   PREVIOUS   Liquid Glass (big type)   …
-//   NEXT       Laya …
-//
-// From 1024px the fiche and the contents sit in a sticky rail on the left
-// and the write-up reads on the right. The contents entry for the part
-// being read turns to italic cobalt; that is done with a CSS scroll-driven
-// animation, so the page needs no client JavaScript (only the optional
-// view count is a client component).
+// A project's own page, laid out like a writing post: meta line, title and
+// one-line summary, then the write-up (overview paragraphs, key features,
+// architecture), the tags, and links to the previous / next project.
+// On wide screens a table of contents sits fixed on the left; the entry for
+// the part being read is highlighted by a CSS scroll-driven animation, so the
+// page needs no client JavaScript.
 
 import type { ReactNode } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { GitHub } from "@/components/icons";
-import { Arrow, StarRule } from "@/components/ornament";
-import { categoryLabel, projectYear } from "@/components/project-row";
+import { ArrowUpRight } from "@/components/icons";
 import { ProjectViews } from "@/components/project-views";
-import { PageHeader } from "@/components/section";
 import { projects, site, type Project } from "@/content/site";
 import { cn } from "@/lib/cn";
-import { pad } from "@/lib/format";
 
 export const dynamicParams = false;
 
@@ -83,7 +57,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 }
 
 /* ---------------------------------------------------------------------- */
-/* the fiche                                                               */
+/* meta line                                                               */
 /* ---------------------------------------------------------------------- */
 
 const MONTHS = [
@@ -99,45 +73,32 @@ function monthIso(value: string): string | undefined {
   return month < 0 ? undefined : `${match[2]}-${String(month + 1).padStart(2, "0")}`;
 }
 
-const squash = (text: string) => text.toLowerCase().replace(/[^a-z0-9]/g, "");
+/** Words that mean the same thing in the meta line ("In progress", "wip"). */
+const SAME_AS: Record<string, string> = { wip: "inprogress" };
 
-/** Statuses that say nothing a visitor needs ("Verified" is on almost every project). */
+/** Statuses too common to be worth a mention. */
 const QUIET_STATUSES = new Set(["verified"]);
 
-/** Words that all mean "still being built". */
-const BUILDING = new Set(["inprogress", "wip", "intheworks", "comingsoon"]);
-
-type FicheRow = { key: string; label: string; value: ReactNode };
-
-/** Kind, date and status for the fiche, without saying the same thing twice:
-    a project still being built shows "In the works" once, in green, and no
-    kind ("wip" is not a kind of work). */
-function ficheRows(project: Project): FicheRow[] {
-  const rows: FicheRow[] = [];
-  const date = project.date.trim();
-  const status = project.status?.trim() ?? "";
-  const building =
-    project.category === "wip" || BUILDING.has(squash(date)) || BUILDING.has(squash(status));
-
-  if (project.category !== "wip") {
-    rows.push({ key: "kind", label: "Kind", value: categoryLabel(project.category) });
+/** One quiet item: the date, plus the status only when it says something
+    ("In progress"), never the same words twice. The category is left out;
+    the tags at the end of the write-up already cover it. */
+function metaItems(project: Project): string[] {
+  const seen = new Set<string>();
+  const items: string[] = [];
+  for (const value of [project.date, project.status]) {
+    const text = value?.trim();
+    if (!text) continue;
+    const key = text.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const canonical = SAME_AS[key] ?? key;
+    if (seen.has(canonical) || QUIET_STATUSES.has(canonical)) continue;
+    seen.add(canonical);
+    items.push(text);
   }
-  if (projectYear(date) !== null) {
-    const iso = monthIso(date);
-    rows.push({ key: "date", label: "Date", value: iso ? <time dateTime={iso}>{date}</time> : date });
-  } else if (date && !BUILDING.has(squash(date))) {
-    rows.push({ key: "date", label: "Date", value: date });
-  }
-  if (building) {
-    rows.push({ key: "status", label: "Status", value: <span className="text-green">In the works</span> });
-  } else if (status && !QUIET_STATUSES.has(squash(status))) {
-    rows.push({ key: "status", label: "Status", value: status });
-  }
-  return rows;
+  return items;
 }
 
 /* ---------------------------------------------------------------------- */
-/* contents                                                                */
+/* table of contents                                                       */
 /* ---------------------------------------------------------------------- */
 
 type TocEntry = { id: string; label: string };
@@ -146,21 +107,18 @@ type TocEntry = { id: string; label: string };
 const TOC_IDS = ["overview", "key-features", "architecture"] as const;
 const timelineName = (id: string) => `--toc-${id}`;
 
-/** Distance from the top of a <Part> to its heading: pt-16 + the 12px star rule + mt-6. */
-const PART_HEAD_OFFSET = "100px";
+/** Distance from the top of a <Part> to its heading: pt-14 + the 2px rule + mt-14. */
+const PART_HEAD_OFFSET = "114px";
 
 // An entry is "current" from the moment its heading crosses a reading line 30%
 // down the viewport until the next heading does (the first entry counts from
 // page load). Each part's view timeline starts PART_HEAD_OFFSET above its
 // heading, so the ranges are shifted by that much. Parts sit flush (padding,
 // not margin), so one range ends exactly where the next begins. Each <li> runs
-// an animation over its part's timeline that sets --toc-on: 1; the entry's
-// styles answer to a style query, so they still ease in with ordinary
-// transitions. The last entry fills forwards and stays lit to the end of the
-// page. Browsers without scroll-driven animations get a plain list.
-//
-// The current entry takes the site's one hover signature, the italic turn
-// (Fraunces italic, cobalt), and its numeral warms to terracotta.
+// an animation over its part's timeline that sets --toc-on: 1; the link styles
+// answer to a style query, so they still ease in with ordinary transitions.
+// The last entry fills forwards and stays lit to the end of the page.
+// Browsers without scroll-driven animations get a plain list.
 //
 // Anchor jumps glide: smooth scrolling is on while the pointer or focus is in
 // the list, or while one of its targets is the URL fragment (a keyboard jump
@@ -180,12 +138,9 @@ const tocCss = `
     from, to { --toc-on: 1; }
   }
   @container style(--toc-on: 1) {
-    .ptoc-text {
-      color: var(--cobalt);
-      font-style: italic;
-      font-variation-settings: "SOFT" 100, "WONK" 1;
-    }
-    .ptoc-num { color: var(--terra); }
+    .ptoc-link { color: var(--foreground); font-weight: 500; }
+    .ptoc-line { scale: 1 1; opacity: 1; }
+    .ptoc-text { translate: 12px 0; }
   }
 }
 @media (prefers-reduced-motion: no-preference) {
@@ -195,92 +150,91 @@ const tocCss = `
 }
 `;
 
+/** The list is 210px wide and keeps an 80px gap to the content column (about
+    104px to the text, past the column's padding), so it follows the column on
+    wide screens; on narrower ones it stops 2rem from the window edge. */
+const TOC_START = "max(2rem, calc(50% - var(--column-width) / 2 - 210px - 80px))";
+
 function tocRange(first: boolean) {
   const end = `cover calc(100% - 30vh + ${PART_HEAD_OFFSET})`;
   return first ? `cover 0% ${end}` : `cover calc(70vh + ${PART_HEAD_OFFSET}) ${end}`;
 }
 
-function TableOfContents({ entries }: { entries: TocEntry[] }) {
+function TableOfContents({ entries, slug }: { entries: TocEntry[]; slug: string }) {
   return (
-    <nav aria-labelledby="ptoc-title" className="ptoc mt-12 hidden lg:block">
+    <nav aria-label="Table of contents" className="ptoc fixed top-24 hidden w-[210px] xl:block" style={{ insetInlineStart: TOC_START }}>
       <style>{tocCss}</style>
-      <p id="ptoc-title" className="caps text-muted">
-        Contents
-      </p>
-      <ol className="mt-3.5">
+      <ProjectViews slug={slug} />
+      <p className="text-[14px] text-secondary">Table of Contents</p>
+      <ul className="mt-8">
         {entries.map((entry, index) => (
           <li
             key={entry.id}
             className="ptoc-item"
             style={{ animationTimeline: timelineName(entry.id), animationRange: tocRange(index === 0) }}
           >
+            {index > 0 ? (
+              <span aria-hidden="true" className="block">
+                <span className="flex h-[9px] items-center">
+                  <span className="h-px w-3 bg-secondary/15" />
+                </span>
+                <span className="flex h-[9px] items-center">
+                  <span className="h-px w-3 bg-secondary/15" />
+                </span>
+              </span>
+            ) : null}
             <a
               href={`#${entry.id}`}
-              className="group grid grid-cols-[30px_minmax(0,1fr)] items-baseline rounded-[4px] py-[5px] focus-ring"
+              className="ptoc-link group relative flex h-[9px] items-center gap-2.5 text-[13px]/none text-secondary transition-[color] duration-200 ease-out before:absolute before:inset-x-0 before:-inset-y-[9px] before:content-[''] hover:text-primary"
             >
-              <span
-                aria-hidden="true"
-                className="ptoc-num font-display text-[13px] text-muted tabular-nums transition-colors duration-300 ease-out [font-variant-numeric:oldstyle-nums_tabular-nums]"
-              >
-                {pad(index + 1)}
+              <span className="flex w-8 shrink-0">
+                <span className="ptoc-line h-px w-full origin-left scale-x-[0.625] bg-current opacity-25 transition-[scale,opacity] duration-300 ease-swap group-hover:scale-x-[0.85]" />
               </span>
-              <span className="ptoc-text font-display text-[18px] leading-[1.3] text-secondary transition-colors duration-300 ease-out group-hover:text-primary">
+              <span className="ptoc-text truncate transition-[translate] duration-300 ease-swap motion-reduce:transition-none">
                 {entry.label}
               </span>
             </a>
           </li>
         ))}
-      </ol>
+      </ul>
     </nav>
   );
 }
 
 /* ---------------------------------------------------------------------- */
-/* the write-up                                                            */
+/* prose pieces                                                            */
 /* ---------------------------------------------------------------------- */
 
-/** One titled part of the write-up: a star rule, then the head in Fraunces
-    with an italic turn. Padding (not margin) keeps the parts flush, so their
-    scroll timelines hand over without a gap. */
-function Part({ id, title, turn, children }: { id: string; title: string; turn?: string; children: ReactNode }) {
+/** The quiet dashed divider between parts of a post. */
+function SectionRule() {
   return (
-    <section aria-labelledby={id} className="pt-16" style={{ viewTimeline: `${timelineName(id)} block` }}>
-      <StarRule />
-      <h2 id={id} data-toc-target="" className="mt-6 font-display text-title-2 font-[380] text-balance text-primary">
+    <div aria-hidden="true" className="flex justify-center gap-1">
+      {[0, 1, 2, 3, 4, 5].map((dash) => (
+        <span key={dash} className="h-0.5 w-4 rounded-full bg-secondary/12" />
+      ))}
+    </div>
+  );
+}
+
+/** One titled part of the write-up. Padding (not margin) keeps the parts
+    flush, so their scroll timelines hand over without a gap. */
+function Part({ id, title, children }: { id: string; title: string; children: ReactNode }) {
+  return (
+    <section aria-labelledby={id} className="pt-14" style={{ viewTimeline: `${timelineName(id)} block` }}>
+      <SectionRule />
+      <h2 id={id} data-toc-target="" className="mt-14 scroll-mt-24 font-medium text-primary">
         {title}
-        {turn ? (
-          <>
-            {" "}
-            <em className="turn">{turn}</em>
-          </>
-        ) : null}
       </h2>
-      <div className="mt-7">{children}</div>
+      <div className="mt-4">{children}</div>
     </section>
   );
 }
 
-function ExternalButton({
-  href,
-  solid,
-  icon,
-  children,
-}: {
-  href: string;
-  solid: boolean;
-  icon?: ReactNode;
-  children: ReactNode;
-}) {
+function ExternalLink({ href, children }: { href: string; children: ReactNode }) {
   return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className={cn("btn btn-lg", solid ? "btn-solid" : "btn-soft")}
-    >
-      {icon}
+    <a href={href} target="_blank" rel="noopener noreferrer" className="link inline-flex items-center gap-1">
       {children}
-      <Arrow external />
+      <ArrowUpRight size={13} className="text-tertiary" />
       <span className="sr-only">(opens in a new tab)</span>
     </a>
   );
@@ -304,12 +258,13 @@ export default async function ProjectPage({ params }: PageProps) {
   const architecture = project.architecture
     .map((row) => ({ label: row.label.replace(/^\$\s*/, ""), value: row.value }))
     .filter((row) => row.label && row.value);
-  const fiche = ficheRows(project);
+  const meta = metaItems(project);
+  const dateIso = monthIso(project.date);
 
   const toc: TocEntry[] = [
     { id: "overview", label: "Overview" },
     ...(features.length ? [{ id: "key-features", label: "Key features" }] : []),
-    ...(architecture.length ? [{ id: "architecture", label: "How it's built" }] : []),
+    ...(architecture.length ? [{ id: "architecture", label: "Architecture" }] : []),
   ];
 
   const structuredData = {
@@ -323,22 +278,6 @@ export default async function ProjectPage({ params }: PageProps) {
     ...(links.live ? { sameAs: links.live } : {}),
   };
 
-  const actions =
-    links.live || links.github ? (
-      <div className="mt-7 flex flex-wrap gap-2.5">
-        {links.live ? (
-          <ExternalButton href={links.live} solid>
-            Visit the live site
-          </ExternalButton>
-        ) : null}
-        {links.github ? (
-          <ExternalButton href={links.github} solid={!links.live} icon={<GitHub size={15} />}>
-            Source on GitHub
-          </ExternalButton>
-        ) : null}
-      </div>
-    ) : undefined;
-
   return (
     <div style={{ timelineScope: TOC_IDS.map(timelineName).join(", ") }}>
       <script
@@ -346,142 +285,118 @@ export default async function ProjectPage({ params }: PageProps) {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData).replace(/</g, "\\u003c") }}
       />
 
-      <article>
-        <PageHeader
-          trail={[{ label: "Work", href: "/projects/" }, { label: project.name }]}
-          title={project.name}
-          lede={
-            <>
-              <p>{project.tagline}</p>
-              {actions}
-            </>
-          }
-        />
+      {toc.length > 1 ? <TableOfContents entries={toc} slug={project.slug} /> : null}
 
-        <div className="grid gap-y-12 lg:grid-cols-[minmax(0,280px)_minmax(0,1fr)] lg:gap-x-[clamp(48px,6vw,96px)] xl:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
-          <aside
-            aria-label={`${project.name} at a glance`}
-            className="lg:sticky lg:top-[calc(var(--bar)+36px)] lg:self-start"
-          >
-            <dl className="fiche">
-              {fiche.map((row) => (
-                <div key={row.key}>
-                  <dt>{row.label}</dt>
-                  <dd>{row.value}</dd>
-                </div>
-              ))}
-              {project.tags.length ? (
-                <div>
-                  <dt>Tags</dt>
-                  <dd>
-                    <ul aria-label="Tags" className="flex flex-wrap gap-1.5 pt-px">
-                      {project.tags.map((tag) => (
-                        <li key={tag} className="tag">
-                          {tag}
-                        </li>
-                      ))}
-                    </ul>
-                  </dd>
-                </div>
+      <header className="mt-16">
+        <p className="flex flex-wrap items-center gap-x-1.5 text-[13px] text-tertiary tabular-nums">
+          {meta.map((item, i) => (
+            <span key={item} className="contents">
+              {i > 0 ? (
+                <span aria-hidden="true" className="opacity-60">
+                  ·
+                </span>
               ) : null}
-              <ProjectViews slug={project.slug} />
-            </dl>
-            {toc.length > 1 ? <TableOfContents entries={toc} /> : null}
-          </aside>
+              {i === 0 && dateIso ? <time dateTime={dateIso}>{item}</time> : <span>{item}</span>}
+            </span>
+          ))}
+        </p>
+        <h1 className="mt-3 text-[22px]/[1.3] font-medium tracking-[-0.015em] text-balance text-primary">
+          {project.name}
+        </h1>
+        <p className="mt-3 text-[16px] leading-[1.5] text-pretty">{project.tagline}</p>
+        {links.live || links.github ? (
+          <p className="mt-4 flex flex-wrap gap-x-5 gap-y-1 text-[15px]">
+            {links.live ? <ExternalLink href={links.live}>Live site</ExternalLink> : null}
+            {links.github ? <ExternalLink href={links.github}>GitHub</ExternalLink> : null}
+          </p>
+        ) : null}
+      </header>
 
-          <div className="min-w-0 text-[17px] leading-[1.65] text-body md:text-[18px]">
-            <div
-              id="overview"
-              data-toc-target=""
-              className="measure"
-              style={{ viewTimeline: `${timelineName("overview")} block` }}
-            >
-              <h2 className="sr-only">Overview</h2>
-              {project.body.map((paragraph, i) => (
-                <p key={i} className={cn(i === 0 ? "text-primary" : "mt-5")}>
-                  {paragraph}
-                </p>
-              ))}
-            </div>
-
-            {features.length ? (
-              <Part id="key-features" title="Key" turn="features">
-                <ul className="list-star measure">
-                  {features.map((feature, i) => (
-                    <li key={feature.title} className={cn(i > 0 && "mt-5")}>
-                      <span className="block font-display text-[21px] leading-[1.25] font-[420] text-pretty text-primary">
-                        {feature.title}
-                      </span>
-                      {feature.text.trim() ? <span className="mt-1.5 block">{feature.text}</span> : null}
-                    </li>
-                  ))}
-                </ul>
-              </Part>
-            ) : null}
-
-            {architecture.length ? (
-              <Part id="architecture" title="How it's" turn="built">
-                <dl className="rule-ink">
-                  {architecture.map((row, i) => (
-                    <div
-                      key={row.label}
-                      className="grid items-baseline gap-y-1 border-b border-line py-3.5 sm:grid-cols-[184px_minmax(0,1fr)] sm:gap-x-4"
-                    >
-                      <dt className="flex items-baseline">
-                        <span aria-hidden="true" className="numeral w-[42px] shrink-0 text-[14px]">
-                          {pad(i + 1)}
-                        </span>
-                        <span className="caps text-muted">{row.label}</span>
-                      </dt>
-                      <dd className="ps-[42px] text-[16px] leading-[1.5] text-primary sm:ps-0">{row.value}</dd>
-                    </div>
-                  ))}
-                </dl>
-              </Part>
-            ) : null}
-          </div>
+      <article className="mt-14 text-[16px] leading-[1.6]">
+        <div id="overview" data-toc-target="" className="scroll-mt-24" style={{ viewTimeline: `${timelineName("overview")} block` }}>
+          {project.body.map((paragraph, i) => (
+            <p key={i} className={cn(i > 0 && "mt-5")}>
+              {paragraph}
+            </p>
+          ))}
         </div>
+
+        {features.length ? (
+          <Part id="key-features" title="Key features">
+            <ul className="list-['–__'] ps-5 marker:text-tertiary">
+              {features.map((feature, i) => (
+                <li key={feature.title} className={cn(i > 0 && "mt-2")}>
+                  {feature.text.trim() ? (
+                    <>
+                      <strong className="font-medium text-primary">{feature.title}</strong>: {feature.text}
+                    </>
+                  ) : (
+                    feature.title
+                  )}
+                </li>
+              ))}
+            </ul>
+          </Part>
+        ) : null}
+
+        {architecture.length ? (
+          <Part id="architecture" title="Architecture">
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-start text-[15px]">
+                <tbody>
+                  {architecture.map((row, i) => {
+                    const last = i === architecture.length - 1;
+                    const cell = cn("py-[0.6em] align-top", !last && "border-b border-border");
+                    return (
+                      <tr key={row.label}>
+                        <th scope="row" className={cn(cell, "pe-[0.75em] text-start font-normal whitespace-nowrap text-body")}>
+                          {row.label}
+                        </th>
+                        <td className={cn(cell, "ps-[0.75em]")}>{row.value}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </Part>
+        ) : null}
+
+        {project.tags.length ? (
+          <ul aria-label="Tags" className="mt-10 flex flex-wrap gap-1.5">
+            {project.tags.map((tag) => (
+              <li key={tag} className="rounded-[8px] bg-well px-2 py-0.5 text-[13px] leading-[1.5] text-secondary">
+                {tag}
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </article>
 
-      <nav aria-labelledby="more-work" className="mt-[clamp(80px,10vw,128px)]">
-        <StarRule />
-        <div className="mt-[22px] flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
-          <p id="more-work" className="kicker">
-            More work
-          </p>
-          <Link href="/projects/" className="link-arrow focus-ring rounded-[4px]">
-            All work
-            <Arrow />
-          </Link>
-        </div>
-        <ul className="rule-ink mt-5">
-          {previous ? <Neighbour project={previous} label="Previous" /> : null}
-          {next ? <Neighbour project={next} label="Next" /> : null}
-        </ul>
+      <nav
+        aria-label="More projects"
+        className="mt-20 flex items-start justify-between gap-6 border-t border-border pt-10 sm:mt-24"
+      >
+        {previous ? <Neighbour project={previous} label="Previous" /> : <span />}
+        {next ? <Neighbour project={next} label="Next" align="end" /> : <span />}
       </nav>
     </div>
   );
 }
 
-/** A big-type row to the previous or next project: the same band and
-    italic turn as the work index, led by "Previous" / "Next". */
-function Neighbour({ project, label }: { project: Project; label: string }) {
+function Neighbour({ project, label, align }: { project: Project; label: string; align?: "end" }) {
   return (
-    <li className="border-b border-line">
-      <Link
-        href={`/projects/${project.slug}/`}
-        data-row=""
-        className={cn(
-          "group row-rise grid items-baseline gap-y-1 px-1 pt-4 pb-4 text-primary focus-ring",
-          "md:grid-cols-[120px_minmax(0,1fr)_minmax(0,300px)] md:gap-x-5 md:px-2 md:pt-[18px]",
-        )}
-      >
-        <span className="caps text-terra md:-translate-y-[0.5em]">{label}</span>
-        <span className="font-display text-title-1 text-pretty break-words transition-colors duration-300 ease-out group-hover:turn group-focus-visible:turn">
-          {project.name}
-        </span>
-        <span className="text-[15px] leading-[1.45] text-muted md:-translate-y-[0.3em]">{project.tagline}</span>
-      </Link>
-    </li>
+    <Link
+      href={`/projects/${project.slug}/`}
+      className={cn(
+        "group -m-3 block max-w-[48%] rounded-pill p-3 transition-[background-color] duration-150 ease-out hover:bg-wash",
+        align === "end" && "text-end",
+      )}
+    >
+      <span className="block text-[13px] text-tertiary">{label}</span>
+      <span className="mt-1 block line-clamp-2 font-medium text-secondary transition-[color] duration-150 ease-out group-hover:text-primary">
+        {project.name}
+      </span>
+    </Link>
   );
 }
