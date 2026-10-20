@@ -44,7 +44,7 @@ export const CAP = {
   topRadius: 0.11,
   topShift: -0.014,
   height: 0.4,
-  dish: 0.046,
+  dish: 0.054,
   fillet: 0.034,
 };
 

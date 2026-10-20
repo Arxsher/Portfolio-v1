@@ -17,7 +17,8 @@ export type PieceProps = {
    * whole tile is a link); a cheap hover reaction is fine.
    * "stage": the full interactive piece on /lab/<slug>/. Fills its container
    * (render `position: absolute; inset: 0` inside it) and draws its own
-   * floating controls with the kit in components/lab/ui.tsx.
+   * floating controls with the kit in components/lab/ui.tsx. To tell when
+   * the stage is full screen, see the contract at the top of piece-page.tsx.
    */
   mode: PieceMode;
   /** False while offscreen or the tab is hidden: stop every rAF loop and sound. */

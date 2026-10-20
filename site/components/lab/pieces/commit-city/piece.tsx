@@ -4,27 +4,41 @@
 //
 // The look
 // - Material: an architect's massing model. By day, white card buildings
-//   on a pale plaster plinth with rounded corners, a hairline bright rim on
+//   on a grey plaster plinth with rounded corners, a hairline bright rim on
 //   every roof edge facing you, windows as faint glazing; almost no colour,
-//   so the skyline (the data) carries it. By night the same model in slate
-//   under a blue moon: the windows come on one by one as the theme turns,
-//   with a soft bloom, and a red beacon breathes on the year's tallest tower.
+//   so the skyline (the data) carries it. By night the same model in
+//   neutral graphite: dark walls, moonlit roofs, windows coming on floor by
+//   floor as the theme turns, a soft bloom, and a red beacon breathing on
+//   the year's tallest tower, which carries setbacks and a tapered antenna.
+// - Plan: the year folds into three bands of a season each (city.ts), so
+//   the model is close to square and fills the stage at rest; the most
+//   recent weeks, with the tallest tower, end at the front corner. Month
+//   names sit along the boulevards like street names, wherever the ground
+//   is clear.
 // - Light: one key from the upper left that stays with the camera (a lamp
-//   over a turntable), a cool sky fill, ground bounce in the lower walls, a
-//   soft directional shadow per building (one blurred union clipped to the
-//   plinth), contact shadows at every base and a drop shadow under the
-//   plinth. A subtle sky over the stage: daylight haze by day, a night
-//   wash with a few quiet stars after dark.
+//   over a turntable), a sky fill, ground bounce in the lower walls, a soft
+//   directional shadow per building (one union clipped to the plinth),
+//   contact shadows at every base and a drop shadow under the plinth. A
+//   subtle sky over the stage: daylight haze by day, a night wash with a
+//   few quiet stars after dark.
 // - Motion: drag sideways and the turntable follows your hand; let go and
 //   it settles into the nearest quarter turn on a spring (a flick carries
-//   it on), clicking into each detent. Wheel / pinch zoom glides towards the
-//   point under the pointer; zooming out recentres. A building you point at
-//   rises a little on a spring and its date and count float above it.
+//   it on), clicking into each detent. The framing glides between the
+//   quarters' fits and never lets the city leave the stage mid-turn. Wheel
+//   / pinch zoom glides towards the point under the pointer; zooming out
+//   recentres. A building you point at rises a little on a spring and its
+//   date and count float above it (or below it, near the top edge).
+// - Phones: the stage opens on the whole folded year, fitted between the
+//   legend tray at the top and the controls at the bottom (zoom in for a
+//   closer look), a one-line hint says what to do until the first touch,
+//   and a tap that lands between buildings takes the nearest one.
 // - Sound (stage, after a gesture, respecting the lab mute): a wooden
 //   detent click per quarter turn and a small glassy note per building you
 //   point at, pitched by its height.
-// - Tile: the last eight weeks as a district on its own plinth, turning
-//   slowly on the grey tile (faster while hovered); no controls, no sound.
+// - Tile: the last eight weeks as a district on its own plinth, swaying
+//   slowly either side of the isometric rest with its tallest tower in
+//   front, framed for that sway so it fills the tile; drawn at 24 fps with
+//   no canvas filters; no controls, no sound.
 // - Reduced motion: a composed still at the isometric rest; turns and zooms
 //   land at once, no stars twinkling, the beacon steady.
 //
@@ -33,14 +47,28 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { ensureAudio } from "../../audio";
-import { clamp, damp, hash2, lerp, Spring, useCanvas2D, useFrame, useFinePointer, useLatest } from "../../hooks";
+import { clamp, damp, hash2, lerp, smoothstep, Spring, useCanvas2D, useFrame, useFinePointer, useLatest } from "../../hooks";
 import { Minus, Plus, Reset } from "../../lab-icons";
 import type { PieceProps } from "../../types";
 import { IconButton, MuteButton, StageControls, StageHint, Tray, TrayDivider, TrayRow } from "../../ui";
 import { buildCity, describeLot, heightFor, longDate, plural, type City, type Lot } from "./city";
 import { TurnLeft, TurnRight } from "./icons";
-import { css, lookAt, type Look } from "./look";
-import { boundsAt, centreOf, CityRenderer, plinthRect, project, REST, screenToGround, STEP, type View } from "./render";
+import { css, lookAt, rgb, type Look } from "./look";
+import {
+  axesOnScreen,
+  boundsAt,
+  centreOf,
+  CityRenderer,
+  PITCH,
+  plinthRect,
+  project,
+  REST,
+  screenToGround,
+  STEP,
+  type Bounds,
+  type RenderResult,
+  type View,
+} from "./render";
 import { chime, detent } from "./sound";
 
 export default function Piece(props: PieceProps) {
@@ -53,6 +81,8 @@ export default function Piece(props: PieceProps) {
 
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 5;
+/** Below this stage width the stage counts as narrow (phones). */
+const NARROW = 520;
 
 function fontFamily(): string {
   try {
@@ -65,9 +95,11 @@ function fontFamily(): string {
 /** The nearest resting angle to `yaw` (45° + k·90°). */
 const nearestRest = (yaw: number) => Math.round((yaw - REST) / STEP) * STEP + REST;
 
+const fitBounds: Bounds = { minU: 0, maxU: 0, minW: 0, maxW: 0 };
+
 /** Scale that fits the city into a box at a given yaw (CSS px per unit). */
 function fitScale(city: City, yaw: number, width: number, height: number) {
-  const b = boundsAt(city, yaw);
+  const b = boundsAt(city, yaw, fitBounds);
   return Math.min(width / Math.max(1e-3, b.maxU - b.minU), height / Math.max(1e-3, b.maxW - b.minW));
 }
 
@@ -90,9 +122,13 @@ function makeStars(width: number, height: number, seed: number): Star[] {
   return stars;
 }
 
-/** Sky over the stage, stars and the beacon: painted under / over the city layer. */
+/** Sky gradients, made again only when the size or the (quantised) night changes. */
+type SkyCache = { ctx: CanvasRenderingContext2D | null; w: number; h: number; key: number; sky: CanvasGradient | null; haze: CanvasGradient | null };
+
+/** Sky over the stage and its stars: painted under the city layer. */
 function paintSky(
   ctx: CanvasRenderingContext2D,
+  cache: SkyCache,
   width: number,
   height: number,
   dpr: number,
@@ -103,19 +139,27 @@ function paintSky(
   still: boolean,
 ) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  const sky = ctx.createLinearGradient(0, 0, 0, height * 0.72);
-  sky.addColorStop(0, css(look.skyTop, look.skyAlpha));
-  sky.addColorStop(0.55, css(look.skyTop, look.skyAlpha * 0.28));
-  sky.addColorStop(1, css(look.skyTop, 0));
-  ctx.fillStyle = sky;
+  const key = Math.round(night * 200);
+  if (cache.ctx !== ctx || cache.w !== width || cache.h !== height || cache.key !== key || !cache.sky || !cache.haze) {
+    cache.ctx = ctx;
+    cache.w = width;
+    cache.h = height;
+    cache.key = key;
+    const sky = ctx.createLinearGradient(0, 0, 0, height * 0.72);
+    sky.addColorStop(0, css(look.skyTop, look.skyAlpha));
+    sky.addColorStop(0.55, css(look.skyTop, look.skyAlpha * 0.28));
+    sky.addColorStop(1, css(look.skyTop, 0));
+    // Haze around the key light (upper left).
+    const r = Math.max(width, height) * 0.7;
+    const haze = ctx.createRadialGradient(width * 0.16, -height * 0.1, 0, width * 0.16, -height * 0.1, r);
+    haze.addColorStop(0, css(look.haze, look.hazeAlpha));
+    haze.addColorStop(1, css(look.haze, 0));
+    cache.sky = sky;
+    cache.haze = haze;
+  }
+  ctx.fillStyle = cache.sky!;
   ctx.fillRect(0, 0, width, height);
-
-  // Haze around the key light (upper left).
-  const r = Math.max(width, height) * 0.7;
-  const haze = ctx.createRadialGradient(width * 0.16, -height * 0.1, 0, width * 0.16, -height * 0.1, r);
-  haze.addColorStop(0, css(look.haze, look.hazeAlpha));
-  haze.addColorStop(1, css(look.haze, 0));
-  ctx.fillStyle = haze;
+  ctx.fillStyle = cache.haze!;
   ctx.fillRect(0, 0, width, height);
 
   if (night > 0.02) {
@@ -124,12 +168,30 @@ function paintSky(
       const fade = 1 - star.y / (height * 0.62);
       const alpha = star.a * twinkle * fade * night;
       if (alpha < 0.02) continue;
-      ctx.fillStyle = `rgb(222 230 255 / ${alpha.toFixed(3)})`;
+      ctx.fillStyle = rgb(222, 226, 236, alpha);
       ctx.beginPath();
       ctx.arc(star.x, star.y, star.r, 0, Math.PI * 2);
       ctx.fill();
     }
   }
+}
+
+/** The beacon's halo, drawn once into a small sprite and then only scaled and faded. */
+let beaconSprite: HTMLCanvasElement | null = null;
+function beaconHalo(): HTMLCanvasElement | null {
+  if (beaconSprite) return beaconSprite;
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 64;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  const glow = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+  glow.addColorStop(0, "rgb(255 92 76 / 1)");
+  glow.addColorStop(0.35, "rgb(255 64 52 / 0.33)");
+  glow.addColorStop(1, "rgb(255 64 52 / 0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, 64, 64);
+  beaconSprite = canvas;
+  return canvas;
 }
 
 function paintBeacon(
@@ -148,15 +210,15 @@ function paintBeacon(
   const k = night * pulse;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   const radius = Math.max(5, scale * 0.42);
-  const glow = ctx.createRadialGradient(at.x, at.y, 0, at.x, at.y, radius);
-  glow.addColorStop(0, `rgb(255 92 76 / ${(0.55 * k).toFixed(3)})`);
-  glow.addColorStop(0.35, `rgb(255 64 52 / ${(0.18 * k).toFixed(3)})`);
-  glow.addColorStop(1, "rgb(255 64 52 / 0)");
-  ctx.globalCompositeOperation = "lighter";
-  ctx.fillStyle = glow;
-  ctx.fillRect(at.x - radius, at.y - radius, radius * 2, radius * 2);
-  ctx.globalCompositeOperation = "source-over";
-  ctx.fillStyle = `rgb(255 ${Math.round(120 + 80 * k)} ${Math.round(110 + 60 * k)} / ${(0.35 + 0.65 * k).toFixed(3)})`;
+  const halo = beaconHalo();
+  if (halo) {
+    ctx.globalCompositeOperation = "lighter";
+    ctx.globalAlpha = 0.55 * k;
+    ctx.drawImage(halo, at.x - radius, at.y - radius, radius * 2, radius * 2);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "source-over";
+  }
+  ctx.fillStyle = rgb(255, 120 + 80 * k, 110 + 60 * k, 0.35 + 0.65 * k);
   ctx.beginPath();
   ctx.arc(at.x, at.y, Math.max(1, scale * 0.045), 0, Math.PI * 2);
   ctx.fill();
@@ -209,11 +271,14 @@ function useLayer() {
   }, []);
 }
 
+const announcement = (lot: Lot) => `${lot.count === 0 ? "No" : lot.count} ${plural(lot.count, "contribution")} on ${longDate(lot.date)}.`;
+
 /* ---------------------------------------------------------------------- */
 /* stage                                                                   */
 /* ---------------------------------------------------------------------- */
 
-type Insets = { top: number; bottom: number; side: number };
+/** Safe area for the city (px from each edge, padding included) and the trays' own edges. */
+type Insets = { top: number; bottom: number; side: number; trayTop: number; trayBottom: number };
 
 function Stage({ active, reducedMotion, theme }: PieceProps) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -225,6 +290,50 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
   const layer = useLayer();
   const fine = useFinePointer();
   const starsRef = useRef<Star[]>([]);
+  const skyCache = useRef<SkyCache>({ ctx: null, w: 0, h: 0, key: NaN, sky: null, haze: null });
+  /** Any gesture or key on the stage: ends the phone hint. */
+  const interacted = useRef(false);
+  const [hintGone, setHintGone] = useState(false);
+  const [keysHint, setKeysHint] = useState(false);
+
+  // Camera.
+  const [yaw] = useState(() => new Spring(REST, { stiffness: 70, damping: 13, precision: 0.0004 }));
+  const [nightBlend] = useState(() => new NightBlend(theme === "dark" ? 1 : 0));
+  const zoom = useRef({ value: 1, target: 1, anchor: null as { x: number; z: number } | null });
+  /** Focus offset from the fitted centre (world units); 0 at zoom 1. */
+  const offset = useRef({ x: 0, z: 0 });
+  const offsetGoal = useRef<{ x: number; z: number } | null>(null);
+  const viewRef = useRef<View | null>(null);
+  const insets = useRef<Insets>({ top: 72, bottom: 96, side: 24, trayTop: 0, trayBottom: 80 });
+  const fits = useRef({ w: 0, h: 0, rests: [1, 1, 1, 1] });
+  const lastRest = useRef(REST);
+  const idle = useRef(0);
+  const settledTurn = useRef(false);
+  const painted = useRef(false);
+  const scratch = useRef({ bounds: { minU: 0, maxU: 0, minW: 0, maxW: 0 } as Bounds, centre: { x: 0, z: 0 } });
+
+  // Selection.
+  const [selected, setSelected] = useState<Lot | null>(null);
+  const selectedRef = useRef<Lot | null>(null);
+  const lifts = useRef(new Map<number, Spring>());
+  const [focus] = useState(() => new Spring(0, { stiffness: 240, damping: 30, precision: 0.002 }));
+  /** A lot to keep in view once it has been drawn (keys, taps, zooming in on it). */
+  const reveal = useRef<Lot | null>(null);
+  /** Last pointer position over the stage (mouse / pen), to re-pick after a turn. */
+  const hoverAt = useRef<{ x: number; y: number } | null>(null);
+  const pointerSpeed = useRef({ x: 0, y: 0, t: 0, speed: 0 });
+  const [announce, setAnnounce] = useState("");
+  const [zoomed, setZoomed] = useState(false);
+  const [turning, setTurning] = useState(false);
+  const font = useMemo(() => fontFamily(), []);
+  const reduced = useLatest(reducedMotion);
+  const liftOf = useCallback((slot: number) => lifts.current.get(slot)?.value ?? 0, []);
+
+  /** Where the fitted city's centre is at a yaw (ground point). */
+  const centreAt = (at: number) => {
+    const s = scratch.current;
+    return centreOf(boundsAt(city, at, s.bounds), at, s.centre);
+  };
 
   const { canvasRef, ctxRef, sizeRef } = useCanvas2D({
     mode: "stage",
@@ -235,48 +344,27 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
     },
   });
 
-  // Camera.
-  const [yaw] = useState(() => new Spring(REST, { stiffness: 70, damping: 13, precision: 0.0004 }));
-  const [nightBlend] = useState(() => new NightBlend(theme === "dark" ? 1 : 0));
-  const zoom = useRef({ value: 1, target: 1, anchor: null as { x: number; z: number } | null });
-  /** Focus offset from the fitted centre (world units); 0 at zoom 1. */
-  const offset = useRef({ x: 0, z: 0 });
-  const offsetGoal = useRef<{ x: number; z: number } | null>(null);
-  const viewRef = useRef<View | null>(null);
-  const insets = useRef<Insets>({ top: 72, bottom: 96, side: 24 });
-  const lastRest = useRef(REST);
-  const idle = useRef(0);
-  const settledTurn = useRef(false);
-  const painted = useRef(false);
-
-  // Selection.
-  const [selected, setSelected] = useState<Lot | null>(null);
-  const selectedRef = useRef<Lot | null>(null);
-  const lifts = useRef(new Map<number, Spring>());
-  const [focus] = useState(() => new Spring(0, { stiffness: 240, damping: 30, precision: 0.002 }));
-  /** Last pointer position over the stage (mouse / pen), to re-pick after a turn. */
-  const hoverAt = useRef<{ x: number; y: number } | null>(null);
-  const [announce, setAnnounce] = useState("");
-  const [zoomed, setZoomed] = useState(false);
-  const [turning, setTurning] = useState(false);
-  const font = useMemo(() => fontFamily(), []);
-  const reduced = useLatest(reducedMotion);
+  const markInteracted = useCallback(() => {
+    if (interacted.current) return;
+    interacted.current = true;
+    setHintGone(true);
+  }, []);
 
   const select = useCallback(
-    (lot: Lot | null, how: "pointer" | "key" = "pointer") => {
+    (lot: Lot | null, how: "pointer" | "key" | "tap" = "pointer", speed = 0) => {
       const previous = selectedRef.current;
       if (previous === lot) return;
       selectedRef.current = lot;
       setSelected(lot);
       const springs = lifts.current;
-      if (previous) springs.get(previous.index)?.to(0);
+      if (previous) springs.get(previous.slot)?.to(0);
       if (reduced.current) focus.set(lot ? 1 : 0);
       else focus.to(lot ? 1 : 0);
       if (lot && lot.height > 0) {
-        let spring = springs.get(lot.index);
+        let spring = springs.get(lot.slot);
         if (!spring) {
           spring = new Spring(0, { stiffness: 380, damping: 18 });
-          springs.set(lot.index, spring);
+          springs.set(lot.slot, spring);
         }
         if (reduced.current) spring.set(1);
         else spring.to(1);
@@ -284,11 +372,10 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
         const view = viewRef.current;
         const width = sizeRef.current.width || 1;
         const at = view ? project(view, lot.x, lot.height, lot.z).x : width / 2;
-        chime(lot.count, (at / width) * 2 - 1);
+        chime(lot.count, (at / width) * 2 - 1, speed);
       }
-      if (how === "key" && lot) {
-        setAnnounce(`${lot.count === 0 ? "No" : lot.count} ${plural(lot.count, "contribution")} on ${longDate(lot.date)}.`);
-      }
+      if (how === "key" && lot) setAnnounce(announcement(lot));
+      if (how !== "pointer" && lot) reveal.current = lot;
       dirty.current = true;
       wakeRef.current();
     },
@@ -307,18 +394,26 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
     [yaw, reduced],
   );
 
+  /**
+   * Zoom to `value`. With an `anchor` (the ground point under the pointer)
+   * that point stays put; with a `lot` the view glides to centre on it.
+   */
   const zoomTo = useCallback(
-    (value: number, anchor: { x: number; z: number } | null) => {
+    (value: number, anchor: { x: number; z: number } | null, lot: Lot | null = null) => {
       const z = zoom.current;
       z.target = clamp(value, MIN_ZOOM, MAX_ZOOM);
       z.anchor = anchor;
       offsetGoal.current = null;
+      if (lot && z.target > 1.001) {
+        const centre = centreAt(yaw.value);
+        offsetGoal.current = { x: lot.x - centre.x, z: lot.z - centre.z };
+      }
       if (reduced.current) stepZoom(1);
       setZoomed(z.target > 1.001);
       dirty.current = true;
       wakeRef.current();
     },
-    // stepZoom is defined below and only reads refs.
+    // stepZoom / centreAt are defined in this component and only read refs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [reduced],
   );
@@ -335,19 +430,38 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
     const view = viewRef.current;
     if (after > before && z.anchor && view) {
       // F' = W − (W − F)·z/z'  (in world units around the anchor W)
-      const fx = view.fx;
-      const fz = view.fz;
-      const nfx = z.anchor.x - (z.anchor.x - fx) * (before / after);
-      const nfz = z.anchor.z - (z.anchor.z - fz) * (before / after);
-      offset.current.x += nfx - fx;
-      offset.current.z += nfz - fz;
-    } else if (after < before) {
+      const nfx = z.anchor.x - (z.anchor.x - view.fx) * (before / after);
+      const nfz = z.anchor.z - (z.anchor.z - view.fz) * (before / after);
+      offset.current.x += nfx - view.fx;
+      offset.current.z += nfz - view.fz;
+    } else if (after < before && !offsetGoal.current) {
       const t = before - 1 > 1e-6 ? clamp((after - 1) / (before - 1)) : 0;
       offset.current.x *= t;
       offset.current.z *= t;
     }
     z.value = Math.abs(after - z.target) < 1e-4 ? z.target : after;
     return true;
+  }
+
+  /**
+   * The fitted scale at this yaw: the quarter turns' own fits blended as the
+   * turn goes, and never more than what fits at this very angle, so the
+   * city never runs off the stage or under the trays mid-turn.
+   */
+  function fitAt(at: number, availW: number, availH: number) {
+    const f = fits.current;
+    if (f.w !== availW || f.h !== availH) {
+      f.w = availW;
+      f.h = availH;
+      for (let k = 0; k < 4; k++) f.rests[k] = fitScale(city, REST + k * STEP, availW, availH);
+    }
+    const q = (at - REST) / STEP;
+    const k0 = Math.floor(q);
+    const t = q - k0;
+    const a = f.rests[((k0 % 4) + 4) % 4];
+    const b = f.rests[(((k0 + 1) % 4) + 4) % 4];
+    const blend = lerp(a, b, smoothstep(0, 1, t));
+    return Math.min(blend, fitScale(city, at, availW, availH));
   }
 
   /** Where everything sits this frame. */
@@ -357,11 +471,8 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
     const { top, bottom, side } = insets.current;
     const availW = Math.max(40, width - side * 2);
     const availH = Math.max(40, height - top - bottom);
-    const restFit = fitScale(city, nearestRest(yaw.value), availW, availH);
-    const liveFit = fitScale(city, yaw.value, availW, availH);
-    const fit = Math.min(restFit, liveFit * 1.3);
-    const bounds = boundsAt(city, yaw.value);
-    const centre = centreOf(bounds, yaw.value);
+    const fit = fitAt(yaw.value, availW, availH);
+    const centre = centreAt(yaw.value);
     // Keep the focus over the plinth.
     const rect = plinthRect(city);
     const o = offset.current;
@@ -377,7 +488,8 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
     };
   }
 
-  // Insets: keep the city clear of the trays.
+  // Insets: keep the city clear of the trays, and fade it softly where it
+  // runs under them when zoomed (so the hint never sits on a building).
   useEffect(() => {
     const root = rootRef.current;
     if (!root) return;
@@ -393,12 +505,17 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
         if (mid < rootRect.height / 2) top = Math.max(top, rect.bottom - rootRect.top);
         else bottom = Math.min(bottom, rect.top - rootRect.top);
       });
-      const narrow = rootRect.width < 520;
-      insets.current = {
-        top: top + (narrow ? 10 : 18),
-        bottom: rootRect.height - bottom + (narrow ? 10 : 18),
-        side: narrow ? 14 : 36,
-      };
+      const narrow = rootRect.width < NARROW;
+      const pad = narrow ? 10 : 18;
+      const trayBottom = rootRect.height - bottom;
+      insets.current = { top: top + pad, bottom: trayBottom + pad, side: narrow ? 14 : 36, trayTop: top, trayBottom };
+      const canvas = canvasRef.current;
+      if (canvas) {
+        const fadeTop = top > 0 ? `rgb(0 0 0 / 0.3) 0px, #000 ${Math.round(top + 6)}px` : "#000 0px";
+        const mask = `linear-gradient(to bottom, ${fadeTop}, #000 calc(100% - ${Math.round(trayBottom + 4)}px), rgb(0 0 0 / 0.22) calc(100% - ${Math.round(Math.max(8, trayBottom - 40))}px))`;
+        canvas.style.maskImage = mask;
+        canvas.style.setProperty("-webkit-mask-image", mask);
+      }
       dirty.current = true;
       wakeRef.current();
     };
@@ -407,7 +524,7 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
     observer.observe(root);
     root.querySelectorAll(":scope > [data-lab-controls]").forEach((element) => observer.observe(element));
     return () => observer.disconnect();
-  }, []);
+  }, [canvasRef]);
 
   // Theme: day ⇄ night.
   const nightTarget = theme === "dark" ? 1 : 0;
@@ -417,10 +534,7 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
     wakeRef.current();
   }, [nightTarget, reducedMotion, nightBlend]);
 
-  const result = useRef<{ anchor: { x: number; y: number } | null; beacon: { x: number; y: number } | null }>({
-    anchor: null,
-    beacon: null,
-  });
+  const result = useRef<RenderResult>({ anchor: null, base: null, beacon: null });
 
   const wake = useFrame(active, (dt, time) => {
     const ctx = ctxRef.current;
@@ -452,7 +566,7 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
       if (stepZoom(still ? 1 : 1 - Math.exp(-14 * dt))) moving = true;
       dirty.current = true;
     }
-    // Keyboard pan towards the selected day when zoomed in.
+    // Glide towards a lot that should be in view.
     const goal = offsetGoal.current;
     if (goal) {
       const o = offset.current;
@@ -473,9 +587,9 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
       moving = true;
     }
     // Hover lifts.
-    for (const [index, spring] of lifts.current) {
+    for (const [slot, spring] of lifts.current) {
       if (spring.settled) {
-        if (spring.value === 0) lifts.current.delete(index);
+        if (spring.value === 0) lifts.current.delete(slot);
         continue;
       }
       spring.step(dt);
@@ -499,18 +613,21 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
         viewRef.current = view;
         const lctx = layerCanvas.getContext("2d");
         if (lctx) {
+          // Month names show once a turn has settled.
+          const off = Math.abs(view.yaw - nearestRest(view.yaw));
           result.current = renderer.render(lctx, width, height, dpr, view, {
             look,
             night,
-            hover: selectedRef.current?.index ?? -1,
-            liftOf: (index) => lifts.current.get(index)?.value ?? 0,
+            hover: selectedRef.current?.slot ?? -1,
+            liftOf,
             focus: clamp(focus.value),
-            labels: true,
+            labels: 1 - smoothstep(0.03, 0.2, off),
             quality: "stage",
             fontFamily: font,
           });
         }
         placeTooltip();
+        keepInView();
         // The turn has landed: whatever is under the resting mouse now is the hover.
         if (settledTurn.current) {
           settledTurn.current = false;
@@ -522,7 +639,7 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    paintSky(ctx, width, height, dpr, look, night, starsRef.current, time, still);
+    paintSky(ctx, skyCache.current, width, height, dpr, look, night, starsRef.current, time, still);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.drawImage(layerCanvas, 0, 0);
     paintBeacon(ctx, dpr, result.current.beacon, night, time, still, viewRef.current?.scale ?? 20);
@@ -532,19 +649,54 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
   });
   wakeRef.current = wake;
 
+  /** Zoomed in, a lot picked by key or tap (or zoomed in on) glides into view if it isn't. */
+  function keepInView() {
+    const lot = reveal.current;
+    if (!lot) return;
+    reveal.current = null;
+    if (zoom.current.target <= 1.02 || lot !== selectedRef.current) return;
+    const { anchor, base } = result.current;
+    const { width, height } = sizeRef.current;
+    const { top, bottom, side } = insets.current;
+    const tipRoom = 40;
+    const out =
+      !anchor ||
+      anchor.y < top + tipRoom ||
+      (base ? base.y : anchor.y) > height - bottom ||
+      anchor.x < side ||
+      anchor.x > width - side;
+    if (!out) return;
+    const centre = centreAt(yaw.value);
+    offsetGoal.current = { x: lot.x - centre.x, z: lot.z - centre.z };
+    wakeRef.current();
+  }
+
   function placeTooltip() {
     const tip = tooltipRef.current;
-    const anchor = result.current.anchor;
+    const { anchor, base } = result.current;
     if (!tip) return;
     if (!anchor || !selectedRef.current) {
       tip.style.opacity = "0";
       return;
     }
-    const width = sizeRef.current.width;
+    const { width, height } = sizeRef.current;
+    const { trayTop, trayBottom } = insets.current;
     const w = tip.offsetWidth;
     const h = tip.offsetHeight;
-    const x = clamp(anchor.x - w / 2, 8, Math.max(8, width - w - 8));
-    const y = Math.max(8, anchor.y - h - 6);
+    const minY = Math.max(8, trayTop + 6);
+    const maxY = height - Math.max(8, trayBottom + 6) - h;
+    let x = anchor.x - w / 2;
+    let y = anchor.y - h - 6;
+    if (y < minY) {
+      // No room above: under the lot, or else beside the building.
+      const below = (base ?? anchor).y + 10;
+      if (below <= maxY) y = below;
+      else {
+        y = clamp(anchor.y + 8, minY, Math.max(minY, maxY));
+        x = anchor.x + 18 + w <= width - 8 ? anchor.x + 18 : anchor.x - 18 - w;
+      }
+    }
+    x = clamp(x, 8, Math.max(8, width - w - 8));
     tip.style.translate = `${Math.round(x)}px ${Math.round(y)}px`;
     tip.style.opacity = "1";
   }
@@ -566,8 +718,10 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
     lastX: number;
     lastT: number;
     velocity: number;
+    /** Set once a pinch has happened in this gesture: lifting the last finger is then not a tap. */
+    noTap: boolean;
     pinch?: { dist: number; zoom: number; anchor: { x: number; z: number } };
-  }>({ kind: "none", startX: 0, startY: 0, startYaw: REST, lastX: 0, lastT: 0, velocity: 0 });
+  }>({ kind: "none", startX: 0, startY: 0, startYaw: REST, lastX: 0, lastT: 0, velocity: 0, noTap: false });
 
   /** Radians per CSS px of drag. */
   const turnRate = () => STEP / Math.max(180, Math.min(320, (sizeRef.current.width || 600) * 0.3));
@@ -577,8 +731,6 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
     return { x: event.clientX - (rect?.left ?? 0), y: event.clientY - (rect?.top ?? 0) };
   };
 
-  const pickAt = (x: number, y: number) => renderer.pick(x, y);
-
   const pinchState = () => {
     const pts = [...pointers.current.values()];
     const [a, b] = pts;
@@ -586,6 +738,7 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
   };
 
   const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    markInteracted();
     if ((event.target as Element).closest("[data-lab-controls]")) return;
     if (event.button > 0) return;
     ensureAudio();
@@ -603,12 +756,14 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
       g.lastX = p.x;
       g.lastT = performance.now();
       g.velocity = 0;
+      g.noTap = false;
     } else if (pointers.current.size === 2) {
       // Second finger: pinch (settle any half-turn first).
       if (g.kind === "turn") yaw.to(nearestRest(yaw.value));
       const view = viewRef.current;
       const { mid, dist } = pinchState();
       g.kind = "pinch";
+      g.noTap = true;
       g.pinch = {
         dist,
         zoom: zoom.current.value,
@@ -629,6 +784,7 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
       const nextZoom = clamp(g.pinch.zoom * (dist / g.pinch.dist), MIN_ZOOM, MAX_ZOOM);
       z.value = z.target = nextZoom;
       z.anchor = null;
+      offsetGoal.current = null;
       setZoomed(nextZoom > 1.001);
       // Keep the pinched point under the fingers' midpoint.
       const view = computeView();
@@ -676,11 +832,17 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
     }
 
     // Plain hover (mouse / pen).
-    if (event.pointerType !== "touch") hoverAt.current = p;
-    if (event.pointerType !== "touch" && g.kind === "none") {
-      const lot = pickAt(p.x, p.y);
-      select(lot);
-    }
+    if (event.pointerType === "touch") return;
+    hoverAt.current = p;
+    const s = pointerSpeed.current;
+    const now = performance.now();
+    const dt = Math.max(1, now - s.t) / 1000;
+    const v = dt < 0.25 ? Math.hypot(p.x - s.x, p.y - s.y) / dt : 0;
+    s.speed = lerp(s.speed, v, 1 - Math.exp(-dt / 0.06));
+    s.x = p.x;
+    s.y = p.y;
+    s.t = now;
+    if (g.kind === "none") select(renderer.pick(p.x, p.y), "pointer", s.speed);
   };
 
   const endPointer = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -708,10 +870,11 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
       else yaw.to(target, clamp(omega, -12, 12));
       dirty.current = true;
       wake();
-    } else if (g.kind === "maybe" && event.type === "pointerup") {
-      // A tap / click: pick what's under it (touch has no hover).
-      const lot = pickAt(p.x, p.y);
-      select(lot);
+    } else if (g.kind === "maybe" && event.type === "pointerup" && !g.noTap) {
+      // A tap / click: pick what's under it (touch has no hover; a finger
+      // that lands between buildings takes the nearest one).
+      const touch = event.pointerType !== "mouse";
+      select(renderer.pick(p.x, p.y, touch ? 14 : 0), touch ? "tap" : "pointer");
     }
     g.kind = "none";
     setTurning(false);
@@ -723,19 +886,31 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
   };
 
   // Wheel / trackpad pinch: zoom towards the pointer. At the limits the
-  // page scrolls as usual.
+  // page scrolls as usual, except for the tail of a gesture that was
+  // zooming (so zooming out never ends in a sudden page scroll).
   useEffect(() => {
     const root = rootRef.current;
     if (!root) return;
+    let latchUntil = 0;
     const onWheel = (event: WheelEvent) => {
       if ((event.target as Element | null)?.closest?.("[data-lab-controls]")) return;
+      const now = performance.now();
       const delta = event.deltaMode === 1 ? event.deltaY * 16 : event.deltaMode === 2 ? event.deltaY * 400 : event.deltaY;
       const rate = event.ctrlKey ? 0.012 : 0.0022;
       const z = zoom.current;
       const next = clamp(z.target * Math.exp(-delta * rate), MIN_ZOOM, MAX_ZOOM);
-      if (Math.abs(next - z.target) < 1e-4) return; // at a limit: let the page scroll
+      if (Math.abs(next - z.target) < 1e-4) {
+        // At a limit: let the page scroll, unless this is the same gesture.
+        if (now < latchUntil) {
+          event.preventDefault();
+          latchUntil = now + 250;
+        }
+        return;
+      }
       event.preventDefault();
+      latchUntil = now + 250;
       ensureAudio();
+      markInteracted();
       const rect = root.getBoundingClientRect();
       const view = viewRef.current;
       const anchor = view ? screenToGround(view, event.clientX - rect.left, event.clientY - rect.top) : null;
@@ -743,28 +918,31 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
     };
     root.addEventListener("wheel", onWheel, { passive: false });
     return () => root.removeEventListener("wheel", onWheel);
-  }, [zoomTo]);
+  }, [zoomTo, markInteracted]);
 
   /* ---------------- keyboard ---------------- */
 
-  /** Arrow → step in the plan, following the screen at the current turn. */
-  function stepFor(key: string): { dcol: number; drow: number } | null {
-    const sin = Math.sin(yaw.target);
-    const cos = Math.cos(yaw.target);
-    // Screen-right of world +x is cos, of world +z is −sin; screen-down of +x is sin, of +z is cos.
-    const xRight = Math.abs(cos) >= Math.abs(sin) - 1e-6;
-    switch (key) {
-      case "ArrowRight":
-        return xRight ? { dcol: Math.sign(cos) || 1, drow: 0 } : { dcol: 0, drow: -Math.sign(sin) || 1 };
-      case "ArrowLeft":
-        return xRight ? { dcol: -(Math.sign(cos) || 1), drow: 0 } : { dcol: 0, drow: Math.sign(sin) || 1 };
-      case "ArrowDown":
-        return xRight ? { dcol: 0, drow: Math.sign(cos) || 1 } : { dcol: Math.sign(sin) || 1, drow: 0 };
-      case "ArrowUp":
-        return xRight ? { dcol: 0, drow: -(Math.sign(cos) || 1) } : { dcol: -(Math.sign(sin) || 1), drow: 0 };
-      default:
-        return null;
-    }
+  /**
+   * Arrow → a step along the plan, following the screen at the current
+   * turn: each arrow takes the world axis (weeks along x, days along z)
+   * that best matches its direction on screen; at the isometric rests,
+   * where both match equally, ← → take the weeks and ↑ ↓ the days.
+   */
+  function stepFor(key: string): { axis: "week" | "day"; sign: number } | null {
+    let dx = 0;
+    let dy = 0;
+    if (key === "ArrowRight") dx = 1;
+    else if (key === "ArrowLeft") dx = -1;
+    else if (key === "ArrowDown") dy = 1;
+    else if (key === "ArrowUp") dy = -1;
+    else return null;
+    const a = axesOnScreen(yaw.target);
+    const onX = dx * a.xx + dy * a.xy;
+    const onZ = dx * a.zx + dy * a.zy;
+    const tie = Math.abs(Math.abs(onX) - Math.abs(onZ)) < 0.08;
+    const weeks = tie ? dx !== 0 : Math.abs(onX) > Math.abs(onZ);
+    const along = weeks ? onX : onZ;
+    return { axis: weeks ? "week" : "day", sign: along >= 0 ? 1 : -1 };
   }
 
   const byCell = useMemo(() => {
@@ -773,35 +951,38 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
     return map;
   }, [city]);
 
+  /** Where the keys start: the latest day with contributions. */
+  const startLot = useMemo(() => {
+    for (let i = city.lots.length - 1; i >= 0; i--) if (city.lots[i].count > 0) return city.lots[i];
+    return city.lots[city.lots.length - 1] ?? null;
+  }, [city]);
+
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.target !== event.currentTarget) return;
     if (event.altKey || event.ctrlKey || event.metaKey) return;
     ensureAudio();
+    markInteracted();
+    setKeysHint(true);
     const step = stepFor(event.key);
     if (step) {
       event.preventDefault();
-      const current = selectedRef.current ?? city.lots[city.lots.length - 1] ?? null;
-      if (!current) return;
-      let next = current;
-      if (selectedRef.current) {
-        const candidate = byCell.get(`${current.col + step.dcol}:${current.row + step.drow}`);
-        if (candidate) next = candidate;
-      }
-      if (next === selectedRef.current) {
+      const current = selectedRef.current;
+      let next: Lot | null;
+      if (!current) next = startLot;
+      else if (step.axis === "week") next = byCell.get(`${current.col + step.sign}:${current.row}`) ?? current;
+      else next = city.lots[current.slot + step.sign] ?? current;
+      if (!next) return;
+      if (next === current) {
         // At an edge: read it again.
-        setAnnounce(`${next.count === 0 ? "No" : next.count} ${plural(next.count, "contribution")} on ${longDate(next.date)}.`);
+        setAnnounce(announcement(next));
         return;
       }
       select(next, "key");
       // Zoomed in: follow the selection.
       if (zoom.current.target > 1.05) {
-        const view = viewRef.current;
-        if (view) {
-          const bounds = boundsAt(city, yaw.value);
-          const centre = centreOf(bounds, yaw.value);
-          offsetGoal.current = { x: next.x - centre.x, z: next.z - centre.z };
-          wake();
-        }
+        const centre = centreAt(yaw.value);
+        offsetGoal.current = { x: next.x - centre.x, z: next.z - centre.z };
+        wake();
       }
       return;
     }
@@ -821,7 +1002,7 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
       case "+":
       case "=":
         event.preventDefault();
-        zoomTo(zoom.current.target * 1.5, selectedRef.current ? { x: selectedRef.current.x, z: selectedRef.current.z } : null);
+        zoomTo(zoom.current.target * 1.5, null, selectedRef.current);
         return;
       case "-":
       case "_":
@@ -842,6 +1023,7 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
   };
 
   const resetView = () => {
+    markInteracted();
     zoomTo(1, null);
     const target = REST;
     // Take the short way home.
@@ -861,9 +1043,17 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
   );
 
   const tallest = city.tallest;
-  const description = `A model city of ${city.username}'s GitHub contributions in ${city.year}: ${city.total} contributions from ${city.first} to ${city.last}, one lot per day laid out week by week, with a building on every day that has contributions, its height following the count.${
+  const description = `A model city of ${city.username}'s GitHub contributions in ${city.year}: ${city.total} contributions from ${city.first} to ${city.last}, one lot per day laid out week by week and folded into ${city.bands} ${plural(city.bands, "district")} of a season each, with a building on every day that has contributions, its height following the count.${
     tallest ? ` The tallest tower is ${describeLot(tallest)}.` : ""
   }`;
+
+  const hint = keysHint
+    ? "← → weeks · ↑ ↓ days · Q E turn · + − zoom"
+    : fine
+      ? "Hover a building · Drag to turn · Scroll or pinch to zoom"
+      : "Tap a building · Swipe to turn · Pinch to zoom";
+  // On touch screens the hint bows out after the first touch; with a mouse it stays.
+  const hintHidden = !fine && !keysHint && hintGone;
 
   return (
     <div
@@ -885,9 +1075,15 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
         role="application"
         tabIndex={0}
         aria-roledescription="model city"
-        aria-label={`Commit city. ${description} Arrow keys walk the days, Q and E turn the city, plus and minus zoom, 0 resets the view.`}
+        aria-label={`Commit city. ${description} Left and right arrows walk the weeks, up and down the days, Q and E turn the city, plus and minus zoom, 0 resets the view.`}
         aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Q E + - 0"
         onKeyDown={onKeyDown}
+        onFocus={(event) => {
+          try {
+            if (event.currentTarget.matches(":focus-visible")) setKeysHint(true);
+          } catch {}
+        }}
+        onBlur={() => setKeysHint(false)}
         className="absolute inset-0 rounded-[24px] outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--foreground)]"
       />
 
@@ -910,15 +1106,12 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
         {announce}
       </p>
 
-      {/* Phones: the legend rides at the top, where the diagonal city leaves room. */}
+      {/* Phones: the legend rides at the top. */}
       <StageControls placement="top" className="sm:hidden">
         <Legend city={city} />
       </StageControls>
 
       <StageControls placement="bottom">
-        <StageHint className="max-sm:hidden">
-          {fine ? "Hover a building · Drag to turn · Scroll or pinch to zoom" : "Tap a building · Drag to turn · Pinch to zoom"}
-        </StageHint>
         <TrayRow>
           <Legend city={city} className="max-sm:hidden" />
           <Tray label="View">
@@ -939,12 +1132,7 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
             </IconButton>
             <IconButton
               label="Zoom in"
-              onClick={() =>
-                zoomTo(
-                  zoom.current.target * 1.6,
-                  selectedRef.current ? { x: selectedRef.current.x, z: selectedRef.current.z } : null,
-                )
-              }
+              onClick={() => zoomTo(zoom.current.target * 1.6, null, selectedRef.current)}
               aria-keyshortcuts="+"
             >
               <Plus size={14} />
@@ -956,6 +1144,11 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
             <MuteButton />
           </Tray>
         </TrayRow>
+        <StageHint
+          className={`transition-opacity duration-500 ease-out ${hintHidden ? "opacity-0" : "opacity-100"}`}
+        >
+          <span aria-hidden={hintHidden ? true : undefined}>{hint}</span>
+        </StageHint>
       </StageControls>
     </div>
   );
@@ -1010,36 +1203,64 @@ function Legend({ city, className }: { city: City; className?: string }) {
 
 /** The tile's district: the most recent weeks. */
 const TILE_WEEKS = 8;
-/** Radians per second, resting and while hovered. */
-const TILE_SPIN = 0.13;
-const TILE_SPIN_HOVER = 0.55;
+/** The sway either side of the isometric rest, and its pace (radians of phase per second, resting / hovered). */
+const TILE_SWAY = (25 * Math.PI) / 180;
+const TILE_PACE = (Math.PI * 2) / 16;
+const TILE_PACE_HOVER = (Math.PI * 2) / 6;
+/** Frames per second on the tile. */
+const TILE_FPS = 24;
 
 function Tile({ active, reducedMotion, theme }: PieceProps) {
-  const city = useMemo(() => buildCity(-TILE_WEEKS), []);
+  const city = useMemo(() => buildCity({ weeks: TILE_WEEKS, fold: false, margin: [0.6, 0.6] }), []);
   const renderer = useMemo(() => new CityRenderer(city), [city]);
   const layer = useLayer();
   const wakeRef = useRef<() => void>(() => {});
   const dirty = useRef(true);
-  const fitRef = useRef(0);
+  const frame = useRef({ scale: 0, cx: 0, cy: 0 });
+  const axis = useRef({ x: 0, z: 0 });
   const { canvasRef, ctxRef, sizeRef } = useCanvas2D({
     mode: "tile",
     onResize: (size) => {
-      // One scale for every angle, so the district never breathes as it turns.
-      let fit = Infinity;
-      for (let i = 0; i < 24; i++) {
-        fit = Math.min(fit, fitScale(city, (i / 24) * Math.PI * 2, size.width * 0.8, size.height * 0.74));
+      // One scale and one axis (the plinth's centre) for the whole sway, so
+      // the district never breathes or wobbles; framed for the sway only
+      // (not a full turn), so it fills the tile. A little higher than
+      // centred, clear of the title chip that slides up on hover.
+      const rect = plinthRect(city);
+      const ax = (rect.x0 + rect.x1) / 2;
+      const az = (rect.z0 + rect.z1) / 2;
+      const sinP = Math.sin(PITCH);
+      let halfW = 0;
+      let above = 0;
+      let below = 0;
+      const bounds: Bounds = { minU: 0, maxU: 0, minW: 0, maxW: 0 };
+      for (let i = 0; i <= 20; i++) {
+        const yaw = REST + TILE_SWAY * Math.sin(((i / 20) * 2 - 1) * (Math.PI / 2));
+        const b = boundsAt(city, yaw, bounds);
+        const au = ax * Math.cos(yaw) - az * Math.sin(yaw);
+        const aw = (ax * Math.sin(yaw) + az * Math.cos(yaw)) * sinP;
+        halfW = Math.max(halfW, au - b.minU, b.maxU - au);
+        above = Math.max(above, aw - b.minW);
+        below = Math.max(below, b.maxW - aw);
       }
-      fitRef.current = fit;
+      const scale = Math.min((size.width * 0.94) / (halfW * 2), (size.height * 0.84) / (above + below));
+      frame.current = {
+        scale,
+        cx: size.width / 2,
+        // Top margin 4% of the tile, the rest of the room below.
+        cy: size.height * 0.04 + above * scale + (size.height * 0.84 - (above + below) * scale) / 2,
+      };
+      axis.current = { x: ax, z: az };
       dirty.current = true;
       wakeRef.current();
     },
   });
-  const yawRef = useRef(REST - 0.32);
-  const spin = useRef({ value: TILE_SPIN, target: TILE_SPIN });
+  const phase = useRef(-0.5);
+  const pace = useRef({ value: TILE_PACE, target: TILE_PACE });
   const nightTarget = theme === "dark" ? 1 : 0;
   const [night] = useState(() => new NightBlend(nightTarget));
   const font = useMemo(() => fontFamily(), []);
   const acc = useRef(0);
+  const noLift = useCallback(() => 0, []);
 
   useEffect(() => {
     night.to(nightTarget, reducedMotion);
@@ -1047,37 +1268,41 @@ function Tile({ active, reducedMotion, theme }: PieceProps) {
     wakeRef.current();
   }, [nightTarget, reducedMotion, night]);
 
+  useEffect(() => {
+    dirty.current = true;
+    wakeRef.current();
+  }, [reducedMotion]);
+
   const wake = useFrame(active, (dt) => {
     const ctx = ctxRef.current;
     const canvas = canvasRef.current;
     if (!ctx || !canvas) return false;
     const { width, height, dpr } = sizeRef.current;
-    if (!width || !height || !fitRef.current) return false;
+    const f = frame.current;
+    if (!width || !height || !f.scale) return false;
     let moving = false;
     if (!reducedMotion) {
-      spin.current.value = damp(spin.current.value, spin.current.target, 3, dt);
-      yawRef.current += spin.current.value * dt;
+      pace.current.value = damp(pace.current.value, pace.current.target, 3, dt);
+      phase.current += pace.current.value * dt;
       moving = true;
     }
     if (night.step()) {
       moving = true;
       dirty.current = true;
     }
-    // Half the frame rate is plenty for a slow turn on a small tile.
+    // A slow sway on a small tile needs no more than 24 frames a second.
     acc.current += dt;
-    if (!dirty.current && acc.current < 1 / 30) return moving ? undefined : false;
+    if (!dirty.current && acc.current < 1 / TILE_FPS) return moving || (night.value > 0.02 && !reducedMotion) ? undefined : false;
     acc.current = 0;
     dirty.current = false;
 
-    const bounds = boundsAt(city, yawRef.current);
-    const centre = centreOf(bounds, yawRef.current);
     const view: View = {
-      yaw: yawRef.current,
-      scale: fitRef.current,
-      cx: width / 2,
-      cy: height / 2 + height * 0.01,
-      fx: centre.x,
-      fz: centre.z,
+      yaw: reducedMotion ? REST : REST + TILE_SWAY * Math.sin(phase.current),
+      scale: f.scale,
+      cx: f.cx,
+      cy: f.cy,
+      fx: axis.current.x,
+      fz: axis.current.z,
     };
     const lctx = layer(canvas.width, canvas.height).getContext("2d");
     if (!lctx) return false;
@@ -1086,9 +1311,9 @@ function Tile({ active, reducedMotion, theme }: PieceProps) {
       look,
       night: night.value,
       hover: -1,
-      liftOf: () => 0,
+      liftOf: noLift,
       focus: 0,
-      labels: false,
+      labels: 0,
       quality: "tile",
       fontFamily: font,
     });
@@ -1105,10 +1330,10 @@ function Tile({ active, reducedMotion, theme }: PieceProps) {
       aria-hidden="true"
       className="absolute inset-0"
       onPointerEnter={() => {
-        spin.current.target = TILE_SPIN_HOVER;
+        pace.current.target = TILE_PACE_HOVER;
       }}
       onPointerLeave={() => {
-        spin.current.target = TILE_SPIN;
+        pace.current.target = TILE_PACE;
       }}
     >
       <canvas ref={canvasRef} className="absolute inset-0 size-full" />

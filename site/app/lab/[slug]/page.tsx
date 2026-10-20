@@ -28,6 +28,7 @@ import { PieceActions, PieceStage } from "@/components/lab/piece-page";
 import { aboutParagraphs, getNeighbours, getPiece, pieces } from "@/components/lab/registry";
 import { CATEGORY_SINGULAR, type PieceMeta } from "@/components/lab/types";
 import { site } from "@/content/site";
+import { withBasePath } from "@/components/lab/base-path";
 import { cn } from "@/lib/cn";
 
 export const dynamicParams = false;
@@ -38,22 +39,25 @@ export function generateStaticParams() {
 
 type PageProps = { params: Promise<{ slug: string }> };
 
-/** The piece's own social card if it has been generated (public/lab/og/<slug>.png), else the site's. */
+/**
+ * The piece's own social card (public/lab/og/<slug>.png, a 1200 × 630
+ * capture of its stage), else the site's. Checked at build time. Metadata
+ * URLs don't get the base path from Next, so it is added here.
+ */
 function ogImageFor(slug: string): { url: string; width: number; height: number } {
-  const own = `/lab/og/${slug}.png`;
   try {
     if (fs.existsSync(path.join(process.cwd(), "public", "lab", "og", `${slug}.png`))) {
-      return { url: own, width: 1200, height: 630 };
+      return { url: withBasePath(`/lab/og/${slug}.png`), width: 1200, height: 630 };
     }
   } catch {}
-  return { url: site.ogImage, ...site.ogImageSize };
+  return { url: withBasePath(site.ogImage), ...site.ogImageSize };
 }
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { slug } = await params;
   const piece = getPiece(slug);
   if (!piece) return {};
-  const url = `/lab/${piece.slug}/`;
+  const url = withBasePath(`/lab/${piece.slug}/`);
   const image = ogImageFor(piece.slug);
   const title = `${piece.title} • ${site.name}`;
   return {
@@ -112,7 +116,7 @@ export default async function LabPiecePage({ params }: PageProps) {
     "@type": "CreativeWork",
     name: piece.title,
     description: piece.summary,
-    url: new URL(`/lab/${piece.slug}/`, site.url).toString(),
+    url: new URL(withBasePath(`/lab/${piece.slug}/`), site.url).toString(),
     keywords: piece.uses.join(", "),
     author: { "@type": "Person", name: site.name, url: site.url },
   };

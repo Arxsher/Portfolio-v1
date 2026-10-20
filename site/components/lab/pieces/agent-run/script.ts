@@ -128,7 +128,7 @@ export const SCRIPTS: readonly Script[] = [
         "A page heading added, and alt text for four images",
       ],
     },
-    outcome: "10 issues found, fixes drafted",
+    outcome: "10 issues, fixes drafted",
   },
   {
     id: "flaky",
@@ -196,7 +196,7 @@ export const SCRIPTS: readonly Script[] = [
       body: "A fixed five-second sleep sat right at the edge of the mock's response time, so about one run in seven timed out. Waiting for the response itself removes the race and makes the test faster.",
       bullets: ["50 of 50 runs pass after the change", "Median run down from 5.6 s to 3.1 s", "One line changed in tests/helpers.ts"],
     },
-    outcome: "Race fixed, 50 of 50 runs pass",
+    outcome: "Race fixed, 50 of 50 pass",
   },
   {
     id: "triage",

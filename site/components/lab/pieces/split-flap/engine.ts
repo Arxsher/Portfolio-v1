@@ -89,7 +89,7 @@ class Half {
     }
     if (glyph.tone !== this.tone) {
       this.tone = glyph.tone;
-      if (glyph.tone === "sand") delete this.el.dataset.t;
+      if (glyph.tone === "ink") delete this.el.dataset.t;
       else this.el.dataset.t = glyph.tone;
     }
   }
@@ -210,13 +210,15 @@ export class Cell {
     let latestAngle = -1;
     let under: Half = this.bottom;
     let underGlint = 0;
-    const used = [false, false];
+    let used0 = false;
+    let used1 = false;
 
     for (let i = Math.max(1, k - 1); i <= k; i++) {
       const tau = time - (this.t0 + (i - 1) * this.period);
       if (tau < 0 || tau >= life) continue;
       const slot = i & 1;
-      used[slot] = true;
+      if (slot) used1 = true;
+      else used0 = true;
       if (lowest < 0) lowest = i;
       const theta = this.angle(tau, timing);
       const fall = this.falls[slot];
@@ -239,11 +241,13 @@ export class Cell {
       if (i === k) latestAngle = theta;
       else under = land;
     }
-    for (let slot = 0; slot < 2; slot++) {
-      if (!used[slot]) {
-        this.falls[slot].show(false);
-        this.lands[slot].show(false);
-      }
+    if (!used0) {
+      this.falls[0].show(false);
+      this.lands[0].show(false);
+    }
+    if (!used1) {
+      this.falls[1].show(false);
+      this.lands[1].show(false);
     }
     // The newest flap sits over the one before it.
     const front = k & 1;
@@ -272,6 +276,19 @@ export class Cell {
     const done = !this.spinning && k >= n && (n === 0 || time - (this.t0 + (n - 1) * this.period) >= life);
     if (done) this.rest(this.seq[n], time);
     return !done;
+  }
+
+  /**
+   * Forgets flaps that landed long ago, so a held flap's run stays a few
+   * entries long however long it is held. Drops an even count, so every
+   * flap keeps its slot (slot = index & 1) and nothing on screen changes.
+   */
+  rebase(time: number) {
+    const k = this.started(time);
+    if (k <= 4) return;
+    const drop = (k - 1) & ~1;
+    this.seq.splice(0, drop);
+    this.t0 += drop * this.period;
   }
 
   /** Snaps to a character and stops. */
@@ -323,6 +340,11 @@ export class FlapEngine {
     return this.active.size > 0;
   }
 
+  /** Still turning (or waiting to start), as opposed to at rest. */
+  turning(cell: Cell): boolean {
+    return this.active.has(cell);
+  }
+
   /** Turn the cell to `target`, the first flap falling after `delay` seconds (if it is at rest). */
   set(cell: Cell, target: Glyph, delay = 0) {
     if (!this.active.has(cell)) {
@@ -370,6 +392,7 @@ export class FlapEngine {
     let landings = 0;
     let pan = 0;
     for (const cell of this.active) {
+      // Held down: keep two flaps queued ahead of the falling one.
       if (cell.spinning && cell.seq.length - 1 - cell.started(time) < 2) {
         const last = cell.target;
         cell.seq.push({ ch: cell.next(last.ch), tone: last.tone });
@@ -379,6 +402,7 @@ export class FlapEngine {
         landings += hits;
         pan += cell.pan * hits;
       }
+      if (cell.spinning) cell.rebase(time);
       if (!cell.draw(time, this.timing)) this.active.delete(cell);
     }
     return { busy: this.active.size > 0, landings, pan: landings ? pan / landings : 0 };

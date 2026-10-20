@@ -6,7 +6,9 @@
 //   turn (a few ms of band-passed noise over a short low knock).
 // - chime: a small glassy note when you point at a building, pitched by its
 //   height on a pentatonic scale, so sweeping across the city plays the
-//   year back as a quiet melody.
+//   year back as a quiet melody. At most about eleven notes a second, and
+//   the faster the pointer moves the softer and shorter they get, so a quick
+//   sweep is a soft glissando rather than a burst.
 
 import { audioReady, getAudio, noiseBuffer } from "../../audio";
 
@@ -52,14 +54,20 @@ export function detent(strength = 1) {
 /** Major pentatonic over two and a half octaves from A3. */
 const SCALE = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24, 26, 28];
 
-/** A soft note for a day's count (0 plays nothing). `pan` is -1 … 1. */
-export function chime(count: number, pan = 0) {
+/**
+ * A soft note for a day's count (0 plays nothing). `pan` is -1 … 1, `speed`
+ * the pointer's speed in CSS px per second (0 for keys and taps).
+ */
+export function chime(count: number, pan = 0, speed = 0) {
   if (count <= 0 || !audioReady()) return;
   const kit = getAudio();
   if (!kit) return;
   const nowMs = performance.now();
-  if (nowMs - lastChime < 45) return;
+  if (nowMs - lastChime < 90) return;
   lastChime = nowMs;
+  const hurry = Math.min(1, Math.max(0, (speed - 400) / 2000));
+  const level = 0.05 * (1 - 0.6 * hurry);
+  const tail = 0.6 - 0.28 * hurry;
   const { ctx, output } = kit;
   const now = ctx.currentTime;
   const step = Math.min(SCALE.length - 1, Math.round(Math.sqrt(count) * 1.6) - 1);
@@ -69,8 +77,8 @@ export function chime(count: number, pan = 0) {
   if (panner) panner.pan.value = Math.max(-0.8, Math.min(0.8, pan));
   const gain = ctx.createGain();
   gain.gain.setValueAtTime(0, now);
-  gain.gain.linearRampToValueAtTime(0.05, now + 0.005);
-  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.6);
+  gain.gain.linearRampToValueAtTime(level, now + 0.005);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + tail);
   const tone = ctx.createBiquadFilter();
   tone.type = "lowpass";
   tone.frequency.value = 3200;
@@ -81,14 +89,14 @@ export function chime(count: number, pan = 0) {
     [2.01, 0.28, "sine"],
     [3.98, 0.08, "triangle"],
   ];
-  for (const [ratio, level, type] of partials) {
+  for (const [ratio, amp, type] of partials) {
     const osc = ctx.createOscillator();
     osc.type = type;
     osc.frequency.value = frequency * ratio;
     const partial = ctx.createGain();
-    partial.gain.value = level;
+    partial.gain.value = amp;
     osc.connect(partial).connect(gain);
     osc.start(now);
-    osc.stop(now + 0.65);
+    osc.stop(now + tail + 0.05);
   }
 }

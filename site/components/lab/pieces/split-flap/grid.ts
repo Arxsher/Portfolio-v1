@@ -22,7 +22,8 @@ export class FlapGrid {
   private readonly rowEls: HTMLDivElement[] = [];
   private readonly lamps: HTMLSpanElement[] = [];
   private readonly lookup = new WeakMap<Element, Cell>();
-  private lampTimers: number[] = [];
+  /** Per row: the tone its lamp lights with once the row has landed (undefined: nothing waiting). */
+  private pendingLamps: Array<string | undefined> = [];
 
   constructor(
     private readonly engine: FlapEngine,
@@ -85,22 +86,42 @@ export class FlapGrid {
     }
   }
 
-  /** Lamps per row; each lights when its row has had time to turn over. */
-  setLamps(tones: ReadonlyArray<Tone | null>, delayFor: (row: number) => number = () => 0) {
-    this.lampTimers.forEach((timer) => window.clearTimeout(timer));
-    this.lampTimers = [];
+  /**
+   * Lamps per row. A row that is turning has its lamp put out at once, and
+   * it lights with its new tone when the row's last flap lands (see
+   * updateLamps); a row that stays as it is keeps or takes its tone now.
+   * Call after show().
+   */
+  setLamps(tones: ReadonlyArray<Tone | null>) {
+    this.pendingLamps = [];
     this.lamps.forEach((lamp, row) => {
       const tone = tones[row];
-      const value = tone === "green" || tone === "ochre" ? tone : "";
-      if ((lamp.dataset.tone ?? "") === value) return;
-      const apply = () => {
-        if (value) lamp.dataset.tone = value;
-        else delete lamp.dataset.tone;
-      };
-      const delay = delayFor(row);
-      if (delay <= 0) apply();
-      else this.lampTimers.push(window.setTimeout(apply, delay * 1000));
+      const value = tone === "green" || tone === "amber" ? tone : "";
+      if (this.rowTurning(row)) {
+        delete lamp.dataset.tone;
+        this.pendingLamps[row] = value;
+      } else {
+        lampTone(lamp, value);
+      }
     });
+  }
+
+  /** Lights the lamps of rows that have come to rest. Call once a frame (cheap when nothing waits). */
+  updateLamps() {
+    for (let row = 0; row < this.pendingLamps.length; row++) {
+      const value = this.pendingLamps[row];
+      if (value === undefined || this.rowTurning(row)) continue;
+      this.pendingLamps[row] = undefined;
+      const lamp = this.lamps[row];
+      if (lamp) lampTone(lamp, value);
+    }
+  }
+
+  private rowTurning(row: number): boolean {
+    const cells = this.cells[row];
+    if (!cells) return false;
+    for (const cell of cells) if (this.engine.turning(cell)) return true;
+    return false;
   }
 
   /** The cell under an element (or one of its halves). */
@@ -109,8 +130,23 @@ export class FlapGrid {
     return el ? this.lookup.get(el) : undefined;
   }
 
+  /** Where a cell sits on the board, or null if it is not on it. */
+  positionOf(cell: Cell): { row: number; col: number } | null {
+    for (let row = 0; row < this.cells.length; row++) {
+      const col = this.cells[row].indexOf(cell);
+      if (col >= 0) return { row, col };
+    }
+    return null;
+  }
+
   destroy() {
-    this.lampTimers.forEach((timer) => window.clearTimeout(timer));
+    this.pendingLamps = [];
     while (this.rowEls.length) this.dropRow();
   }
+}
+
+function lampTone(lamp: HTMLElement, value: string) {
+  if ((lamp.dataset.tone ?? "") === value) return;
+  if (value) lamp.dataset.tone = value;
+  else delete lamp.dataset.tone;
 }

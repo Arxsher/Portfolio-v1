@@ -21,7 +21,9 @@ export function perspective(out: Mat4, fovy: number, aspect: number, near: numbe
   return out;
 }
 
-export function lookAt(out: Mat4, eye: Vec3, target: Vec3, up: Vec3 = [0, 1, 0]): Mat4 {
+const UP: Vec3 = [0, 1, 0];
+
+export function lookAt(out: Mat4, eye: Vec3, target: Vec3, up: Vec3 = UP): Mat4 {
   let zx = eye[0] - target[0];
   let zy = eye[1] - target[1];
   let zz = eye[2] - target[2];
@@ -58,8 +60,11 @@ export function lookAt(out: Mat4, eye: Vec3, target: Vec3, up: Vec3 = [0, 1, 0])
   return out;
 }
 
+/** Scratch for multiply (out may alias a or b), so a frame allocates nothing. */
+const PRODUCT = new Float32Array(16);
+
 export function multiply(out: Mat4, a: Mat4, b: Mat4): Mat4 {
-  const r = new Float32Array(16);
+  const r = PRODUCT;
   for (let col = 0; col < 4; col++) {
     for (let row = 0; row < 4; row++) {
       let sum = 0;
@@ -82,13 +87,12 @@ export function project(m: Mat4, x: number, y: number, z: number): [number, numb
 }
 
 /** Camera position on a sphere around `target`: yaw about Y, pitch above the horizon (radians). */
-export function orbit(target: Vec3, distance: number, yaw: number, pitch: number): Vec3 {
+export function orbit(target: Vec3, distance: number, yaw: number, pitch: number, out: Vec3 = [0, 0, 0]): Vec3 {
   const cp = Math.cos(pitch);
-  return [
-    target[0] + distance * cp * Math.sin(yaw),
-    target[1] + distance * Math.sin(pitch),
-    target[2] + distance * cp * Math.cos(yaw),
-  ];
+  out[0] = target[0] + distance * cp * Math.sin(yaw);
+  out[1] = target[1] + distance * Math.sin(pitch);
+  out[2] = target[2] + distance * cp * Math.cos(yaw);
+  return out;
 }
 
 /** Whether point (px, py) is inside the convex polygon (any winding). */

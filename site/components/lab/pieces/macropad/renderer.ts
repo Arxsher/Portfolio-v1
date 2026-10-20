@@ -30,10 +30,15 @@ export type Look = {
   /** Ground shadow: contact, soft. */
   shadow: [number, number];
   glowGain: number;
+  /** Where the LED light starts to roll off, keeping its hue (lower by day). */
+  emitKnee: number;
   bloom: number;
 };
 
 export type Caps = { albedo: Vec3; legend: Vec3 };
+
+/** One allocation per size: the glow at 1/4 and the two blur radii (1/4, 1/8). */
+type Targets = { glow: Target; a: Target; b: Target; c: Target; d: Target };
 
 export type Frame = {
   viewProj: Mat4;
@@ -49,6 +54,8 @@ export type Frame = {
   ripples: Float32Array;
   /** MAX_RIPPLES × rgb. */
   rippleColors: Float32Array;
+  /** How many ripples are live (they come first; the shader stops there). */
+  rippleCount: number;
   knobAngle: number;
   knobLight: Vec3;
   /** Fine texture strength (1 stage, ~0.4 tiles). */
@@ -76,7 +83,9 @@ export class PadRenderer {
   private meshes: { case: GpuMesh; cap: GpuMesh; knob: GpuMesh; ground: GpuMesh };
   private empty: WebGLVertexArrayObject;
   private atlas: WebGLTexture;
-  private targets: { glow: Target; a: Target; b: Target; c: Target; d: Target } | null = null;
+  private targets: Targets | null = null;
+  private targetsW = 0;
+  private targetsH = 0;
   private model = new Float32Array(16);
 
   constructor(gl: WebGL2RenderingContext) {
@@ -177,12 +186,15 @@ export class PadRenderer {
     if (t.depth) gl.deleteRenderbuffer(t.depth);
   }
 
-  private ensureTargets(width: number, height: number) {
+  private ensureTargets(width: number, height: number): Targets {
+    const t = this.targets;
+    if (t && this.targetsW === width && this.targetsH === height) return t;
     const qw = Math.max(1, Math.round(width / 4));
     const qh = Math.max(1, Math.round(height / 4));
     const ew = Math.max(1, Math.round(width / 8));
     const eh = Math.max(1, Math.round(height / 8));
-    const t = this.targets;
+    this.targetsW = width;
+    this.targetsH = height;
     this.targets = {
       glow: this.target(qw, qh, true, t?.glow),
       a: this.target(qw, qh, false, t?.a),
@@ -190,6 +202,17 @@ export class PadRenderer {
       c: this.target(ew, eh, false, t?.c),
       d: this.target(ew, eh, false, t?.d),
     };
+    return this.targets;
+  }
+
+  /** One blur pass from src into dst along (dx, dy) texels. */
+  private blurPass(src: Target, dst: Target, dx: number, dy: number) {
+    const gl = this.gl;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, dst.fbo);
+    gl.viewport(0, 0, dst.width, dst.height);
+    gl.bindTexture(gl.TEXTURE_2D, src.tex);
+    gl.uniform2f(this.uBlur("uStep"), dx / src.width, dy / src.height);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
 
   private setShared(u: (name: string) => WebGLUniformLocation | null, frame: Frame) {
@@ -201,8 +224,10 @@ export class PadRenderer {
     gl.uniform1fv(u("uPress"), frame.travel);
     gl.uniform4fv(u("uRipple"), frame.ripples);
     gl.uniform3fv(u("uRippleColor"), frame.rippleColors);
+    gl.uniform1i(u("uRippleCount"), frame.rippleCount);
     gl.uniform3fv(u("uKnobLight"), frame.knobLight);
     gl.uniform1f(u("uGlowGain"), frame.look.glowGain);
+    gl.uniform1f(u("uEmitKnee"), frame.look.emitKnee);
   }
 
   private setLook(u: (name: string) => WebGLUniformLocation | null, frame: Frame) {
@@ -291,8 +316,7 @@ export class PadRenderer {
 
     const bloom = frame.bloom && frame.look.bloom > 0.001;
     if (bloom) {
-      this.ensureTargets(width, height);
-      const t = this.targets!;
+      const t = this.ensureTargets(width, height);
       // 1. the glow alone, occluded by the pad
       gl.bindFramebuffer(gl.FRAMEBUFFER, t.glow.fbo);
       gl.viewport(0, 0, t.glow.width, t.glow.height);
@@ -311,17 +335,10 @@ export class PadRenderer {
       gl.useProgram(this.blur);
       gl.bindVertexArray(this.empty);
       gl.uniform1i(this.uBlur("uSource"), 0);
-      const pass = (src: Target, dst: Target, dx: number, dy: number) => {
-        gl.bindFramebuffer(gl.FRAMEBUFFER, dst.fbo);
-        gl.viewport(0, 0, dst.width, dst.height);
-        gl.bindTexture(gl.TEXTURE_2D, src.tex);
-        gl.uniform2f(this.uBlur("uStep"), dx / src.width, dy / src.height);
-        gl.drawArrays(gl.TRIANGLES, 0, 3);
-      };
-      pass(t.glow, t.a, 1, 0);
-      pass(t.a, t.b, 0, 1);
-      pass(t.b, t.c, 1.5, 0);
-      pass(t.c, t.d, 0, 1.5);
+      this.blurPass(t.glow, t.a, 1, 0);
+      this.blurPass(t.a, t.b, 0, 1);
+      this.blurPass(t.b, t.c, 1.5, 0);
+      this.blurPass(t.c, t.d, 0, 1.5);
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       gl.bindTexture(gl.TEXTURE_2D, this.atlas);
     }
@@ -380,6 +397,7 @@ export class PadRenderer {
     }
     if (this.targets) Object.values(this.targets).forEach((t) => this.freeTarget(t));
     this.targets = null;
+    this.targetsW = this.targetsH = 0;
     gl.deleteVertexArray(this.empty);
     gl.deleteTexture(this.atlas);
     gl.deleteProgram(this.main);

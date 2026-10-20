@@ -5,17 +5,19 @@ export const meta: PieceMeta = {
   title: "Turntable",
   summary: "A record player from above: drop the needle on a loop made in the browser, then scratch it by hand.",
   description:
-    "A turntable seen from above, with a spinning record, a tonearm and a 33 / 45 switch. Press play and the arm swings over, the platter spins up and a loop starts. Grab the record to scratch: the sound follows your hand, backwards too.",
+    "A direct-drive turntable seen from above, with a machined platter, a record whose sheen follows the light, a tonearm with a cue lever, 33 and 45, and a pitch fader. Press start and the arm swings over and drops into the groove of a loop made in your browser. Grab the record to scratch: the music follows your hand, backwards too.",
   about: [
-    "The record is drawn with fine concentric grooves and a sheen that stays fixed to the light while the vinyl turns beneath it, which is what makes it read as spinning. The platter has weight: it takes a moment to come up to speed and coasts down when you stop it, and the arm lifts and lowers rather than snapping into place.",
-    "The loop is synthesised the first time you press play: drums, a bass line and chords are rendered offline into an audio buffer, along with a reversed copy. While you hold the record its playback rate follows your hand, switching to the reversed buffer when you pull it back, so a scratch sounds the way it looks.",
+    "The whole deck is one WebGL2 fragment shader. Every part is an analytic shape measured in millimetres, lit by a soft key light and a studio softbox seen from a camera above, so the aluminium takes its gradients from what it reflects, and everything tall throws a shadow that softens with height, which is how a lifted arm floats. The record's sheen is anisotropic: its grooves are concentric, so the highlight sits where they run square to the light, two bright wedges through the spindle. A slight warp and the groove modulation turn with the record, so the wedges shimmer and sway as it spins. The label, the run-out etching and the plinth's printing are drawn with Canvas 2D.",
+    "The platter has weight: it takes about half a second to come up to speed and coasts down when you stop it. The strobe dots stand still under the lamp only at the exact speed, so they drift as soon as you move the pitch fader. The arm lifts, swings and lowers on springs, and the grooves carry the stylus through the lead-in and across the gaps between the record's four bands.",
+    "The music is synthesised the first time you press start: a four-bar loop of drums, bass and electric piano chords, rendered offline into audio buffers along with reversed copies. It plays at the record's own speed, so 45 is higher and faster, a held record falls silent, and pulling it back switches to the reversed buffer at the same point. Each band plays a different mix of the parts, with crackle in the groove.",
   ],
-  uses: ["Canvas 2D", "Web Audio", "OfflineAudioContext"],
+  uses: ["WebGL2", "Web Audio", "OfflineAudioContext", "Canvas 2D"],
   category: "objects",
   inspiredBy: "Direct-drive DJ turntables",
   // 204 × 176
   tile: { aspect: 204 / 176 },
-  stage: { aspect: 1 },
-  controlsHint: "Play to start · Drag the record to scratch · Switch between 33 and 45",
+  stage: { aspect: 4 / 5, minHeight: 420 },
+  controlsHint:
+    "Start to play · Drag the record to scratch · Drag the arm or use the cue lever · 33, 45 and the pitch fader · Keys: Space, hold ← →, ↑ ↓ for bands, C, 3 / 4, − + 0, R",
   sound: true,
 };

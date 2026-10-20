@@ -135,20 +135,25 @@ export class WallRenderer {
     gl.uniform1f(u("u_lightRadius"), l.lightRadius * diagonal);
     gl.uniform1f(u("u_lightSize"), l.lightSize);
     gl.uniform1f(u("u_specGain"), l.specGain);
-    gl.uniform3fv(u("u_key"), l.key);
-    gl.uniform3fv(u("u_ambient"), l.ambient);
-    gl.uniform3fv(u("u_groutColor"), l.groutColor);
-    gl.uniform3fv(u("u_body"), l.body);
-    gl.uniform3fv(u("u_envTop"), l.envTop);
-    gl.uniform3fv(u("u_envBottom"), l.envBottom);
-    gl.uniform3fv(u("u_windowColor"), l.windowColor);
-    gl.uniform4fv(u("u_window"), l.window);
+    // scalar setters: nothing is converted or allocated per frame
+    this.v3("u_key", l.key);
+    this.v3("u_ambient", l.ambient);
+    this.v3("u_groutColor", l.groutColor);
+    this.v3("u_body", l.body);
+    this.v3("u_envTop", l.envTop);
+    this.v3("u_envBottom", l.envBottom);
+    this.v3("u_windowColor", l.windowColor);
+    gl.uniform4f(u("u_window"), l.window[0], l.window[1], l.window[2], l.window[3]);
     gl.uniform1f(u("u_motion"), frame.motion ? 1 : 0);
     gl.uniform1f(u("u_vignette"), l.vignette);
     gl.uniform1f(u("u_exposure"), l.exposure);
     gl.bindVertexArray(this.vao);
     gl.drawArrays(gl.TRIANGLES, 0, this.count);
     gl.bindVertexArray(null);
+  }
+
+  private v3(name: string, v: Vec3) {
+    this.gl.uniform3f(this.u(name), v[0], v[1], v[2]);
   }
 
   dispose() {

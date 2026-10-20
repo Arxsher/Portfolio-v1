@@ -39,7 +39,8 @@ const P = (id: PaletteId, label: string, tones: Record<Tone, string>): GlazePale
 export const PALETTES: readonly GlazePalette[] = [
   P("fes", "Fes blue", { main: "#1d3f95", second: "#3767bd", deep: "#11265a", light: "#ede5d3", accent: "#1c6a4d" }),
   P("terracotta", "Terracotta", { main: "#ad4a27", second: "#c98a33", deep: "#5e2516", light: "#ebdcc1", accent: "#2a2321" }),
-  P("chefchaouen", "Chefchaouen", { main: "#2b4e95", second: "#6c99d1", deep: "#1b3166", light: "#f0eee7", accent: "#a6c4e6" }),
+  // the blue town: powder blues and lime-wash, lighter and chalkier than Fes
+  P("chefchaouen", "Chefchaouen", { main: "#4a7cc2", second: "#8db5e2", deep: "#24427f", light: "#f3f1ea", accent: "#c9dcef" }),
   P("emerald", "Emerald", { main: "#156647", second: "#3d8b63", deep: "#0c4231", light: "#ece3cd", accent: "#c3892b" }),
   P("mono", "Monochrome", { main: "#1a1b22", second: "#4b4b52", deep: "#0e0f13", light: "#efebe3", accent: "#8f8b83" }),
 ];
@@ -111,14 +112,17 @@ const TWELVE: Colouring[] = [
 ];
 
 // 16: 0 star · 1 gap star · 2 axis piece · 3 kite · 4 petal
+// The big star always takes a mid glaze or the accent (a deep one reads as
+// a hole at this size), ringed by light petals or set off by deep kites.
 const SIXTEEN: Colouring[] = [
-  (s) => (["main", "deep", "accent", "second", "light"] as const)[s],
+  (s) => (["second", "deep", "accent", "main", "light"] as const)[s],
   (s) => (["light", "main", "deep", "deep", "main"] as const)[s],
+  // the medallion: an accent rosette at the centre in square frames of stars
   (s, i, j, k, r, ring) => {
-    if (s === 0) return ring === 0 ? "accent" : mod(i + j, 2) === 0 ? "main" : "deep";
-    return (["", "accent", "second", "main", "light"] as const)[s] as Tone;
+    if (s === 0) return ring === 0 ? "accent" : ring % 2 ? "second" : "main";
+    return (["", "light", "accent", "deep", "light"] as const)[s] as Tone;
   },
-  (s) => (["deep", "second", "light", "main", "light"] as const)[s],
+  (s, i, j) => (s === 0 ? (mod(i + j, 2) === 0 ? "accent" : "second") : (["", "main", "light", "deep", "light"] as const)[s] as Tone),
   (s, i, j, k, r) => {
     if (s === 0) return r < 0.6 ? "main" : "second";
     if (s === 4) return "light";

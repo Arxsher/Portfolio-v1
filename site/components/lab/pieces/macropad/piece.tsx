@@ -31,6 +31,10 @@
 //   mouse. No sound, 30 fps, low DPR.
 // - Reduced motion: a composed still (the centre key lit); presses and the
 //   knob still respond, but jump instead of travel, and light fades in place.
+// - Battery: the stage draws only while something moves; the idle LEDs
+//   breathe while someone is around (at 24 fps) and settle to a steady glow
+//   after a quiet spell, when the loop sleeps. The frame loop allocates
+//   nothing, and the WebGL context is handed back on unmount.
 //
 // Files: scene.ts (layout + meshes), shaders.ts + renderer.ts (WebGL2),
 // engine.ts (switches, glow, knob, self-play), view.ts (camera, fit,
@@ -51,14 +55,14 @@ import { ChevronLeft, ChevronRightSmall } from "../../lab-icons";
 import type { PieceProps } from "../../types";
 import { IconButton, MuteButton, StageControls, StageHint, Swatches, Tray, TrayDivider, TrayRow } from "../../ui";
 import { drawAtlas, fontReady } from "./atlas";
-import { AutoPlay, BOTTOM_OUT, DETENT_ANGLE, glowColor, HUE_STEP, HUE_ZERO, hueName, Pad, TOP_OUT, wrapHue } from "./engine";
-import { capsFor, COLOURWAYS, lookAt, mixCaps, swatchFor, THEME_CAPS, type ColourwayId } from "./looks";
+import { AutoPlay, BOTTOM_OUT, DETENT_ANGLE, glowColor, HUE_STEP, HUE_ZERO, hueName, Pad, TOP_OUT, wrapHue, type FillTarget } from "./engine";
+import { blankLook, capsFor, COLOURWAYS, copyCaps, DAY, lookInto, mixCapsInto, NIGHT, swatchFor, THEME_CAPS, type ColourwayId } from "./looks";
 import { cssColor, insideConvex, type Vec3 } from "./math";
-import { PadRenderer, type Caps, type Frame } from "./renderer";
+import { PadRenderer, type Frame } from "./renderer";
 import { CAP, CASE, KEYS, KNOB } from "./scene";
 import { MAX_RIPPLES } from "./shaders";
 import { clack, detent as tick, thock } from "./sound";
-import { bbox, View, type Rect } from "./view";
+import { box, ringPath, View, type Rect } from "./view";
 
 const SWATCHES = COLOURWAYS.map((way) => ({ value: way.id, label: way.label, swatch: swatchFor(way) }));
 
@@ -78,8 +82,19 @@ function digitIndex(event: KeyboardEvent | ReactKeyboardEvent): number {
 /** The hue the knob shows, 0–345 in 15° notches. */
 const shownHue = (detent: number) => wrapHue(HUE_ZERO + detent * HUE_STEP);
 
+/** Seconds of quiet before the idle LEDs stop breathing and the stage sleeps. */
+const BREATHE_FOR = 8;
+
+/** A touch thock waits this long at least, so a swipe that becomes a scroll can cancel it unheard. */
+const TOUCH_THOCK = 0.075;
+
+/** The focus ring round a cap or the knob: its gap from the outline (CSS px). */
+const RING_GAP = 4;
+/** `live.ring` for the knob (0–8 are the keys). */
+const KNOB_RING = 9;
+
 type Drag =
-  | { kind: "keys"; id: number; key: number; over: number }
+  | { kind: "keys"; id: number; key: number; over: number; touch: boolean }
   | { kind: "knob"; id: number; raw: number; last: number; startX: number; startY: number; at: number; travelled: number };
 
 export default function Piece({ mode, active, reducedMotion, theme }: PieceProps) {
@@ -113,38 +128,81 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
 
   const settings = useLatest({ reducedMotion, theme, caps, stage });
 
-  // per-frame state that never re-renders
-  const live = useRef({
-    yaw: 0,
-    yawV: 0,
-    pitch: 0,
-    pitchV: 0,
-    aimYaw: 0,
-    aimPitch: 0,
-    night: theme === "dark" ? 1 : 0,
-    caps: capsFor(THEME_CAPS[theme]) as Caps,
-    fitDirty: true,
-    acc: 0,
-    idle: 0,
-    welcomed: false,
-    hover: -1,
-    overlay: "",
-    frame: {
-      viewProj: view.viewProj,
-      camPos: [0, 0, 0] as Vec3,
-      fit: view.fit,
-      look: lookAt(theme === "dark" ? 1 : 0),
-      caps: capsFor(THEME_CAPS[theme]),
-      travel: new Float32Array(9),
-      glow: new Float32Array(27),
-      ripples: new Float32Array(MAX_RIPPLES * 4),
-      rippleColors: new Float32Array(MAX_RIPPLES * 3),
-      knobAngle: 0,
-      knobLight: [0, 0, 0] as Vec3,
-      detail: stage ? 1 : 0.35,
-      bloom: true,
-    } satisfies Frame,
-  });
+  // per-frame state that never re-renders (the frame loop allocates nothing:
+  // everything it writes lives here)
+  const [live] = useState(() => ({
+    current: (() => {
+      const caps = copyCaps(capsFor(chosen ?? THEME_CAPS[theme]));
+      const frame: Frame = {
+        viewProj: view.viewProj,
+        camPos: view.camPos,
+        fit: view.fit,
+        look: theme === "dark" ? NIGHT : DAY,
+        caps,
+        travel: new Float32Array(9),
+        glow: new Float32Array(27),
+        ripples: new Float32Array(MAX_RIPPLES * 4),
+        rippleColors: new Float32Array(MAX_RIPPLES * 3),
+        rippleCount: 0,
+        knobAngle: 0,
+        knobLight: [0, 0, 0] as Vec3,
+        detail: stage ? 1 : 0.35,
+        bloom: true,
+      };
+      const fill: FillTarget = {
+        travel: frame.travel,
+        glow: frame.glow,
+        ripples: frame.ripples,
+        rippleColors: frame.rippleColors,
+        knobLight: frame.knobLight,
+        breathe: 0,
+        reduced: reducedMotion,
+        gain: 1,
+        rippleCount: 0,
+      };
+      return {
+        yaw: 0,
+        yawV: 0,
+        pitch: 0,
+        pitchV: 0,
+        aimYaw: 0,
+        aimPitch: 0,
+        night: theme === "dark" ? 1 : 0,
+        caps,
+        capsId: chosen ?? THEME_CAPS[theme],
+        capsGap: 0,
+        /** Scratch looks: the theme cross-fade, and the tile's firmer variant. */
+        fade: blankLook(),
+        tileLook: blankLook(),
+        fitDirty: true,
+        acc: 0,
+        /** Last frame only breathed: the next can wait (24 fps). */
+        calm: false,
+        /** Something asked for a full-rate frame (input, resize). */
+        kick: true,
+        /** performance.now() of the last input (wall clock: slow frames don't stretch it); breathing 0…1. */
+        lastInput: performance.now(),
+        /** When the breathing was last stepped (0: not yet, or the loop slept). */
+        breathedAt: 0,
+        /** performance.now() of the last pointer press on the pad (to tell its click apart). */
+        pressedAt: -Infinity,
+        breathe: stage && !reducedMotion ? 1 : 0,
+        welcomed: false,
+        hover: -1,
+        // where the overlays were last placed
+        placedVersion: -1,
+        placedYaw: NaN,
+        placedPitch: NaN,
+        placedTravel: new Float32Array(9).fill(NaN),
+        placedBox: box(),
+        /** The key whose focus ring shows (-1: none). */
+        ring: -1,
+        ringTravel: NaN,
+        frame,
+        fill,
+      };
+    })(),
+  }));
 
   /* -------------------------------------------------------------------- */
   /* frame                                                                 */
@@ -174,31 +232,64 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
     live.current.fitDirty = false;
   }, [view, settings]);
 
+  const ringRef = useRef<SVGGElement>(null);
+  const ringLineRef = useRef<SVGPathElement>(null);
+  const ringHaloRef = useRef<SVGPathElement>(null);
+
+  /**
+   * Draws the focus ring round the cap (or the knob, KNOB_RING) as it sits
+   * in perspective, or hides it.
+   */
+  const placeRing = () => {
+    const L = live.current;
+    const g = ringRef.current;
+    if (!g) return;
+    if (L.ring < 0) {
+      g.style.opacity = "0";
+      return;
+    }
+    const knob = L.ring === KNOB_RING;
+    const outline = knob ? view.knobOutline() : view.capOutline(L.ring, pad.switches[L.ring].x);
+    ringLineRef.current?.setAttribute("d", ringPath(outline, RING_GAP));
+    ringHaloRef.current?.setAttribute("d", ringPath(outline, RING_GAP + 2.5));
+    L.ringTravel = knob ? 0 : pad.switches[L.ring].x;
+    g.style.opacity = "1";
+  };
+
+  /**
+   * Moves the focusable stand-ins over the caps and the knob. Only what
+   * changed since last time is touched (camera, fit, a cap's travel).
+   */
   const placeOverlays = () => {
     if (!settings.current.stage) return;
-    let signature = "";
-    const boxes = KEYS.map((k) => {
-      const b = bbox(view.capHull(k.index, pad.switches[k.index].x));
-      signature += `${Math.round(b.x)},${Math.round(b.y)},${Math.round(b.w)},${Math.round(b.h)};`;
-      return b;
-    });
-    const knob = bbox(view.knobHull());
-    signature += `${Math.round(knob.x)},${Math.round(knob.y)},${Math.round(knob.w)}`;
-    if (signature === live.current.overlay) return;
-    live.current.overlay = signature;
-    boxes.forEach((b, i) => {
+    const L = live.current;
+    const camera =
+      L.placedVersion !== view.version || Math.abs(L.placedYaw - L.yaw) > 2e-5 || Math.abs(L.placedPitch - L.pitch) > 2e-5;
+    if (camera) {
+      L.placedVersion = view.version;
+      L.placedYaw = L.yaw;
+      L.placedPitch = L.pitch;
+    }
+    const b = L.placedBox;
+    for (let i = 0; i < 9; i++) {
+      const x = pad.switches[i].x;
+      if (!camera && L.placedTravel[i] === x) continue;
+      L.placedTravel[i] = x;
       const el = keyRefs.current[i];
-      if (!el) return;
+      if (!el) continue;
+      view.capBox(i, x, b);
       el.style.transform = `translate(${b.x.toFixed(1)}px, ${b.y.toFixed(1)}px)`;
       el.style.width = `${b.w.toFixed(1)}px`;
       el.style.height = `${b.h.toFixed(1)}px`;
-    });
-    const el = knobRef.current;
-    if (el) {
-      el.style.transform = `translate(${knob.x.toFixed(1)}px, ${knob.y.toFixed(1)}px)`;
-      el.style.width = `${knob.w.toFixed(1)}px`;
-      el.style.height = `${knob.h.toFixed(1)}px`;
     }
+    const el = knobRef.current;
+    if (camera && el) {
+      view.knobBox(b);
+      el.style.transform = `translate(${b.x.toFixed(1)}px, ${b.y.toFixed(1)}px)`;
+      el.style.width = `${b.w.toFixed(1)}px`;
+      el.style.height = `${b.h.toFixed(1)}px`;
+    }
+    if (L.ring >= 0 && (camera || (L.ring !== KNOB_RING && L.ringTravel !== pad.switches[L.ring].x))) placeRing();
   };
 
   const wake = useFrame(active, (dt) => {
@@ -209,13 +300,20 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
     // nothing to draw yet: sleep until the context or a resize wakes the loop
     if (!renderer || width < 2 || height < 2) return false;
 
-    // tiles run at half rate
     if (!s.stage) {
+      // tiles run at half rate
       L.acc += dt;
       if (L.acc < 1 / 30 - 0.002) return;
       dt = Math.min(0.1, L.acc);
       L.acc = 0;
-    }
+    } else if (L.calm && !L.kick) {
+      // only the LEDs breathing: skip the whole frame until 1/24 s has passed
+      L.acc += dt;
+      if (L.acc < 1 / 24 - 0.002) return;
+      dt = Math.min(0.1, L.acc);
+      L.acc = 0;
+    } else L.acc = 0;
+    L.kick = false;
     if (L.fitDirty) layout();
 
     const reduced = s.reducedMotion;
@@ -226,7 +324,7 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
       L.welcomed = true;
       pad.pulse(4, 0.95, reduced);
     }
-    let busy = pad.step(dt, { reduced, breathe: false });
+    let busy = pad.step(dt, reduced);
     if (!s.stage && !reduced) busy = true;
 
     // parallax
@@ -243,53 +341,77 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
     }
     view.update(L.yaw, L.pitch);
 
-    // theme and keycaps cross-fade
+    // theme and keycaps cross-fade (in place)
     const night = s.theme === "dark" ? 1 : 0;
     L.night = reduced ? night : damp(L.night, night, 7, dt);
     if (Math.abs(L.night - night) < 0.002) L.night = night;
     else busy = true;
-    const capsTarget = capsFor(s.caps);
-    const ct = reduced ? 1 : 1 - Math.exp(-dt * 10);
-    L.caps = mixCaps(L.caps, capsTarget, ct);
-    const capsGap = Math.abs(L.caps.albedo[0] - capsTarget.albedo[0]) + Math.abs(L.caps.albedo[2] - capsTarget.albedo[2]);
-    if (capsGap > 0.002) busy = true;
-    else L.caps = capsTarget;
+    if (L.capsGap > 0 || L.capsId !== s.caps) {
+      L.capsId = s.caps;
+      L.capsGap = mixCapsInto(L.caps, capsFor(s.caps), reduced ? 1 : 1 - Math.exp(-dt * 10));
+      if (L.capsGap > 0) busy = true;
+    }
+
+    // the idle LEDs breathe while someone is about, then settle
+    const now = performance.now();
+    if (s.stage && !reduced) {
+      // timed on the wall clock, so a slow device still settles after ~8 s
+      const real = L.breathedAt ? Math.min(0.5, (now - L.breathedAt) / 1000) : dt;
+      const target = now - L.lastInput < BREATHE_FOR * 1000 ? 1 : 0;
+      L.breathe = damp(L.breathe, target, target ? 2 : 1.2, real);
+      if (Math.abs(L.breathe - target) < 0.004) L.breathe = target;
+    } else L.breathe = 0;
+    L.breathedAt = now;
+    const breathing = L.breathe > 0;
 
     const f = L.frame;
-    const look = lookAt(L.night);
-    // tiles are small: a touch more glow and a firmer footprint keep them legible
-    f.look = s.stage
-      ? look
-      : { ...look, glowGain: look.glowGain * 1.25, shadow: [look.shadow[0] * 1.25, look.shadow[1] * 1.2] };
-    f.caps = L.caps;
-    f.camPos = view.camPos;
-    f.fit = view.fit;
-    f.knobAngle = -Math.PI / 2 + pad.angle;
-    pad.fill({
-      travel: f.travel,
-      glow: f.glow,
-      ripples: f.ripples,
-      rippleColors: f.rippleColors,
-      knobLight: f.knobLight,
-      breathe: s.stage,
-      reduced,
-      gain: 1,
-    });
-    // only breathing: a slower frame is plenty (saves the battery)
-    const breathing = s.stage && !reduced && !busy;
-    if (breathing) {
-      L.idle += dt;
-      if (L.idle < 1 / 24) return;
-      L.idle = 0;
+    if (s.stage) f.look = L.night === 0 ? DAY : L.night === 1 ? NIGHT : lookInto(L.night, L.fade);
+    else {
+      // tiles are small: a touch more glow (more still by day, where the
+      // studio light washes it out) and a firmer footprint keep them legible
+      const t = lookInto(L.night, L.tileLook);
+      t.glowGain *= 1.25 + 0.3 * (1 - L.night);
+      t.shadow[0] *= 1.25;
+      t.shadow[1] *= 1.2;
+      f.look = t;
     }
+    f.knobAngle = -Math.PI / 2 + pad.angle;
+    const fill = L.fill;
+    fill.breathe = L.breathe;
+    fill.reduced = reduced;
+    pad.fill(fill);
+    f.rippleCount = fill.rippleCount;
     renderer.draw(f);
     placeOverlays();
-    if (!busy && !breathing) return false;
+    // nothing but the breathing: the next frames can be throttled
+    L.calm = !busy;
+    if (!busy && !breathing) {
+      L.breathedAt = 0;
+      return false;
+    }
   });
+
+  /** Redraw at full rate on the next frame (and wake the loop if it slept). */
+  const redraw = useCallback(() => {
+    live.current.kick = true;
+    wake();
+  }, [wake]);
+
+  /** Someone did something: full rate, and the LEDs breathe again. */
+  const nudge = useCallback(() => {
+    live.current.lastInput = performance.now();
+    redraw();
+  }, [redraw]);
+
+  // a big stage at 2× is ~2.7 MP with MSAA and a bloom chain: 1.75× is
+  // indistinguishable there and a quarter cheaper
+  const [maxDpr] = useState(() => (stage ? (window.innerWidth * (window.devicePixelRatio || 1) > 2000 ? 1.75 : 2) : 1.5));
+  const glRef = useRef<WebGL2RenderingContext | null>(null);
+  const mountedRef = useRef(false);
 
   const { canvasRef, sizeRef, supported } = useWebGL2({
     mode,
-    maxDpr: stage ? 2 : 1.5,
+    maxDpr,
     attributes: { alpha: true, antialias: true, premultipliedAlpha: true, preserveDrawingBuffer: false },
     onContext: (gl) => {
       let renderer: PadRenderer | null = null;
@@ -302,7 +424,10 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
       if (!atlasRef.current) atlasRef.current = drawAtlas(undefined, stage ? 500 : 640);
       renderer.setAtlas(atlasRef.current);
       rendererRef.current = renderer;
-      wake();
+      glRef.current = gl;
+      // the overlays and the ring belong to the new context's first frame
+      live.current.placedVersion = -1;
+      redraw();
       return () => {
         renderer?.dispose();
         rendererRef.current = null;
@@ -310,9 +435,35 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
     },
     onResize: () => {
       live.current.fitDirty = true;
-      wake();
+      redraw();
     },
   });
+
+  // Hand the WebGL context back when the piece really goes away: home and
+  // /lab/ run several pieces at once and browsers keep only ~16 contexts,
+  // force-losing the oldest (a live tile) past that. This runs a tick later
+  // because StrictMode's rehearsal unmount remounts at once and keeps using
+  // the same context; onContext's own cleanup also runs on a context loss,
+  // so it can't do this.
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      const gl = glRef.current;
+      if (!gl) return;
+      window.setTimeout(() => {
+        if (mountedRef.current || gl.isContextLost()) return;
+        gl.getExtension("WEBGL_lose_context")?.loseContext();
+        // free the backing store now rather than at the next GC
+        const canvas = gl.canvas;
+        if (canvas instanceof HTMLCanvasElement) {
+          canvas.width = 0;
+          canvas.height = 0;
+        }
+        if (glRef.current === gl) glRef.current = null;
+      }, 0);
+    };
+  }, []);
 
   // redraw the legends once Geist has loaded
   useEffect(() => {
@@ -321,12 +472,12 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
       if (!alive) return;
       atlasRef.current = drawAtlas(atlasRef.current ?? undefined, stage ? 500 : 640);
       rendererRef.current?.setAtlas(atlasRef.current);
-      wake();
+      redraw();
     });
     return () => {
       alive = false;
     };
-  }, [wake, stage]);
+  }, [redraw, stage]);
 
   // the trays' height decides how much room the pad has
   useEffect(() => {
@@ -335,11 +486,11 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
     if (!controls) return;
     const observer = new ResizeObserver(() => {
       live.current.fitDirty = true;
-      wake();
+      redraw();
     });
     observer.observe(controls);
     return () => observer.disconnect();
-  }, [stage, wake]);
+  }, [stage, redraw]);
 
   // wake on any change from React's side
   useEffect(() => {
@@ -347,37 +498,46 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
       pad.accent[4] = 0.55;
       [1, 3, 5, 7].forEach((i) => (pad.accent[i] = 0.1));
     } else pad.accent.fill(0);
-    wake();
-  }, [theme, caps, reducedMotion, pad, wake]);
+    nudge();
+  }, [theme, caps, reducedMotion, pad, nudge]);
 
   /* -------------------------------------------------------------------- */
   /* playing                                                               */
   /* -------------------------------------------------------------------- */
 
+  /** Each key's pending thock, so a touch that turns into a scroll can call it off. */
+  const thocks = useRef<Array<(() => void) | null>>([]);
+
   const pressKey = useCallback(
-    (index: number) => {
+    (index: number, touch = false) => {
       const reduced = settings.current.reducedMotion;
       if (!pad.press(index, reduced)) return false;
-      if (settings.current.stage) thock(index, panFor(index), reduced ? 0.004 : BOTTOM_OUT);
+      if (settings.current.stage) {
+        const delay = reduced ? 0.004 : BOTTOM_OUT;
+        thocks.current[index] = thock(index, panFor(index), touch ? Math.max(delay, TOUCH_THOCK) : delay);
+      }
       setTouched(true);
-      wake();
+      nudge();
       return true;
     },
-    [pad, settings, wake],
+    [pad, settings, nudge],
   );
 
+  /** `silent`: the browser took the touch over (a scroll), so no clack and no thock. */
   const releaseKey = useCallback(
-    (index: number) => {
+    (index: number, silent = false) => {
       if (!pad.isDown(index)) return;
       const reduced = settings.current.reducedMotion;
       const s = pad.switches[index];
       // a short tap waits for the bottom before it comes back up
       const wait = s.x < 0.92 && !reduced ? Math.max(0, BOTTOM_OUT * (1 - s.x)) : 0;
       pad.release(index, reduced);
-      if (settings.current.stage) clack(index, panFor(index), (reduced ? 0.01 : TOP_OUT) + wait);
-      wake();
+      if (silent) thocks.current[index]?.();
+      else if (settings.current.stage) clack(index, panFor(index), (reduced ? 0.01 : TOP_OUT) + wait);
+      thocks.current[index] = null;
+      nudge();
     },
-    [pad, settings, wake],
+    [pad, settings, nudge],
   );
 
   const announceHue = useRef(0);
@@ -394,9 +554,9 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
       setTouched(true);
       window.clearTimeout(announceHue.current);
       announceHue.current = window.setTimeout(() => setAnnounce(`Glow: ${hueName(pad.hue)}`), 350);
-      wake();
+      nudge();
     },
-    [pad, settings, wake],
+    [pad, settings, nudge],
   );
 
   useEffect(() => () => window.clearTimeout(announceHue.current), []);
@@ -430,6 +590,7 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
     const hit = pick(x, y);
     if (hit === null) return;
     event.preventDefault();
+    live.current.pressedAt = performance.now();
     try {
       rootRef.current?.setPointerCapture(event.pointerId);
     } catch {}
@@ -448,11 +609,12 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
         travelled: 0,
       });
       rootRef.current?.setAttribute("data-grabbing", "");
-      wake();
+      nudge();
       return;
     }
     // a key this pointer pressed is its own to release (another finger may hold the rest)
-    drags.current.set(event.pointerId, { kind: "keys", id: event.pointerId, key: pressKey(hit) ? hit : -1, over: hit });
+    const touch = event.pointerType === "touch";
+    drags.current.set(event.pointerId, { kind: "keys", id: event.pointerId, key: pressKey(hit, touch) ? hit : -1, over: hit, touch });
   };
 
   const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -462,7 +624,7 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
     if (event.pointerType === "mouse" && width && height && !settings.current.reducedMotion) {
       L.aimYaw = ((x / width) * 2 - 1) * (stage ? 0.075 : 0.06);
       L.aimPitch = ((y / height) * 2 - 1) * (stage ? -0.045 : -0.035);
-      wake();
+      nudge();
     }
     const current = drags.current.get(event.pointerId);
     if (!stage) {
@@ -473,7 +635,7 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
       if (key !== L.hover) {
         L.hover = key;
         if (key >= 0) auto.poke(pad, key, settings.current.reducedMotion);
-        wake();
+        nudge();
       }
       return;
     }
@@ -485,7 +647,7 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
       if (key === current.over) return;
       current.over = key;
       if (current.key >= 0) releaseKey(current.key);
-      current.key = key >= 0 && pressKey(key) ? key : -1;
+      current.key = key >= 0 && pressKey(key, current.touch) ? key : -1;
       return;
     }
     const { angle, r } = knobAngleAt(x, y);
@@ -505,7 +667,7 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
       window.clearTimeout(announceHue.current);
       announceHue.current = window.setTimeout(() => setAnnounce(`Glow: ${hueName(pad.hue)}`), 350);
     }
-    wake();
+    nudge();
   };
 
   const endDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -513,14 +675,15 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
     if (!current) return;
     drags.current.delete(event.pointerId);
     if (current.kind === "keys") {
-      if (current.key >= 0) releaseKey(current.key);
+      // a cancelled touch is the page scrolling: let go without a sound
+      if (current.key >= 0) releaseKey(current.key, event.type === "pointercancel" && current.touch);
       return;
     }
     rootRef.current?.removeAttribute("data-grabbing");
     pad.endDrag();
     // a tap on the knob turns it one notch
     if (event.type === "pointerup" && current.travelled < 5 && performance.now() - current.at < 350) turnBy(1);
-    wake();
+    nudge();
   };
 
   const onPointerLeave = () => {
@@ -528,7 +691,7 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
     L.aimYaw = 0;
     L.aimPitch = 0;
     L.hover = -1;
-    wake();
+    nudge();
   };
 
   // the wheel turns the knob; the listener sits on the knob alone, so the
@@ -571,6 +734,12 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
       if (event.repeat || down.has(index)) return;
       ensureAudio();
       down.add(index);
+      // focus on a key follows the digit played, so the ring is on the key going down
+      const focused = keyRefs.current.indexOf(document.activeElement as HTMLButtonElement);
+      if (focused >= 0 && focused !== index) {
+        setRover(index);
+        keyRefs.current[index]?.focus();
+      }
       pressKey(index);
     };
     const onKeyUp = (event: KeyboardEvent) => {
@@ -597,15 +766,33 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
   // let go of everything when the piece stops (offscreen, hidden tab)
   useEffect(() => {
     if (active) return;
-    KEYS.forEach((k) => pad.release(k.index, true));
+    KEYS.forEach((k) => {
+      pad.release(k.index, true);
+      thocks.current[k.index] = null;
+    });
     drags.current.clear();
     rootRef.current?.removeAttribute("data-grabbing");
     pad.endDrag();
   }, [active, pad]);
 
+  /** The ring follows keyboard focus only (a click never shows it). */
+  const showRing = (index: number) => {
+    const L = live.current;
+    if (L.ring === index) return;
+    L.ring = index;
+    placeRing();
+  };
+  const hideRing = (index: number) => {
+    const L = live.current;
+    if (L.ring !== index) return;
+    L.ring = -1;
+    placeRing();
+  };
+
   const onKeyCapKey = (index: number) => (event: ReactKeyboardEvent<HTMLButtonElement>) => {
     const moves: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
     const move = moves[event.key];
+    if (event.type === "keydown") showRing(index);
     if (move) {
       if (event.type !== "keydown") return;
       event.preventDefault();
@@ -667,7 +854,7 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
     setTouched(true);
     setAnnounce(COLOURWAYS.find((c) => c.id === id)?.label ?? "");
     pad.pulse(4, 0.6, settings.current.reducedMotion);
-    wake();
+    nudge();
   };
 
   /* -------------------------------------------------------------------- */
@@ -705,7 +892,16 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
     >
       <canvas ref={canvasRef} aria-hidden="true" className="absolute inset-0 block size-full" />
 
-      {/* focusable stand-ins over the caps and the knob (they also stop touch scrolling there) */}
+      {/* the focus ring, drawn round the cap as it sits in perspective */}
+      <svg aria-hidden="true" className="pointer-events-none absolute inset-0 size-full overflow-visible">
+        <g ref={ringRef} style={{ opacity: 0 }} fill="none" strokeLinejoin="round">
+          <path ref={ringHaloRef} strokeWidth={3} style={{ stroke: "color-mix(in oklab, var(--background) 70%, transparent)" }} />
+          <path ref={ringLineRef} strokeWidth={2} style={{ stroke: "var(--foreground)" }} />
+        </g>
+      </svg>
+
+      {/* focusable stand-ins over the caps and the knob; a vertical swipe on
+          a cap still scrolls the page, the knob keeps every touch */}
       <div role="group" aria-label="Macropad keys" aria-describedby={hintId}>
         {KEYS.map((k) => (
           <button
@@ -717,17 +913,30 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
             aria-label={`Key ${k.index + 1}`}
             aria-keyshortcuts={String(k.index + 1)}
             tabIndex={k.index === rover ? 0 : -1}
-            onFocus={() => setRover(k.index)}
+            // a click or tap plays the key without taking focus
+            onMouseDown={(event) => event.preventDefault()}
+            onFocus={(event) => {
+              setRover(k.index);
+              let keyboard = true;
+              try {
+                keyboard = event.currentTarget.matches(":focus-visible");
+              } catch {}
+              if (keyboard) showRing(k.index);
+            }}
             onKeyDown={onKeyCapKey(k.index)}
             onKeyUp={onKeyCapKey(k.index)}
-            onBlur={() => releaseKey(k.index)}
+            onBlur={() => {
+              hideRing(k.index);
+              releaseKey(k.index);
+            }}
             onClick={(event) => {
-              // assistive tech "clicks" without pointer or key events
-              if (event.detail !== 0 || pad.isDown(k.index)) return;
+              // assistive tech "clicks" without pointer or key events (a
+              // synthetic click right after a press of our own is not one)
+              if (event.detail !== 0 || pad.isDown(k.index) || performance.now() - live.current.pressedAt < 800) return;
               pressKey(k.index);
               window.setTimeout(() => releaseKey(k.index), 120);
             }}
-            className="absolute top-0 left-0 cursor-pointer rounded-[18px] outline-none [touch-action:none] focus-visible:shadow-[0_0_0_2px_var(--foreground),0_0_0_5px_color-mix(in_oklab,var(--background)_70%,transparent)]"
+            className="absolute top-0 left-0 cursor-pointer rounded-[18px] outline-none [touch-action:pan-y]"
           />
         ))}
       </div>
@@ -741,8 +950,20 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
         aria-valuemax={360 - HUE_STEP}
         aria-valuenow={hue}
         aria-valuetext={`${name}, ${hue} degrees`}
-        onKeyDown={onKnobKey}
-        className="absolute top-0 left-0 cursor-grab rounded-full outline-none [touch-action:none] focus-visible:shadow-[0_0_0_2px_var(--foreground),0_0_0_5px_color-mix(in_oklab,var(--background)_70%,transparent)]"
+        onMouseDown={(event) => event.preventDefault()}
+        onFocus={(event) => {
+          let keyboard = true;
+          try {
+            keyboard = event.currentTarget.matches(":focus-visible");
+          } catch {}
+          if (keyboard) showRing(KNOB_RING);
+        }}
+        onBlur={() => hideRing(KNOB_RING)}
+        onKeyDown={(event) => {
+          showRing(KNOB_RING);
+          onKnobKey(event);
+        }}
+        className="absolute top-0 left-0 cursor-grab rounded-full outline-none [touch-action:none]"
       />
 
       <p id={hintId} className="sr-only">

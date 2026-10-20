@@ -16,31 +16,37 @@
 // spins and then checks off with a drawn tick and a little spring, tool
 // calls type their arguments in before they run (one opens on its own to
 // show its JSON, then folds away), sub-agents fan out on a small graph
-// with packets riding the curves, the token odometer rolls on springs and
-// the timer counts, and the summary streams in word by word. The
-// transcript follows the run with an eased scroll and lets go as soon as
-// you scroll or open something; a pill brings it back.
+// with packets riding the curves (graph.tsx), the token odometer rolls in
+// ticks and the timer counts, the status line rolls from one state to the
+// next, and the summary streams in word by word. The transcript follows the
+// run with an eased scroll and lets go as soon as you scroll or open
+// something; a pill brings it back. When a run you have left alone is done,
+// the transcript eases back up to its resting view: the graph at the top,
+// the summary below it.
 //
 // Touch. Type a task (or press Shuffle, or pick an example) and Run;
-// Stop (or Esc) freezes it where it is; Run again replays. Tool calls open
+// Stop (or Esc, except in full screen, where Esc leaves full screen)
+// freezes it where it is; Run again replays. Tool calls open
 // with a click, Enter or Space. Quiet synthesised ticks once you have
 // touched the stage (sound.ts), muted with the lab's shared mute.
 //
 // Tile: a miniature of the card cycling short runs, steps folding away as
-// they finish. Reduced motion: the stage shows a finished run (and later
-// runs step through without any movement); the tile a still, finished card.
+// they finish, set in from the tile's edges so the hover label never covers
+// it. Reduced motion: the stage shows a finished run at its resting view
+// (and later runs step through without any movement); the tile a still,
+// finished card.
 
-import { GeistMono } from "geist/font/mono";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { ensureAudio } from "../../audio";
+import { labMono } from "../../fonts";
 import { useElementSize, useFrame, useIsoLayoutEffect } from "../../hooks";
 import { Reset, Shuffle } from "../../lab-icons";
 import type { PieceProps } from "../../types";
 import { IconButton, MuteButton, StageControls, TextInput, Tray, TrayButton, TrayDivider } from "../../ui";
 import { RunClock, type RunState } from "./clock";
-import { Graph } from "./graph";
-import { Odometer, Timer } from "./odometer";
+import { Graph, kilo, type GraphVariant } from "./graph";
+import { Count, Odometer, Timer } from "./odometer";
 import { AgentMark, CallStatus, GlyphShape, StatusIcon, StopIcon, ThinkIcon, ToolRow } from "./parts";
 import {
   SCRIPTS,
@@ -68,7 +74,7 @@ import { css } from "./styles";
 
 export default function Piece(props: PieceProps) {
   return (
-    <div className={cn("ar absolute inset-0", GeistMono.variable)} data-paused={props.active ? undefined : ""}>
+    <div className={cn("ar absolute inset-0", labMono.variable)} data-paused={props.active ? undefined : ""}>
       <style href="lab-agent-run" precedence="default">
         {css}
       </style>
@@ -83,7 +89,8 @@ export default function Piece(props: PieceProps) {
 
 type View = { t: number; state: RunState };
 
-const digitsFor = (tokens: number) => Math.max(5, String(Math.round(tokens)).length);
+/** Columns for a count that ends at `tokens` (the leading ones stay invisible until reached). */
+const digitsFor = (tokens: number) => Math.max(1, String(Math.round(tokens)).length);
 
 /** What the header says the agent is doing. */
 type StatusLine = { text: string; short?: string; tone: "idle" | "live" | "done" | "stopped"; shimmer?: boolean };
@@ -93,7 +100,8 @@ function statusLine(timeline: Timeline | null, view: View): StatusLine {
   if (view.state === "done") return { text: "Done", tone: "done" };
   const { t } = view;
   const stopped = view.state === "stopped";
-  if (t < timeline.planEnd) {
+  // Still planning until the first step actually starts.
+  if (t < timeline.steps[0].start) {
     return stopped
       ? { text: "Stopped while planning", short: "Stopped", tone: "stopped" }
       : { text: "Planning", tone: "live", shimmer: true };
@@ -126,6 +134,32 @@ function StatusDot({ tone, size = 6 }: { tone: "idle" | "live" | "done" | "stopp
   );
 }
 
+/**
+ * A one-line label that rolls when it changes: the old text rises and fades
+ * out while the new one rises in from below. `tone` is the text's own class
+ * (it may shimmer), kept with the text so the outgoing line keeps its look.
+ */
+function RollText({ text, tone, animate, className }: { text: string; tone?: string; animate: boolean; className?: string }) {
+  const [roll, setRoll] = useState({ text, tone, previous: "", previousTone: tone as string | undefined, n: 0 });
+  if (roll.text !== text || roll.tone !== tone) {
+    // A different label (not just a new look for the same one) rolls; a new tone alone cross-fades in place.
+    setRoll({ text, tone, previous: roll.text, previousTone: roll.tone, n: roll.text !== text ? roll.n + 1 : roll.n });
+  }
+  const rolled = animate && roll.n > 0;
+  return (
+    <span className={cn("relative inline-flex min-w-0", className)}>
+      {rolled ? (
+        <span key={`out${roll.n}`} aria-hidden="true" className="ar-roll-out pointer-events-none absolute start-0 top-0 whitespace-nowrap">
+          <span className={roll.previousTone}>{roll.previous}</span>
+        </span>
+      ) : null}
+      <span key={`in${roll.n}`} className={cn("block min-w-0 truncate", rolled && "ar-roll-in")}>
+        <span className={tone}>{roll.text}</span>
+      </span>
+    </span>
+  );
+}
+
 /** Words that have arrived by t, each fading in as it lands. */
 function Streamed({ words, t, animate }: { words: readonly Word[]; t: number; animate: boolean }) {
   const shown = words.filter((word) => t >= word.at);
@@ -145,6 +179,57 @@ function Streamed({ words, t, animate }: { words: readonly Word[]; t: number; an
 /* stage                                                                   */
 /* ---------------------------------------------------------------------- */
 
+/** Seconds a finished run waits before easing to its resting view, and how long the ease takes. */
+const REST_DELAY = 1.6;
+const REST_EASE = 1.1;
+
+/** How much of the summary the resting view tries to show under the graph (its label and title). */
+const REST_PEEK = 104;
+
+/**
+ * Where the transcript rests: the parallel step at the top, its graph in
+ * full, and as much of the summary under it as fits (scrolling past the
+ * step's own label if that is what it takes to show the summary's title).
+ */
+function restTarget(element: HTMLElement): number | null {
+  const anchor = element.querySelector<HTMLElement>("[data-ar-rest]");
+  if (!anchor) return null;
+  const origin = element.getBoundingClientRect().top - element.scrollTop;
+  const top = (node: Element | null) => (node ? node.getBoundingClientRect().top - origin : null);
+  const step = top(anchor)! - 12;
+  const panel = top(anchor.querySelector(".ar-panel"));
+  const summary = top(element.querySelector("[data-ar-summary]"));
+  let target = step;
+  if (panel !== null && summary !== null) target = Math.max(step, Math.min(summary + REST_PEEK - element.clientHeight, panel - 10));
+  return Math.round(Math.max(0, Math.min(element.scrollHeight - element.clientHeight, target)));
+}
+
+/**
+ * Where the transcript follows the run to: its end, except that the task
+ * bubble at the top is never left cut in half under the header. Once the
+ * run outgrows the view, the scroll goes straight past the bubble (a spacer
+ * at the end makes room until the run catches up), so the bubble is either
+ * whole or gone.
+ */
+function followTarget(element: HTMLElement, spacer: HTMLElement | null): number {
+  const room = spacer ? spacer.offsetHeight : 0;
+  const natural = element.scrollHeight - room - element.clientHeight;
+  let need = 0;
+  const task = element.querySelector<HTMLElement>("[data-ar-task]");
+  if (task && natural > 0.5) {
+    const origin = element.getBoundingClientRect().top - element.scrollTop;
+    // 2px past the bubble's foot puts the next row just under the top fade.
+    const past = Math.ceil(task.getBoundingClientRect().bottom - origin + 2);
+    if (natural < past) need = past - natural;
+  }
+  if (spacer && Math.abs(need - room) > 0.5) spacer.style.height = `${need}px`;
+  return Math.max(0, natural) + need;
+}
+
+/** Native full screen, or the lab page's overlay fallback. */
+const inFullScreen = () =>
+  typeof document !== "undefined" && (Boolean(document.fullscreenElement) || document.documentElement.hasAttribute("data-lab-expanded"));
+
 function Stage({ active, reducedMotion }: PieceProps) {
   const [clock] = useState(() => new RunClock());
   const [timeline, setTimeline] = useState<Timeline | null>(null);
@@ -157,7 +242,18 @@ function Stage({ active, reducedMotion }: PieceProps) {
   const [pressing, setPressing] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const followRef = useRef(true);
+  /** Room at the end of the transcript, so following can scroll the task bubble fully away. */
+  const spacerRef = useRef<HTMLDivElement>(null);
+  /**
+   * What the transcript's scroll is doing: following the run down, easing to
+   * the resting view (the graph at the top, the summary below), or left alone.
+   */
+  const goalRef = useRef<"follow" | "rest" | "none">("follow");
+  const restTween = useRef({ from: 0, time: 0 });
+  /** Seconds until a finished run eases to its resting view (< 0: not waiting). */
+  const restDelay = useRef(-1);
+  /** Jump to the resting view once the next run has rendered (the reduced-motion still). */
+  const restNow = useRef(false);
   const userScroll = useRef(0);
   const lastKey = useRef("");
   const interacted = useRef(false);
@@ -205,6 +301,19 @@ function Stage({ active, reducedMotion }: PieceProps) {
       if (clock.t >= current.end) {
         clock.state = "done";
         clock.linger = 1.2;
+        // Left alone to the end: settle on the resting view in a moment.
+        if (goalRef.current === "follow" && !reducedMotion) {
+          restDelay.current = REST_DELAY;
+          clock.linger = REST_DELAY + REST_EASE + 0.2;
+        }
+      }
+    }
+    if (restDelay.current >= 0) {
+      restDelay.current -= dt;
+      if (restDelay.current < 0 && goalRef.current === "follow" && clock.state === "done") {
+        goalRef.current = "rest";
+        restTween.current = { from: scrollRef.current?.scrollTop ?? 0, time: 0 };
+        setFollow(false);
       }
     }
     const busy = clock.emit(dt);
@@ -213,7 +322,8 @@ function Stage({ active, reducedMotion }: PieceProps) {
   });
 
   const setFollowing = useCallback((value: boolean) => {
-    followRef.current = value;
+    goalRef.current = value ? "follow" : "none";
+    restDelay.current = -1;
     setFollow(value);
   }, []);
 
@@ -230,6 +340,8 @@ function Stage({ active, reducedMotion }: PieceProps) {
       setToggles({});
       setView({ t: clock.t, state: clock.state });
       setFollowing(true);
+      restNow.current = finished;
+      if (spacerRef.current) spacerRef.current.style.height = "0px";
       if (scrollRef.current) scrollRef.current.scrollTop = 0;
       if (!finished) setAnnounce(`Running: ${script.task}`);
       wake();
@@ -257,13 +369,40 @@ function Stage({ active, reducedMotion }: PieceProps) {
     };
   }, [timeline, reducedMotion, active, begin]);
 
-  // Follow the run: ease the transcript down as it grows.
+  // A finished run shown at once (the reduced-motion still): straight to the resting view.
+  useIsoLayoutEffect(() => {
+    const element = scrollRef.current;
+    if (!restNow.current || !element) return;
+    restNow.current = false;
+    const target = restTarget(element);
+    if (target === null) return;
+    element.scrollTop = target;
+    goalRef.current = "none";
+    setFollow(false);
+  }, [runId]);
+
+  // Follow the run (ease the transcript down as it grows), or ease once to the resting view.
   useEffect(
     () =>
       clock.subscribe((dt) => {
         const element = scrollRef.current;
-        if (!element || !followRef.current) return false;
-        const target = element.scrollHeight - element.clientHeight;
+        if (!element) return false;
+        if (goalRef.current === "rest") {
+          const target = restTarget(element);
+          const tween = restTween.current;
+          tween.time = Math.min(REST_EASE, tween.time + dt);
+          if (target === null || tween.time >= REST_EASE) {
+            if (target !== null) element.scrollTop = target;
+            goalRef.current = "none";
+            return false;
+          }
+          const u = tween.time / REST_EASE;
+          const eased = u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
+          element.scrollTop = tween.from + (target - tween.from) * eased;
+          return true;
+        }
+        if (goalRef.current !== "follow") return false;
+        const target = followTarget(element, spacerRef.current);
         const gap = target - element.scrollTop;
         if (gap <= 0.5) return false;
         const step = reducedMotion ? gap : gap * (1 - Math.exp(-7 * dt));
@@ -294,24 +433,32 @@ function Stage({ active, reducedMotion }: PieceProps) {
     if (timeline) begin(timeline.script);
   };
 
+  /** The next example to suggest: never the one on the card, nor the one already in the field. */
+  const nextSuggestion = () => {
+    for (let tries = 0; tries < SCRIPTS.length; tries++) {
+      const script = SCRIPTS[suggestion.current++ % SCRIPTS.length];
+      if (script.id !== timeline?.script.id && script.task !== draft) return script;
+    }
+    return SCRIPTS[suggestion.current++ % SCRIPTS.length];
+  };
+
   const submit = (value: string) => {
     interacted.current = true;
     const text = value.replace(/\s+/g, " ").trim();
-    const script = text ? scriptFor(text) : SCRIPTS[suggestion.current++ % SCRIPTS.length];
+    const script = text ? scriptFor(text) : nextSuggestion();
     setDraft("");
     begin(script);
   };
 
   const shuffle = () => {
-    const script = SCRIPTS[suggestion.current++ % SCRIPTS.length];
-    setDraft(script.task);
+    setDraft(nextSuggestion().task);
   };
 
   const toggle = (id: string, open: boolean) => {
     interacted.current = true;
     setToggles((prev) => ({ ...prev, [id]: !open }));
-    // Opening something while the run goes on: stop pulling the view away from it.
-    if (!open && clock.state === "running") setFollowing(false);
+    // Opening something: stop pulling the view away from it (while it runs, or on its way to rest).
+    if (!open && (clock.state === "running" || goalRef.current === "rest" || restDelay.current >= 0)) setFollowing(false);
     clock.linger = 0.6;
     wake();
   };
@@ -323,7 +470,9 @@ function Stage({ active, reducedMotion }: PieceProps) {
     const element = scrollRef.current;
     if (!element || performance.now() - userScroll.current > 450) return;
     const atBottom = element.scrollHeight - element.clientHeight - element.scrollTop < 28;
-    if (atBottom !== followRef.current) setFollowing(atBottom);
+    // A scroll of your own always wins over the eased ones.
+    if (goalRef.current === "rest" || restDelay.current >= 0) setFollowing(false);
+    else if (atBottom !== (goalRef.current === "follow")) setFollowing(atBottom);
   };
 
   const t = view.t;
@@ -340,7 +489,8 @@ function Stage({ active, reducedMotion }: PieceProps) {
       onPointerDownCapture={touch}
       onKeyDownCapture={(event) => {
         touch();
-        if (event.key === "Escape" && clock.state === "running") {
+        // In full screen Esc belongs to the browser (it leaves full screen), so it doesn't stop the run too.
+        if (event.key === "Escape" && clock.state === "running" && !inFullScreen()) {
           event.preventDefault();
           stop();
         }
@@ -362,15 +512,12 @@ function Stage({ active, reducedMotion }: PieceProps) {
               )}
               <span className="flex min-w-0 items-center gap-1.5">
                 <StatusDot tone={status.tone} />
-                <span
-                  key={status.text}
-                  className={cn(
-                    "ar-fade truncate text-[13px] leading-[1.2]",
-                    status.shimmer ? "ar-shimmer" : status.tone === "done" ? "text-primary" : "text-secondary",
-                  )}
-                >
-                  {narrow ? (status.short ?? status.text) : status.text}
-                </span>
+                <RollText
+                  text={narrow ? (status.short ?? status.text) : status.text}
+                  tone={status.shimmer ? "ar-shimmer" : status.tone === "done" ? "text-primary" : "text-secondary"}
+                  animate={!reducedMotion}
+                  className="text-[13px] leading-[1.2]"
+                />
               </span>
             </div>
             <div className="flex shrink-0 items-center gap-3 text-[12.5px]">
@@ -379,7 +526,7 @@ function Stage({ active, reducedMotion }: PieceProps) {
                   <circle cx="8" cy="8.6" r="5.4" fill="none" stroke="currentColor" strokeWidth="1.4" />
                   <path d="M8 5.9v2.8l1.7 1.1M6.6 1.9h2.8" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
                 </svg>
-                <Timer clock={clock} read={readTime} className="min-w-[4ch] text-end" />
+                <Timer clock={clock} read={readTime} className="min-w-[5ch] text-end" />
               </span>
               <span aria-hidden="true" className="h-3.5 w-px bg-border" />
               <span className="flex items-baseline gap-1.5" title="Tokens">
@@ -410,6 +557,7 @@ function Stage({ active, reducedMotion }: PieceProps) {
                   t={t}
                   state={view.state}
                   clock={clock}
+                  narrow={narrow}
                   reducedMotion={reducedMotion}
                   toggles={toggles}
                   onToggle={toggle}
@@ -427,6 +575,7 @@ function Stage({ active, reducedMotion }: PieceProps) {
                   }}
                 />
               )}
+              <div ref={spacerRef} aria-hidden="true" style={{ height: 0 }} />
             </div>
             {!follow && running ? (
               <button
@@ -545,6 +694,7 @@ function Transcript({
   t,
   state,
   clock,
+  narrow,
   reducedMotion,
   toggles,
   onToggle,
@@ -554,6 +704,7 @@ function Transcript({
   t: number;
   state: RunState;
   clock: RunClock;
+  narrow: boolean;
   reducedMotion: boolean;
   toggles: Record<string, boolean>;
   onToggle: (id: string, open: boolean) => void;
@@ -562,11 +713,12 @@ function Transcript({
   const stopped = state === "stopped";
   const planStatus = statusAt(timeline.planStart, timeline.planEnd, t, stopped);
   const done = state === "done";
+  const restStep = timeline.steps.find((step) => step.agents.length > 0)?.index ?? -1;
 
   return (
     <div className="px-4 pt-4 pb-7 sm:px-5 sm:pt-5">
       {/* the task */}
-      <div className="flex justify-end ps-10">
+      <div data-ar-task="" className="flex justify-end ps-10">
         <p className="ar-in m-0 rounded-[16px] rounded-ee-[6px] bg-well px-3.5 py-2 text-[13.5px] leading-[1.45] text-pretty text-primary">
           {timeline.task}
         </p>
@@ -604,9 +756,11 @@ function Transcript({
                 key={step.id}
                 step={step}
                 last={step.index === timeline.steps.length - 1}
+                rest={step.index === restStep}
                 t={t}
                 stopped={stopped}
                 clock={clock}
+                variant={narrow ? "narrow" : "wide"}
                 reducedMotion={reducedMotion}
                 toggles={toggles}
                 onToggle={onToggle}
@@ -646,18 +800,23 @@ function Transcript({
 function StepRow({
   step,
   last,
+  rest,
   t,
   stopped,
   clock,
+  variant,
   reducedMotion,
   toggles,
   onToggle,
 }: {
   step: TStep;
   last: boolean;
+  /** The step the transcript rests on once the run is done. */
+  rest: boolean;
   t: number;
   stopped: boolean;
   clock: RunClock;
+  variant: GraphVariant;
   reducedMotion: boolean;
   toggles: Record<string, boolean>;
   onToggle: (id: string, open: boolean) => void;
@@ -668,7 +827,7 @@ function StepRow({
   const showAgents = step.agents.length > 0 && t >= step.start + 0.05;
 
   return (
-    <li className={cn("ar-in relative ps-[26px]", last ? "pb-0" : "pb-3")}>
+    <li className={cn("ar-in relative ps-[26px]", last ? "pb-0" : "pb-3")} data-ar-rest={rest ? "" : undefined}>
       {!last ? (
         <span
           aria-hidden="true"
@@ -710,47 +869,67 @@ function StepRow({
         </div>
       ) : null}
 
-      {showAgents ? <AgentsBlock step={step} t={t} stopped={stopped} clock={clock} reducedMotion={reducedMotion} /> : null}
+      {showAgents ? <AgentsBlock step={step} t={t} stopped={stopped} clock={clock} variant={variant} reducedMotion={reducedMotion} /> : null}
     </li>
   );
 }
 
-const kilo = (tokens: number) => (tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k` : String(tokens));
-
-function AgentsBlock({ step, t, stopped, clock, reducedMotion }: { step: TStep; t: number; stopped: boolean; clock: RunClock; reducedMotion: boolean }) {
+/**
+ * The sub-agents of a parallel step: the graph, and the same story as a
+ * list. On a wide stage the graph's two-line nodes already say what each
+ * one is doing, so the list is for screen readers only; on a phone the
+ * nodes are a single line and the list shows activity and results.
+ */
+function AgentsBlock({
+  step,
+  t,
+  stopped,
+  clock,
+  variant,
+  reducedMotion,
+}: {
+  step: TStep;
+  t: number;
+  stopped: boolean;
+  clock: RunClock;
+  variant: GraphVariant;
+  reducedMotion: boolean;
+}) {
+  const wide = variant === "wide";
   return (
-    <div className="ar-in mt-2 mb-0.5 rounded-[16px] bg-background px-2 pt-2 pb-1.5 shadow-[inset_0_0_0_1px_var(--border)] dark:bg-[color-mix(in_oklab,var(--background)_70%,var(--float))]">
-      <Graph step={step} t={t} stopped={stopped} clock={clock} reducedMotion={reducedMotion} />
-      <ul className="m-0 mt-2 list-none border-t border-border p-0 pt-1">
+    // On a phone the panel steps out of the step's indent (not past the timeline's line) to give the graph room.
+    <div className={cn("ar-in ar-panel mt-2 mb-0.5 rounded-[16px]", wide ? "px-2 pt-2.5 pb-2" : "-ms-[17px] px-1.5 pt-2 pb-1.5")}>
+      <Graph step={step} t={t} stopped={stopped} clock={clock} variant={variant} reducedMotion={reducedMotion} />
+      <ul className={cn("m-0 list-none p-0", wide ? "sr-only" : "mt-2 border-t border-border pt-1")}>
         {step.agents.map((agent) => {
           const status = statusAt(agent.start, agent.end, t, stopped);
-          const activity = agentActivity(agent, t);
+          const activity = status === "stopped" ? "stopped" : agentActivity(agent, t);
+          const done = status === "done";
           return (
-            <li key={agent.id} className="flex min-h-7 items-center gap-2.5 px-2 py-1 text-[12.5px] sm:py-0">
-              <GlyphShape glyph={agent.spec.glyph} size={8} className={status === "pending" ? "text-tertiary" : "text-secondary"} />
-              <span className={cn("w-[72px] shrink-0 truncate sm:w-[84px]", status === "pending" ? "text-tertiary" : "text-primary")}>
+            <li key={agent.id} className="flex min-h-7 items-baseline gap-2.5 px-2 py-[5px] text-[12.5px]">
+              <span className={cn("w-[70px] shrink-0 truncate", status === "pending" ? "text-tertiary" : "text-primary")}>
                 {agent.spec.name}
+                <span className="sr-only">:</span>
               </span>
               <span
                 key={activity}
                 className={cn(
                   "ar-fade min-w-0 flex-1",
-                  status === "done"
-                    ? "line-clamp-2 text-[12.5px] leading-[1.35] text-secondary sm:truncate"
-                    : "ar-mono truncate text-[11.5px] text-tertiary",
+                  done ? "line-clamp-2 text-[12.5px] leading-[1.4] text-pretty text-secondary" : "ar-mono truncate text-[11.5px] text-tertiary",
                 )}
               >
-                {status === "stopped" ? "stopped" : activity}
+                {activity}
               </span>
-              <span className="flex shrink-0 items-center gap-2">
-                {status === "done" ? (
-                  <span className="ar-mono ar-fade text-[11px] text-tertiary max-sm:hidden">
-                    {kilo(agent.spec.tokens)} · {formatSeconds(agent.end - agent.start)}
-                  </span>
-                ) : null}
-                <CallStatus status={status} size={12} />
-                <span className="sr-only">{status === "done" ? ", done" : status === "running" ? ", working" : ""}</span>
-              </span>
+              {done ? (
+                // The wide nodes show tokens and time; on a phone the time is enough.
+                <span className="ar-mono ar-fade shrink-0 text-[11px] text-tertiary">
+                  <span className="sr-only">, done in </span>
+                  {wide ? `${kilo(agent.spec.tokens)} tokens, ` : null}
+                  {formatSeconds(agent.end - agent.start)}
+                </span>
+              ) : (
+                <span className="sr-only">{status === "running" ? ", working" : status === "pending" ? ", queued" : ""}</span>
+              )}
             </li>
           );
         })}
@@ -763,7 +942,7 @@ function Summary({ timeline, t, done, reducedMotion }: { timeline: Timeline; t: 
   const animate = !reducedMotion;
   const tokens = timeline.totalTokens;
   return (
-    <section aria-label="Summary" className="ar-in mt-5 rounded-[16px] px-4 pt-3.5 pb-4 shadow-[inset_0_0_0_1px_var(--border)]">
+    <section aria-label="Summary" data-ar-summary="" className="ar-in mt-5 rounded-[16px] px-4 pt-3.5 pb-4 shadow-[inset_0_0_0_1px_var(--border)]">
       <div className="flex items-center gap-2">
         <StatusDot tone={done ? "done" : "live"} />
         <span className="text-[12px] text-tertiary">Summary</span>
@@ -813,8 +992,20 @@ function Summary({ timeline, t, done, reducedMotion }: { timeline: Timeline; t: 
 
 const TILE_W = 204;
 const TILE_H = 252;
+/**
+ * Where the card sits in the tile (in tile px at 204 wide): a clear margin
+ * all round like the lab's other objects, and a deeper one at the bottom so
+ * the tile's hover label sits on the grey, under the card.
+ */
+const INSET = { x: 20, top: 16, bottom: 38 };
 const HOLD = 2.8;
 const SWAP = 0.45;
+/**
+ * Below this tile width (phones) the card's finest print would render at a
+ * few pixels: the sub-agents show as bars and the footer is left out, so
+ * the card keeps its header, task, steps and graph.
+ */
+const COMPACT_BELOW = 190;
 
 function Tile({ active, reducedMotion }: PieceProps) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -872,16 +1063,22 @@ function Tile({ active, reducedMotion }: PieceProps) {
   });
 
   const timeline = timelines[index % timelines.length];
-  const scale = width && height ? Math.min(width / TILE_W, height / TILE_H) : 0;
+  // Whole hundredths, so text under the transform stays on a clean scale.
+  const scale = width && height ? Math.floor(Math.min(width / TILE_W, height / TILE_H) * 100) / 100 : 0;
 
   return (
     <div ref={rootRef} aria-hidden="true" className="absolute inset-0 overflow-hidden">
       {scale ? (
         <div
-          className="absolute top-1/2 left-1/2 p-[16px]"
-          style={{ width: TILE_W, height: TILE_H, transform: `translate(-50%, -50%) scale(${scale.toFixed(4)})` }}
+          className="absolute top-1/2 left-1/2"
+          style={{
+            width: TILE_W,
+            height: TILE_H,
+            padding: `${INSET.top}px ${INSET.x}px ${INSET.bottom}px`,
+            transform: `translate(-50%, -50%) scale(${scale})`,
+          }}
         >
-          <TileCard timeline={timeline} view={view} clock={clock} out={out} reducedMotion={reducedMotion} />
+          <TileCard timeline={timeline} view={view} clock={clock} out={out} reducedMotion={reducedMotion} compact={width < COMPACT_BELOW} />
         </div>
       ) : null}
     </div>
@@ -894,16 +1091,19 @@ function TileCard({
   clock,
   out,
   reducedMotion,
+  compact,
 }: {
   timeline: Timeline;
   view: View;
   clock: RunClock;
   out: boolean;
   reducedMotion: boolean;
+  /** A phone-sized tile: bars for the sub-agents, no footer. */
+  compact: boolean;
 }) {
   const { t } = view;
   const done = view.state === "done";
-  const planning = t < timeline.planEnd;
+  const planning = t < timeline.steps[0].start;
   const step = currentStep(timeline, t) ?? timeline.steps[0];
   const status = done ? "Done" : planning ? "Planning" : `Step ${step.index + 1} of ${timeline.steps.length}`;
   const last = timeline.steps.length - 1;
@@ -911,33 +1111,30 @@ function TileCard({
   const readTime = () => formatSeconds(clock.t);
 
   return (
-    <div className="ar-tile-card flex size-full flex-col overflow-hidden rounded-[15px]">
-      <div className="flex h-[27px] shrink-0 items-center gap-[6px] border-b border-border px-[10px]">
+    <div className="ar-tile-card flex size-full flex-col overflow-hidden rounded-[14px]">
+      <div className="flex h-[25px] shrink-0 items-center gap-[6px] border-b border-border px-[10px]">
         <AgentMark size={13} live={!done} />
         <span className="text-[10px] leading-none font-medium text-primary">Agent</span>
         <span className="flex min-w-0 items-center gap-[4px]">
           <StatusDot tone={done ? "done" : "live"} size={4} />
-          <span
-            key={status}
-            className={cn(
-              "ar-fade truncate text-[9px] leading-[1.2]",
-              planning ? "ar-shimmer" : done ? "text-primary" : "text-secondary",
-            )}
-          >
-            {status}
-          </span>
+          <RollText
+            text={status}
+            tone={planning ? "ar-shimmer" : done ? "text-primary" : "text-secondary"}
+            animate={!reducedMotion}
+            className="text-[9px] leading-[1.2]"
+          />
         </span>
-        <Timer clock={clock} read={readTime} className="ms-auto text-[8.5px] leading-none text-tertiary" />
+        <Timer clock={clock} read={readTime} className="ms-auto min-w-[4ch] text-end text-[8.5px] leading-none text-tertiary" />
       </div>
 
-      <div className="ar-swap flex min-h-0 flex-1 flex-col px-[10px] pt-[9px]" data-out={out ? "" : undefined}>
+      <div className="ar-swap flex min-h-0 flex-1 flex-col overflow-hidden px-[10px] pt-[8px]" data-out={out ? "" : undefined}>
         <div className="flex justify-end ps-4">
-          <p className="m-0 truncate rounded-[8px] rounded-ee-[3px] bg-well px-[7px] py-[3.5px] text-[9px] leading-[1.3] text-primary">
+          <p className="m-0 truncate rounded-[8px] rounded-ee-[3px] bg-well px-[7px] py-[3px] text-[9px] leading-[1.3] text-primary">
             {timeline.task}
           </p>
         </div>
 
-        <ol className="m-0 mt-[10px] flex list-none flex-col gap-[6px] p-0">
+        <ol className="m-0 mt-[7px] flex list-none flex-col gap-[5px] p-0">
           {timeline.steps.map((s) => {
             const stepStatus = planning ? "pending" : statusAt(s.start, s.end, t, false);
             const tool = s.tools[0];
@@ -961,23 +1158,23 @@ function TileCard({
                   {s.label}
                 </span>
                 {s.agents.length ? (
-                  // The graph is always there: dashed while it waits, live, then merged.
-                  <div className="mt-[5px] pe-[1px]">
-                    <Graph step={s} t={t} stopped={false} clock={clock} size="tile" reducedMotion={reducedMotion} />
+                  // The graph is always there: dashed while it waits, live, then merged. It uses the card's full width.
+                  <div className="-ms-[15px] mt-[4px]">
+                    <Graph step={s} t={t} stopped={false} clock={clock} variant="tile" bare={compact} reducedMotion={reducedMotion} />
                   </div>
                 ) : tool ? (
                   <div className="ar-collapse" data-open={open ? "" : undefined}>
                     <div>
                       {outcome ? (
-                        <div key="outcome" className="ar-in mt-[4px] flex h-[15px] items-center gap-[5px] rounded-[5px] px-[5px] shadow-[inset_0_0_0_1px_var(--border)]">
+                        // The run's outcome spans the card, like the graph.
+                        <div key="outcome" className="ar-in mt-[3px] -ms-[15px] flex h-[15px] items-center gap-[5px] rounded-[5px] px-[6px] shadow-[inset_0_0_0_1px_var(--border)]">
                           <span className="size-[4px] shrink-0 rounded-full bg-status" />
-                          <span className="min-w-0 flex-1 truncate text-[8px] text-primary">{timeline.script.outcome}</span>
+                          <span className="min-w-0 flex-1 truncate text-[8.5px] leading-none text-primary">{timeline.script.outcome}</span>
                         </div>
                       ) : (
-                        <div key="call" className="mt-[4px] flex h-[15px] items-center gap-[4px] rounded-[5px] bg-well/60 px-[5px]">
-                          <span className="ar-mono shrink-0 text-[7.5px] text-primary">{tool.spec.name}</span>
-                          <span className="ar-mono min-w-0 flex-1 truncate text-[7.5px] text-tertiary">{tool.line}</span>
-                          <CallStatus status={t < tool.end ? "running" : "done"} size={7} />
+                        <div key="call" className="mt-[3px] flex h-[15px] items-center gap-[5px] rounded-[5px] bg-well/70 px-[6px]">
+                          <span className="ar-mono min-w-0 flex-1 truncate text-[8.5px] leading-none text-primary">{tool.spec.name}</span>
+                          <CallStatus status={t < tool.end ? "running" : "done"} size={8} />
                         </div>
                       )}
                     </div>
@@ -989,14 +1186,16 @@ function TileCard({
         </ol>
       </div>
 
-      <div className="flex h-[24px] shrink-0 items-center gap-[4px] border-t border-border px-[10px]">
-        <Odometer clock={clock} read={readTokens} columns={digitsFor(timeline.totalTokens)} reducedMotion={reducedMotion} className="text-[8.5px] text-primary" />
-        <span className="text-[8px] text-tertiary">tokens</span>
-        <span className="ms-auto flex items-center gap-[4px] text-[8px] text-tertiary">
-          <GlyphShape glyph="circle" size={4} className={done ? "text-status" : "text-[var(--ar-live)]"} />
-          {timeline.agentCount} sub-agents
-        </span>
-      </div>
+      {compact ? null : (
+        <div className="flex h-[21px] shrink-0 items-center gap-[4px] border-t border-border px-[10px]">
+          <Count clock={clock} read={readTokens} reducedMotion={reducedMotion} className="text-[8.5px] leading-none text-primary" />
+          <span className="text-[8px] leading-none text-tertiary">tokens</span>
+          <span className="ms-auto flex items-center gap-[4px] text-[8px] leading-none text-tertiary">
+            <GlyphShape glyph="circle" size={4} className={done ? "text-status" : "text-[var(--ar-live)]"} />
+            {timeline.agentCount} sub-agents
+          </span>
+        </div>
+      )}
     </div>
   );
 }

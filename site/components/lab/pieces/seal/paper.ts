@@ -42,15 +42,17 @@ export const PAPERS: Record<PieceTheme, Paper> = {
     exposure: 1,
   },
   dark: {
-    paper: "#3a3632",
+    // a warm mid-grey a step above the stage, so the envelope's silhouette
+    // holds against the dark ground before any wax lands
+    paper: "#4b453e",
     liner: "#4b161b",
     linerLine: "rgba(255, 190, 170, 0.1)",
     letter: "#e6dfd1",
     ink: "#2a2420",
     shadow: [0, 0, 0],
-    shadowAlpha: 2.6,
+    shadowAlpha: 3,
     grain: 0.8,
-    light: "rgba(255, 244, 228, 0.16)",
+    light: "rgba(255, 244, 228, 0.24)",
     shade: "rgba(0, 0, 0, 0.32)",
     exposure: 0.86,
   },

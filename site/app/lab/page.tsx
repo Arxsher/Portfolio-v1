@@ -5,6 +5,7 @@
 import type { Metadata } from "next";
 import { LabIndex } from "@/components/lab/lab-index";
 import { site } from "@/content/site";
+import { withBasePath } from "@/components/lab/base-path";
 
 const intro =
   "Small interactive pieces: components, objects and generative scenes, all drawn in code and running live in your browser.";
@@ -12,15 +13,15 @@ const intro =
 export const metadata: Metadata = {
   title: "Lab",
   description: intro,
-  alternates: { canonical: "/lab/" },
+  alternates: { canonical: withBasePath("/lab/") },
   // Page-level openGraph replaces the layout's, so the shared bits are repeated.
   openGraph: {
     type: "website",
-    url: "/lab/",
+    url: withBasePath("/lab/"),
     siteName: site.name,
     title: `Lab • ${site.name}`,
     description: intro,
-    images: [{ url: site.ogImage, ...site.ogImageSize, alt: site.metaTitle }],
+    images: [{ url: withBasePath(site.ogImage), ...site.ogImageSize, alt: site.metaTitle }],
   },
 };
 

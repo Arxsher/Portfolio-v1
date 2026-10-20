@@ -3,7 +3,7 @@
 // applies) and starts only after a gesture has created that context.
 //
 //   stems (fwd or rev) → stem gains (the band's mix) → voice gain ─┐
-//   crackle (surface noise) ───────────────────────────────────────┼→ needle gate → warmth → output
+//   crackle (surface noise) ───────────────────────────────────────┼→ needle gate → warmth → DC block → trim → output
 //
 // A voice is one set of three looping sources reading the same position.
 // The record's angular speed sets their playbackRate (1 at 33⅓, 1.35 at
@@ -46,6 +46,8 @@ export class DeckAudio {
   private loop: LoopSet;
   private gate: GainNode;
   private warmth: BiquadFilterNode;
+  private trim: GainNode;
+  private dc: BiquadFilterNode;
   private voice: Voice | null = null;
   private crackle: AudioBufferSourceNode | null = null;
   private crackleGain: GainNode;
@@ -63,7 +65,14 @@ export class DeckAudio {
     this.warmth.Q.value = 0.4;
     this.gate = ctx.createGain();
     this.gate.gain.value = 0;
-    this.gate.connect(this.warmth).connect(output);
+    this.trim = ctx.createGain();
+    this.trim.gain.value = 0.62;
+    // the kick's pitch drop leaves a little DC; a gentle high-pass takes it out
+    this.dc = ctx.createBiquadFilter();
+    this.dc.type = "highpass";
+    this.dc.frequency.value = 24;
+    this.dc.Q.value = 0.5;
+    this.gate.connect(this.warmth).connect(this.dc).connect(this.trim).connect(output);
     this.crackleGain = ctx.createGain();
     this.crackleGain.gain.value = 0;
     this.crackleGain.connect(this.gate);
@@ -109,7 +118,7 @@ export class DeckAudio {
     // surface noise follows the groove speed
     this.ensureCrackle();
     if (this.crackle) this.crackle.playbackRate.setTargetAtTime(Math.max(1e-4, Math.min(4, speed)), now, 0.01);
-    this.crackleGain.gain.setTargetAtTime(0.55 + 0.45 * smooth(0, 1.2, speed), now, 0.03);
+    this.crackleGain.gain.setTargetAtTime(1.1 + 0.6 * smooth(0, 1.2, speed), now, 0.03);
   }
 
   /** Start or stop the whole thing (the piece going off screen, unmount). */
@@ -193,6 +202,8 @@ export class DeckAudio {
       this.gate.disconnect();
       this.crackleGain.disconnect();
       this.warmth.disconnect();
+      this.trim.disconnect();
+      this.dc.disconnect();
     }, 200);
   }
 }

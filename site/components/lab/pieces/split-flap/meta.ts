@@ -14,9 +14,10 @@ export const meta: PieceMeta = {
   uses: ["CSS 3D transforms", "Web Audio", "Intl time zones"],
   category: "components",
   inspiredBy: "Solari split-flap departure boards",
-  // Legacy masonry shape; the arcade niches are all 100:125.
+  // A landscape tile: the miniature board sits on it as an object, about 78% of its width.
   tile: { aspect: 204 / 144 },
   stage: { aspect: 1, minHeight: 360 },
-  controlsHint: "Type a message and press Enter · Press, hold or drag along the flaps · Shuffle · Change the rows",
+  controlsHint:
+    "Type a message and press Enter · Press, hold or drag along the flaps · On the board: arrows choose a flap, Space turns it, typing sets it · Shuffle · Change the rows",
   sound: true,
 };

@@ -26,11 +26,17 @@ export function patternFor(fold: Fold): Pattern {
 
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 
-/** How big the pattern is drawn and where its centre rosette sits. */
+/**
+ * How big the pattern is drawn and where its centre rosette sits. The
+ * tile's panel shows about three stars across, the medallion's centre star
+ * and its first ring of glaze; the
+ * sixteen-fold is drawn small enough that about three rosettes stand one
+ * above the other and their ring of petals reads.
+ */
 function framing(fold: Fold, mode: Mode, width: number, height: number): { scale: number; centre: Pt } {
-  if (mode === "tile") return { scale: width / 3, centre: { x: width / 2, y: height * 0.6 } };
+  if (mode === "tile") return { scale: width / 3.3, centre: { x: width / 2, y: height / 2 } };
   const m = Math.min(width, height);
-  const scale = fold === 8 ? clamp(m / 7.2, 44, 84) : fold === 12 ? clamp(m / 2.45, 128, 236) : clamp(m / 2.1, 150, 276);
+  const scale = fold === 8 ? clamp(m / 7.2, 44, 84) : fold === 12 ? clamp(m / 2.45, 128, 236) : clamp(m / 3.2, 110, 190);
   return { scale, centre: { x: width / 2, y: height / 2 } };
 }
 

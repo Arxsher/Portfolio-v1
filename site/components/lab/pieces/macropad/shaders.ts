@@ -64,8 +64,10 @@ uniform vec3 uGlow[9];     // each LED, colour × intensity (linear)
 uniform float uPress[9];   // each cap's travel
 uniform vec4 uRipple[${MAX_RIPPLES}];       // x, z, radius, amplitude
 uniform vec3 uRippleColor[${MAX_RIPPLES}];
+uniform int uRippleCount;  // live ripples come first
 uniform vec3 uKnobLight;   // the knob's indicator (colour × intensity)
 uniform float uGlowGain;
+uniform float uEmitKnee;   // where the LED light starts to roll off (lower by day)
 
 #define TAG_GROUND ${TAG.ground}
 #define TAG_WALL ${TAG.wall}
@@ -93,6 +95,9 @@ const float CAP_H = ${f(CAP.height)};
 const float CAP_TOPX = ${f(CAP.topX)};
 const float CAP_TOPZ = ${f(CAP.topZ)};
 const float CAP_SHIFT = ${f(CAP.topShift)};
+const float CAP_TOPR = ${f(CAP.topRadius)};
+const float CAP_DISH = ${f(CAP.dish)};
+const float CAP_FILLET = ${f(CAP.fillet)};
 const float SKIRT_REST = ${f(SKIRT_REST)};
 const float TRAVEL = ${f(TRAVEL)};
 const vec2 KNOB_C = vec2(${f(KNOB.x)}, ${f(KNOB.z)});
@@ -114,13 +119,19 @@ vec3 plateGlow(vec2 p) {
   vec3 g = vec3(0.0);
   for (int k = 0; k < 9; k++) {
     float press = uPress[k];
-    float sd = sdRoundBox(p - keyCentre(k), vec2(CAP_BASE - 0.03), 0.1);
+    vec2 q = p - keyCentre(k);
+    float sd = sdRoundBox(q, vec2(CAP_BASE - 0.03), 0.1);
     float fall = mix(6.5, 10.0, press);
-    float pool = exp(-max(sd, 0.0) * fall);
+    // each LED is a point under its cap: brightest where the skirt is
+    // nearest (mid-side), dimmer into the corners where four caps meet,
+    // so the light pools in scallops instead of filling the gaps evenly
+    float spot = min(1.2, exp(-(dot(q, q) - 0.25) * 4.0));
+    float pool = exp(-max(sd, 0.0) * fall) * spot;
     // under the skirt the light is hidden, but let it read through gaps
     g += uGlow[k] * pool * (1.0 + 0.5 * press);
   }
   for (int i = 0; i < ${MAX_RIPPLES}; i++) {
+    if (i >= uRippleCount) break;
     vec4 r = uRipple[i];
     if (r.w <= 0.0005) continue;
     float d = length(p - r.xy);
@@ -129,6 +140,27 @@ vec3 plateGlow(vec2 p) {
     g += uRippleColor[i] * (r.w * exp(-x * x));
   }
   return g * uGlowGain;
+}
+
+/**
+ * A hue-keeping shoulder for LED light: below the knee it is untouched,
+ * above it the brightest channel rolls off and the others follow in
+ * proportion, so a hot key stays tinted light instead of clipping to a
+ * white band on the walls and the polished edge.
+ */
+vec3 softLight(vec3 e, float knee) {
+  float m = max(max(e.r, e.g), e.b);
+  if (m <= knee * 0.5) return e;
+  float over = m - knee * 0.5;
+  float rolled = knee * 0.5 + knee * 0.5 * (1.0 - exp(-over / (knee * 0.5)));
+  return e * (rolled / m);
+}
+
+/** How much of the plate's light reaches a cap wall at height h with normal n (0 high up). */
+float wallGlow(float h, vec3 n) {
+  // the small offset lets it reach exactly zero, so the upper walls and the
+  // top skip plateGlow without a visible edge
+  return max(exp(-max(h, 0.0) / 0.1) * (0.55 - 0.45 * n.y) - 0.003, 0.0) * 1.06;
 }
 `;
 
@@ -227,7 +259,7 @@ float ggx(float NoH, float rough) {
   return a2 / (PI * d * d);
 }
 
-vec3 shade(vec3 n, vec3 v, vec3 albedo, vec3 f0, float rough, float metal, float ao, float shadow) {
+vec3 shade(vec3 n, vec3 v, vec3 albedo, vec3 f0, float rough, float metal, float ao, float shadow, float specScale) {
   vec3 l = normalize(uKeyDir);
   vec3 h = normalize(l + v);
   float NoV = max(dot(n, v), 0.0);
@@ -239,7 +271,11 @@ vec3 shade(vec3 n, vec3 v, vec3 albedo, vec3 f0, float rough, float metal, float
   float specOcc = clamp(pow(NoV + ao, exp2(-16.0 * rough - 1.0)) - 1.0 + ao, 0.0, 1.0);
   vec3 spec = environment(r, rough) * F * specOcc;
   spec += uKeyColor * F * ggx(NoH, max(rough, 0.08)) * NoL * shadow * 0.55;
-  return diffuse + spec;
+  return diffuse + spec * specScale;
+}
+
+vec3 shade(vec3 n, vec3 v, vec3 albedo, vec3 f0, float rough, float metal, float ao, float shadow) {
+  return shade(n, v, albedo, f0, rough, metal, ao, shadow, 1.0);
 }
 
 /** Soft occlusion from the caps for a point at height y over (p.xz). */
@@ -265,10 +301,12 @@ float capShadow(vec2 p, float y, out float contact) {
 
 vec3 tonemap(vec3 c) {
   c *= uExposure;
-  // a gentle filmic shoulder: linear up to the mids, rolls off highlights
+  // linear through the mids, then a long, soft shoulder: bright surfaces
+  // (white caps, the silver case under the softbox) keep their gradients
+  // instead of flattening onto a plateau, and only real glints reach white
   vec3 x = max(c, 0.0);
-  vec3 mapped = (x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14);
-  return mix(x, mapped, smoothstep(0.35, 1.2, x));
+  vec3 over = max(x - 0.7, 0.0);
+  return min(x, 0.7 + over / (1.0 + over / 0.36));
 }
 
 vec3 toSrgb(vec3 c) {
@@ -287,6 +325,9 @@ void main() {
   vec3 color;
   vec3 emit = vec3(0.0);
   float alpha = 1.0;
+  // display-space shading for the dish (see the caps): the tonemap's
+  // shoulder would flatten it on light caps otherwise
+  float cavity = 1.0;
 
   if (vTag == TAG_GROUND) {
     vec2 q = p.xz - vec2(0.0, CASE_CZ);
@@ -311,24 +352,65 @@ void main() {
     // walls darken towards the plate, more so when the cap is down in the well
     ao = mix(0.32, 1.0, smoothstep(0.02, 0.34, h));
     ao *= mix(1.0, 0.9, uTravel);
+
+    // the sculpted dish: the mesh carries the true (shallow) dish; shading
+    // it a little steeper makes the scoop read at stage size, the near half
+    // turning to the key light and the far half to the softbox
+    vec2 d = vec2(local.x, local.z - CAP_SHIFT);
+    float sdTop = sdRoundBox(d, vec2(CAP_TOPX, CAP_TOPZ) - CAP_FILLET, CAP_TOPR - CAP_FILLET * 0.6);
+    float onTop = step(CAP_H - CAP_DISH - CAP_FILLET - 0.02, local.y);
+    float dishW = (1.0 - smoothstep(-0.035, 0.0, sdTop)) * onTop;
+    vec2 slope = CAP_DISH * d / vec2(CAP_TOPX * CAP_TOPX, CAP_TOPZ * CAP_TOPZ);
+    n = normalize(n - vec3(slope.x, 0.0, slope.y) * 1.6 * dishW);
+    vec3 nSmooth = n;
+    // light caps sit high on the tonemap's shoulder, where that shading is
+    // all but flattened: the inner wall on the light's side of the dish
+    // (turned away from it) goes a little darker, the other a little
+    // lighter, after the tonemap, so the scoop reads on chalk as on graphite
+    float side = dot(d / vec2(CAP_TOPX, CAP_TOPZ), normalize(uKeyDir.xz + vec2(0.0, 0.25)));
+    cavity = 1.0 - 0.06 * dishW * side;
     // a faint micro-texture breaks the CG smoothness of PBT
     vec3 nb = n + vec3(grain, 0.0, (vnoise(p.zx * 240.0) - 0.5) * uDetail) * 0.05;
     n = normalize(nb);
     vec3 albedo = uCapAlbedo * (0.985 + 0.03 * hash(vec2(float(uKey), 3.7)));
-    // the legend, dye-sublimated into the top
-    if (local.y > CAP_H - 0.07 && uKey >= 0) {
+    color = shade(n, v, albedo, vec3(0.034), 0.46, 0.0, ao, 1.0);
+
+    // the lip where the dish rolls into the top edge is polished a little by
+    // fingers: a thin, sharper sheen there, strongest on the far side where
+    // it faces the softbox
+    float lip = smoothstep(-0.05, -0.014, sdTop) * (1.0 - smoothstep(0.004, 0.03, sdTop)) * onTop;
+    float far = smoothstep(-0.1, 0.85, -d.y / CAP_TOPZ);
+    if (lip > 0.001) {
+      vec3 r = reflect(-v, nSmooth);
+      float NoV = max(dot(nSmooth, v), 0.0);
+      float F = 0.04 + 0.5 * pow(1.0 - NoV, 5.0);
+      color += environment(r, 0.24) * F * lip * mix(0.35, 1.0, far) * 1.5;
+    }
+
+    // the legend, dye-sublimated into the top: the ink sits in the plastic,
+    // so it keeps the dish's shading but not its grain, and sheens less, so
+    // it holds its value on every colourway
+    if (local.y > CAP_H - 0.08 && uKey >= 0) {
       vec2 uv = vec2(local.x / (CAP_TOPX * 1.7) + 0.5, (local.z - CAP_SHIFT) / (CAP_TOPZ * 1.7) + 0.5);
       if (uv.x > 0.0 && uv.x < 1.0 && uv.y > 0.0 && uv.y < 1.0) {
         vec2 cell = vec2(float(uKey - (uKey / 3) * 3), float(uKey / 3));
-        float ink = texture(uAtlas, (cell + uv) / 4.0).a;
-        albedo = mix(albedo, uLegend, ink);
+        float a = texture(uAtlas, (cell + uv) / 4.0).a;
+        float ink = smoothstep(0.06, 0.62, a);
+        if (ink > 0.002) {
+          vec3 inked = shade(nSmooth, v, uLegend, vec3(0.03), 0.52, 0.0, ao, 1.0, 0.4);
+          color = mix(color, inked, ink);
+        }
       }
     }
-    color = shade(n, v, albedo, vec3(0.034), 0.46, 0.0, ao, 1.0);
-    // glow from the plate climbs the lower walls
-    vec2 outward = normalize(n.xz + 1e-4) * 0.06;
-    vec3 g = plateGlow(p.xz + outward) * exp(-max(h, 0.0) / 0.1) * (0.55 - 0.45 * n.y);
-    emit += g * mix(vec3(1.0), uCapAlbedo * 1.6 + 0.25, 0.6);
+
+    // glow from the plate climbs the lower walls (the upper walls and the
+    // top are too high for it: skip the loop there)
+    float wg = wallGlow(h, n);
+    if (wg > 0.0) {
+      vec2 outward = normalize(n.xz + 1e-4) * 0.06;
+      vec3 g = softLight(plateGlow(p.xz + outward) * wg, uEmitKnee);
+      emit += g * mix(vec3(1.0), uCapAlbedo * 1.6 + 0.25, 0.6);
+    }
   } else if (vTag == TAG_PLATE) {
     float contact;
     float occ = capShadow(p.xz, p.y, contact);
@@ -336,7 +418,7 @@ void main() {
     float wallAo = mix(0.35, 1.0, smoothstep(0.0, 0.16, sdPocket));
     ao = contact * wallAo * 0.55;
     color = shade(n, v, uPlateAlbedo, uCaseF0 * 0.6, 0.5, 0.25, ao, occ * wallAo);
-    emit += plateGlow(p.xz) * (0.55 + 0.45 * contact) * mix(0.7, 1.0, wallAo);
+    emit += softLight(plateGlow(p.xz) * (0.55 + 0.45 * contact) * mix(0.7, 1.0, wallAo), uEmitKnee * 1.3);
   } else if (vTag == TAG_KNOB_SIDE || vTag == TAG_KNOB_CHAMFER || vTag == TAG_KNOB_TOP || vTag == TAG_SHAFT) {
     mat3 rot = mat3(uModel);
     vec3 local = vLocal;
@@ -411,9 +493,13 @@ void main() {
       float ds = length(p.xz - KNOB_C + off);
       shadow *= mix(0.45, 1.0, smoothstep(KNOB_R - 0.06, KNOB_R + 0.14, ds));
       ao *= mix(0.4, 1.0, smoothstep(KNOB_R - 0.01, KNOB_R + 0.07, dk));
-      // caps shadow the frame round the pocket
-      float contact;
-      shadow *= capShadow(p.xz, p.y, contact);
+      // caps shadow the frame round the pocket (they can't reach further
+      // than this, where capShadow is exactly 1)
+      float sdPocket = sdRoundBox(p.xz, vec2(POCKET_HALF), POCKET_R);
+      if (sdPocket < 0.32) {
+        float contact;
+        shadow *= capShadow(p.xz, p.y, contact);
+      }
       // the engraving
       vec2 uv = (p.xz - ENGRAVING.xy) / (ENGRAVING.zw * 2.0) + 0.5;
       if (uv.x > 0.0 && uv.x < 1.0 && uv.y > 0.0 && uv.y < 1.0) {
@@ -424,18 +510,16 @@ void main() {
         rough = mix(rough, 0.75, ink);
       }
       // glow spills a touch onto the frame right at the pocket
-      float sdPocket = sdRoundBox(p.xz, vec2(POCKET_HALF), POCKET_R);
-      emit += plateGlow(p.xz * 0.96) * 0.05 * exp(-max(sdPocket, 0.0) / 0.03);
+      float spill = max(0.05 * exp(-max(sdPocket, 0.0) / 0.03) - 0.0004, 0.0);
+      if (spill > 0.0) emit += softLight(plateGlow(p.xz * 0.96) * spill, uEmitKnee);
     } else if (vTag == TAG_POCKET_WALL) {
       float h = p.y - PLATE_Y;
       ao = mix(0.3, 0.75, smoothstep(0.0, CASE_H - PLATE_Y, h));
       shadow = 0.5;
-      vec2 inward = -normalize(p.xz) * 0.0;
-      inward = n.xz * 0.12;
-      emit += plateGlow(p.xz + inward) * exp(-h / 0.12) * 0.8;
+      emit += softLight(plateGlow(p.xz + n.xz * 0.12) * exp(-h / 0.12) * 0.8, uEmitKnee);
     } else if (vTag == TAG_POCKET_CHAMFER) {
       // the polished edge mirrors the light in the pocket
-      emit += plateGlow(p.xz + n.xz * 0.16) * 0.4;
+      emit += softLight(plateGlow(p.xz + n.xz * 0.16) * 0.4, uEmitKnee * 0.8);
       float contact;
       shadow *= capShadow(p.xz, p.y, contact);
     } else if (vTag == TAG_WALL) {
@@ -445,7 +529,7 @@ void main() {
   }
 
   color += emit;
-  outColor = vec4(toSrgb(tonemap(color)), 1.0);
+  outColor = vec4(toSrgb(tonemap(color)) * cavity, 1.0);
 }
 `;
 
@@ -456,13 +540,13 @@ void main() {
   vec3 p = vWorld;
   vec3 emit = vec3(0.0);
   if (vTag == TAG_PLATE) {
-    emit = plateGlow(p.xz);
+    emit = softLight(plateGlow(p.xz), uEmitKnee * 1.3);
   } else if (vTag == TAG_CAP) {
-    float h = p.y - PLATE_Y;
-    emit = plateGlow(p.xz + normalize(n.xz + 1e-4) * 0.06) * exp(-max(h, 0.0) / 0.1) * (0.55 - 0.45 * n.y);
+    float wg = wallGlow(p.y - PLATE_Y, n);
+    if (wg > 0.0) emit = softLight(plateGlow(p.xz + normalize(n.xz + 1e-4) * 0.06) * wg, uEmitKnee);
   } else if (vTag == TAG_POCKET_WALL) {
     float h = p.y - PLATE_Y;
-    emit = plateGlow(p.xz + n.xz * 0.12) * exp(-h / 0.12) * 0.8;
+    emit = softLight(plateGlow(p.xz + n.xz * 0.12) * exp(-h / 0.12) * 0.8, uEmitKnee);
   } else if (vTag == TAG_KNOB_TOP) {
     float dd = length(vLocal.xz - vec2(KNOB_R * 0.66, 0.0));
     emit = uKnobLight * uGlowGain * (smoothstep(0.032, 0.025, dd) * 1.5 + exp(-dd / 0.02) * 0.2);

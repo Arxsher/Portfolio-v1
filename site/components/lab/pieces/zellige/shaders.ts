@@ -166,17 +166,27 @@ void main() {
   vec2 dir = v_center - C.xy;
   float dl = length(dir);
   dir = dl > 0.5 ? dir / dl : vec2(0.0, -1.0);
+  // the new glaze lands with a clean edge (kept a pixel wide at least) led
+  // by a thin wet bead that catches the light and dries as it crosses
+  float s = dot(v_pos - v_center, dir) / radius;
+  float edge = max(0.05, fwidth(s));
   float wipe;
+  float lip = 0.0;
+  float ahead = 0.0;
   if (C.w > 0.5) {
     wipe = smoothstep(0.0, 0.3, tf);
   } else {
-    float s = dot(v_pos - v_center, dir) / radius;
     float f = clamp(tf / 0.36, 0.0, 1.0);
     f = 1.0 - (1.0 - f) * (1.0 - f) * (1.0 - f);
     float front = mix(-1.3, 1.3, f);
-    wipe = tf <= 0.0 ? 0.0 : 1.0 - smoothstep(front - 0.16, front + 0.16, s);
+    ahead = (s - front) / 0.06;
+    wipe = tf <= 0.0 ? 0.0 : 1.0 - smoothstep(front - edge, front + edge, s);
+    lip = tf <= 0.0 ? 0.0 : exp(-ahead * ahead) * (1.0 - f) * u_motion;
   }
   vec3 albedo = mix(A.rgb, B.rgb, wipe);
+  float lum = dot(albedo, vec3(0.2126, 0.7152, 0.0722));
+  // white and cream glazes pool and cloud less visibly than the deep ones
+  float pale = smoothstep(0.3, 0.7, lum);
   // the piece rocks as the new glaze lands, like a tile pressed into its bed
   float rock = tf > 0.0 ? u_motion * 0.14 * exp(-5.0 * tf) * sin(tf * 20.0) : 0.0;
 
@@ -204,19 +214,28 @@ void main() {
   vec2 nxy = v_normal * (1.5 * t * t);
   float ang = seed * 6.28318;
   nxy += vec2(cos(ang), sin(ang)) * (0.01 + 0.045 * fract(seed * 13.7));
+  // big faces (the sixteen-fold star) are never flat either: the glaze
+  // waves more, and more finely, so the window breaks up across them
+  // instead of mirroring whole in one face
+  float big = smoothstep(45.0, 120.0, radius);
   vec3 und = noised(v_pos / 38.0 + seed * 19.0);
-  nxy -= und.yz * 0.014;
+  vec3 und2 = noised(v_pos / 15.0 - seed * 11.0);
+  nxy -= und.yz * (0.014 + 0.018 * big) + und2.yz * (0.012 * big);
   // no face is flat: the glaze domes a little, more on some pieces than
-  // others (a dish would focus the lamp across the whole face)
-  float cup = 0.012 + 0.05 * fract(seed * 5.31);
+  // others (a dish would focus the lamp across the whole face); a big face
+  // keeps the curvature of a small one rather than flattening out
+  float cup = (0.012 + 0.05 * fract(seed * 5.31)) * mix(1.0, radius / 60.0, big);
   nxy += (v_pos - v_center) / radius * cup;
   nxy += dir * rock;
+  // the wet bead's rounded profile: its far side leans ahead, its near side back
+  nxy += dir * (ahead * lip * 0.12);
   vec3 N = normalize(vec3(nxy, 1.0));
 
   float pool = 1.0 - smoothstep(0.0, bevel * 2.6, e);
-  albedo = mix(albedo, pow(albedo, vec3(1.4)) * 0.88, pool * 0.6);
+  albedo = mix(albedo, pow(albedo, vec3(1.4)) * 0.88, pool * mix(0.6, 0.32, pale));
   float cloud = vnoise(v_pos / 12.0 + seed * 7.0) * 0.65 + vnoise(v_pos / 4.6 - seed * 3.0) * 0.35;
-  albedo *= 0.9 + 0.2 * cloud;
+  albedo *= 1.0 + (cloud - 0.5) * mix(0.2, 0.11, pale);
+  albedo *= 1.0 - 0.18 * lip;
   float pin = speck(v_pos / 6.0 + seed * 5.0, 0.022, 0.2);
   albedo *= 1.0 - pin * 0.32;
   float chip = smoothstep(0.8, 0.86, vnoise(v_pos * 0.17 + seed * 23.0)) * (1.0 - smoothstep(0.15, 1.0, e));
@@ -228,6 +247,7 @@ void main() {
   float NdotH = max(dot(N, H), 0.0);
   float rough = mix(0.12, 0.55, chip);
   if (tf > 0.0) rough *= mix(0.55, 1.0, smoothstep(0.0, 1.8, tf));
+  rough *= 1.0 - 0.6 * lip;
   float a = clamp(rough * rough + u_lightSize / (2.0 * dist), 0.002, 1.0);
   float a2 = a * a;
   float den = NdotH * NdotH * (a2 - 1.0) + 1.0;
@@ -248,6 +268,8 @@ void main() {
   float pane = 1.0 - smoothstep(-0.008, 0.022, sd);
   float bars = max(1.0 - smoothstep(0.004, 0.012, abs(q.x)), 1.0 - smoothstep(0.004, 0.012, abs(q.y + u_window.w * 0.2)));
   pane *= 1.0 - 0.7 * bars;
+  // on a big face the window would be a picture, not a glint: let it go soft and faint
+  pane *= 1.0 - 0.6 * big;
   env += u_windowColor * pane;
   float Fe = (0.045 + 0.955 * pow(1.0 - NdotV, 5.0)) * (1.0 - chip * 0.85);
 

@@ -67,6 +67,25 @@ export function glowColor(h: number): Vec3 {
   return oklchLinear(0.76, 0.175, wrapHue(h));
 }
 
+/** glowColor sampled once per degree (0…360 inclusive), for the frame loop. */
+const GLOW_LUT = (() => {
+  const lut = new Float32Array(361 * 3);
+  for (let d = 0; d <= 360; d++) lut.set(glowColor(d), d * 3);
+  return lut;
+})();
+
+/** glowColor without allocating: writes rgb into out[at…at+2], scaled by `scale`. */
+export function glowInto(h: number, out: Float32Array | number[], at: number, scale = 1) {
+  const w = wrapHue(h);
+  const i = Math.min(359, Math.floor(w));
+  const f = w - i;
+  const a = i * 3;
+  const b = a + 3;
+  out[at] = (GLOW_LUT[a] + (GLOW_LUT[b] - GLOW_LUT[a]) * f) * scale;
+  out[at + 1] = (GLOW_LUT[a + 1] + (GLOW_LUT[b + 1] - GLOW_LUT[a + 1]) * f) * scale;
+  out[at + 2] = (GLOW_LUT[a + 2] + (GLOW_LUT[b + 2] - GLOW_LUT[a + 2]) * f) * scale;
+}
+
 /* ---------------------------------------------------------------------- */
 /* a switch                                                                */
 /* ---------------------------------------------------------------------- */
@@ -144,14 +163,32 @@ export const TOP_OUT = (() => {
 /* the pad                                                                 */
 /* ---------------------------------------------------------------------- */
 
-type Ripple = { x: number; z: number; age: number; amp: number; hue: number; hit: number };
+/** A ring of light on the plate. The pad keeps a fixed pool of them. */
+type Ripple = { alive: boolean; x: number; z: number; age: number; amp: number; hue: number; hit: number };
+
+const RIPPLE_LIFE = 1.6;
 
 const KNOB_DISTANCE = KEYS.map((k) => Math.hypot(k.x - KNOB.x, k.z - KNOB.z));
+/** Key-to-key distances (9 × 9), so a frame never calls hypot for them. */
+const KEY_DISTANCE = (() => {
+  const d = new Float32Array(81);
+  for (const a of KEYS) for (const b of KEYS) d[a.index * 9 + b.index] = Math.hypot(a.x - b.x, a.z - b.z);
+  return d;
+})();
 
-export type StepOptions = {
+/** What Pad.fill writes into (the renderer's per-frame arrays). */
+export type FillTarget = {
+  travel: Float32Array;
+  glow: Float32Array;
+  ripples: Float32Array;
+  rippleColors: Float32Array;
+  knobLight: Vec3;
+  /** How far the idle LEDs breathe, 0 (steady) … 1. */
+  breathe: number;
   reduced: boolean;
-  /** The idle LEDs breathe (stage only). */
-  breathe: boolean;
+  gain: number;
+  /** Written: how many ripples are live (they come first). */
+  rippleCount: number;
 };
 
 export class Pad {
@@ -170,7 +207,7 @@ export class Pad {
   angleV = 0;
   angleTarget = 0;
   dragging = false;
-  ripples: Ripple[] = [];
+  readonly ripples: Ripple[] = Array.from({ length: MAX_RIPPLES }, () => ({ alive: false, x: 0, z: 0, age: 0, amp: 0, hue: 0, hit: 0 }));
   time = 0;
   /** Idle LED level and how much a press flares. */
   idle = 0.3;
@@ -192,29 +229,42 @@ export class Pad {
       s.v = 0;
     }
     this.flash[index] = Math.max(this.flash[index], 1.15 * strength);
-    const key = KEYS[index];
     if (reduced) {
       // no travelling ring: the neighbours brighten in place
-      KEYS.forEach((k, j) => {
-        if (j === index) return;
-        const d = Math.hypot(k.x - key.x, k.z - key.z);
+      for (let j = 0; j < 9; j++) {
+        if (j === index) continue;
+        const d = KEY_DISTANCE[index * 9 + j];
         this.flash[j] = Math.max(this.flash[j], 0.55 * strength * Math.exp(-d * 0.55));
-      });
-    } else {
-      if (this.ripples.length >= MAX_RIPPLES) this.ripples.shift();
-      this.ripples.push({ x: key.x, z: key.z, age: 0, amp: 0.9 * strength, hue: this.hues[index], hit: 1 << index });
-    }
+      }
+    } else this.spawn(index, 0.9 * strength);
     return true;
   }
 
   /** Light a key and send a ring from it without pressing it. */
   pulse(index: number, strength: number, reduced: boolean) {
-    const key = KEYS[index];
-    if (!key) return;
+    if (!KEYS[index]) return;
     this.flash[index] = Math.max(this.flash[index], strength);
-    if (reduced) return;
-    if (this.ripples.length >= MAX_RIPPLES) this.ripples.shift();
-    this.ripples.push({ x: key.x, z: key.z, age: 0, amp: 0.8 * strength, hue: this.hues[index], hit: 1 << index });
+    if (!reduced) this.spawn(index, 0.8 * strength);
+  }
+
+  /** A new ring from a key, in a free slot of the pool (or the oldest). */
+  private spawn(index: number, amp: number) {
+    let slot = this.ripples[0];
+    for (const r of this.ripples) {
+      if (!r.alive) {
+        slot = r;
+        break;
+      }
+      if (r.age > slot.age) slot = r;
+    }
+    const key = KEYS[index];
+    slot.alive = true;
+    slot.x = key.x;
+    slot.z = key.z;
+    slot.age = 0;
+    slot.amp = amp;
+    slot.hue = this.hues[index];
+    slot.hit = 1 << index;
   }
 
   release(index: number, reduced: boolean) {
@@ -294,7 +344,7 @@ export class Pad {
   }
 
   /** Advance by dt seconds. Returns true while anything is still moving. */
-  step(dt: number, { reduced, breathe }: StepOptions): boolean {
+  step(dt: number, reduced: boolean): boolean {
     this.time += dt;
     const now = this.time;
     let busy = false;
@@ -315,19 +365,24 @@ export class Pad {
 
     // ripples travel; each key they reach flares
     for (const r of this.ripples) {
+      if (!r.alive) continue;
       r.age += dt;
+      if (r.age >= RIPPLE_LIFE) {
+        r.alive = false;
+        continue;
+      }
+      busy = true;
       const radius = r.age * RIPPLE_SPEED;
-      KEYS.forEach((k, j) => {
-        if (r.hit & (1 << j)) return;
+      for (let j = 0; j < 9; j++) {
+        if (r.hit & (1 << j)) continue;
+        const k = KEYS[j];
         const d = Math.hypot(k.x - r.x, k.z - r.z);
         if (radius >= d - 0.25) {
           r.hit |= 1 << j;
           this.flash[j] = Math.max(this.flash[j], 0.62 * r.amp * Math.exp(-d * 0.42));
         }
-      });
+      }
     }
-    this.ripples = this.ripples.filter((r) => r.age < 1.6);
-    if (this.ripples.length) busy = true;
 
     // the LEDs
     for (let i = 0; i < 9; i++) {
@@ -374,48 +429,44 @@ export class Pad {
     }
     if (this.dragging) busy = true;
 
-    return busy || (breathe && !reduced);
+    return busy;
   }
 
-  /** Fills the renderer's per-frame arrays. */
-  fill(out: {
-    travel: Float32Array;
-    glow: Float32Array;
-    ripples: Float32Array;
-    rippleColors: Float32Array;
-    knobLight: Vec3;
-    breathe: boolean;
-    reduced: boolean;
-    gain: number;
-  }) {
+  /**
+   * Fills the renderer's per-frame arrays (allocates nothing). The idle
+   * level breathes by `out.breathe`: at 0 every LED sits at the wave's mean.
+   */
+  fill(out: FillTarget) {
     const t = this.time;
+    const breathe = out.reduced ? 0 : out.breathe;
     for (let i = 0; i < 9; i++) {
       out.travel[i] = this.switches[i].x;
-      const wave = out.breathe && !out.reduced ? 0.86 + 0.14 * Math.sin(t * 1.25 - KEYS[i].x * 0.7 - KEYS[i].z * 0.5) : 1;
+      const wave = 0.86 + 0.14 * breathe * Math.sin(t * 1.25 - KEYS[i].x * 0.7 - KEYS[i].z * 0.5);
       const level = (this.idle * wave + this.flash[i] + this.accent[i]) * out.gain;
-      const c = glowColor(this.hues[i]);
-      // a hot key runs a little whiter at its core
-      const white = Math.min(0.35, this.flash[i] * 0.28);
-      out.glow[i * 3] = (c[0] * (1 - white) + white) * level;
-      out.glow[i * 3 + 1] = (c[1] * (1 - white) + white) * level;
-      out.glow[i * 3 + 2] = (c[2] * (1 - white) + white) * level;
+      glowInto(this.hues[i], out.glow, i * 3);
+      // a hot key runs a little whiter at its core (the shader keeps the
+      // walls and the polished edge from clipping to white)
+      const white = Math.min(0.3, this.flash[i] * 0.24);
+      const g = out.glow;
+      g[i * 3] = (g[i * 3] * (1 - white) + white) * level;
+      g[i * 3 + 1] = (g[i * 3 + 1] * (1 - white) + white) * level;
+      g[i * 3 + 2] = (g[i * 3 + 2] * (1 - white) + white) * level;
     }
-    out.ripples.fill(0);
-    out.rippleColors.fill(0);
-    this.ripples.forEach((r, i) => {
+    // live ripples first, so the shader can stop at the count
+    let n = 0;
+    for (const r of this.ripples) {
+      if (!r.alive) continue;
       const fade = Math.exp(-r.age * 2.6) * Math.min(1, r.age * 30);
-      out.ripples[i * 4] = r.x;
-      out.ripples[i * 4 + 1] = r.z;
-      out.ripples[i * 4 + 2] = r.age * RIPPLE_SPEED;
-      out.ripples[i * 4 + 3] = r.amp * fade * 0.55 * out.gain;
-      const c = glowColor(r.hue);
-      out.rippleColors.set(c, i * 3);
-    });
-    const kc = glowColor(this.knobHue);
-    const kl = 0.9 * out.gain;
-    out.knobLight[0] = kc[0] * kl;
-    out.knobLight[1] = kc[1] * kl;
-    out.knobLight[2] = kc[2] * kl;
+      out.ripples[n * 4] = r.x;
+      out.ripples[n * 4 + 1] = r.z;
+      out.ripples[n * 4 + 2] = r.age * RIPPLE_SPEED;
+      out.ripples[n * 4 + 3] = r.amp * fade * 0.55 * out.gain;
+      glowInto(r.hue, out.rippleColors, n * 3);
+      n += 1;
+    }
+    for (let i = n; i < MAX_RIPPLES; i++) out.ripples[i * 4 + 3] = 0;
+    out.rippleCount = n;
+    glowInto(this.knobHue, out.knobLight, 0, 0.9 * out.gain);
   }
 }
 

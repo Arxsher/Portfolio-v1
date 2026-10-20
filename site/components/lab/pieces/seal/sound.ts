@@ -4,8 +4,10 @@
 //   tension  while you hold: a soft, rising creak of pressure (narrow
 //            band-passed noise that tightens and climbs), gone the moment
 //            you let go
+//   drip     a drop of molten wax landing on the paper: a soft, dull pat
 //   thunk    the stamp landing: a low body thump, the knock of wood on
 //            brass and a short wet squeeze of wax
+//   set down the stamp put back on the table: a small hollow knock
 //   crack    breaking the seal: three dry snaps a few ms apart over a small
 //            low knock; then a tick for each shard that lands
 //   paper    the flap and the letter sliding: a soft breath of noise
@@ -135,6 +137,25 @@ export function thunk(level = 1) {
   burst(audio, t + 0.002, { gain: 0.08 * level, length: 0.016, type: "bandpass", frequency: 3200, q: 1.2 });
   // the wax squeezing out under the face
   burst(audio, t + 0.012, { gain: 0.05 * level, length: 0.14, type: "bandpass", frequency: 1400, sweepTo: 520, q: 3, attack: 0.02 });
+}
+
+/** A drop of wax landing (the later ones a touch lower and fuller). */
+export function drip(index = 0) {
+  const audio = kit();
+  if (!audio) return;
+  const t = audio.ctx.currentTime + 0.003;
+  burst(audio, t, { gain: 0.06 + index * 0.012, length: 0.045, type: "lowpass", frequency: 700 - index * 90, q: 0.9 });
+  tone(audio, t, { from: 300 - index * 30, to: 170, gain: 0.035, length: 0.05 });
+}
+
+/** The stamp set back down on the table. */
+export function setDown() {
+  const audio = kit();
+  if (!audio) return;
+  const t = audio.ctx.currentTime + 0.004;
+  tone(audio, t, { from: 210, to: 120, gain: 0.16, length: 0.09 });
+  tone(audio, t, { from: 520, to: 380, gain: 0.04, length: 0.035, type: "triangle" });
+  burst(audio, t, { gain: 0.07, length: 0.025, type: "bandpass", frequency: 1800, q: 1.4 });
 }
 
 /** The seal breaking. */

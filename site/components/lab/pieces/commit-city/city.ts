@@ -1,13 +1,23 @@
 // The city's plan, worked out once from data/contributions.json.
 //
-// One lot per day, laid out like the contribution calendar: weeks run along
-// x (one column per week, the week of Jan 1 first), days along z (Sunday at
-// z = 0, Saturday at z = 6). The gaps between week columns are the streets;
-// where a new month starts there is a wider avenue, so the year reads as
-// districts. A day with contributions gets a building on its lot, its
-// height following the square root of the count (so one busy day doesn't
-// flatten the rest of the year); a day with none stays an empty lot. Days
-// outside the data (before Jan 1, after the last day) get no lot at all.
+// One lot per day, laid out like the contribution calendar: each week is a
+// short street of seven lots along z (Sunday at the back, Saturday at the
+// front), and the weeks follow one another along x. The gaps between weeks
+// are the streets; where a new month starts there is a wider avenue, so the
+// months read as districts.
+//
+// A whole year in one line is a long thin strip (about 6:1), which never
+// fills a stage. So the year folds, like lines on a page: the weeks wrap
+// into a few bands (a season each, broken where a month starts) laid one in
+// front of the other with a boulevard between them. Three bands of a
+// quarter or so make a plan that is close to square, the most compact shape
+// to turn on a turntable. The first band sits at the back; the most recent
+// weeks end at the front corner, nearest to you.
+//
+// A day with contributions gets a building on its lot, its height following
+// the square root of the count (so one busy day doesn't flatten the rest of
+// the year); a day with none stays an empty lot. Days outside the data
+// (before Jan 1, after the last day) get no lot at all.
 //
 // Units: one world unit is a day's spacing. Heights are in the same units.
 
@@ -24,6 +34,8 @@ export const DAY_PITCH = 1;
 export const WEEK_PITCH = 1.1;
 /** Extra width of the avenue before the first week of a month. */
 export const AVENUE = 0.5;
+/** Extra depth of the boulevard between two bands of the folded year. */
+export const BOULEVARD = 1.15;
 /** A lot's paving and a building's footprint (square, centred on the lot). */
 export const LOT = 0.84;
 export const FOOTPRINT = 0.62;
@@ -39,12 +51,16 @@ export type Tier = { half: number; y0: number; y1: number; windows: boolean };
 export type Lot = {
   /** Order in the data (0 = Jan 1). */
   index: number;
+  /** Position in `City.lots` (date order). */
+  slot: number;
   /** "2026-10-08" */
   date: string;
   count: number;
-  /** Week column and weekday (0 = Sunday). */
+  /** Week column (0 = the week of Jan 1) and weekday (0 = Sunday). */
   col: number;
   row: number;
+  /** Which band of the folded year the lot stands in (0 = the back one). */
+  band: number;
   /** Lot centre in world units. */
   x: number;
   z: number;
@@ -59,9 +75,19 @@ export type Lot = {
   seed: number;
 };
 
-export type District = { month: string; x0: number; x1: number };
+/** A month inside one band: its extent along x and the streets in front of and behind it. */
+export type District = {
+  month: string;
+  band: number;
+  x0: number;
+  x1: number;
+  /** z of the open ground just behind the band's first row and in front of its last. */
+  zBack: number;
+  zFront: number;
+};
 
 export type City = {
+  /** In date order. */
   lots: Lot[];
   /** Plan extent of the lots' centres (world units). */
   minX: number;
@@ -69,6 +95,10 @@ export type City = {
   minZ: number;
   maxZ: number;
   districts: District[];
+  bands: number;
+  /** Open plinth around the lots (world units): across the weeks and in front of / behind the days. */
+  marginX: number;
+  marginZ: number;
   tallest: Lot | null;
   total: number;
   year: number;
@@ -113,12 +143,49 @@ export function describeLot(lot: Lot): string {
   return `${lot.count === 0 ? "No" : lot.count} ${plural(lot.count, "contribution")} on ${shortDate(lot.date)}`;
 }
 
+/** How many bands to fold `weeks` columns into: the most compact plan. */
+function bandCount(weeks: number): number {
+  if (weeks <= 12) return 1;
+  if (weeks <= 26) return 2;
+  return 3;
+}
+
 /**
- * The plan for the weeks `fromCol` … `toCol` (inclusive; negative counts
- * from the end, so -8 is the last eight weeks). The default is the whole
- * year in the data.
+ * Where each band starts (column numbers): even splits, each moved to the
+ * nearest month start within three weeks so a month never straddles two
+ * bands.
  */
-export function buildCity(fromCol = 0, toCol = -1): City {
+function bandStarts(lo: number, hi: number, columnMonth: string[], bands: number): number[] {
+  const weeks = hi - lo + 1;
+  const monthStarts: number[] = [];
+  for (let col = lo + 1; col <= hi; col++) if (columnMonth[col] !== columnMonth[col - 1]) monthStarts.push(col);
+  const starts = [lo];
+  for (let k = 1; k < bands; k++) {
+    const ideal = lo + Math.round((k * weeks) / bands);
+    let best = ideal;
+    let bestDistance = Infinity;
+    for (const start of monthStarts) {
+      const distance = Math.abs(start - ideal);
+      if (distance <= 3 && distance < bestDistance && start > starts[starts.length - 1]) {
+        best = start;
+        bestDistance = distance;
+      }
+    }
+    starts.push(Math.max(best, starts[starts.length - 1] + 1));
+  }
+  return starts;
+}
+
+export type CityOptions = {
+  /** Only the last `weeks` weeks (the tile's district). Default: the whole year. */
+  weeks?: number;
+  /** Fold the weeks into bands (default true). */
+  fold?: boolean;
+  /** Plinth margins; the stage leaves room in front of the lots for month names. Default [0.85, 1.2]. */
+  margin?: readonly [number, number];
+};
+
+export function buildCity({ weeks, fold = true, margin = [0.85, 1.2] }: CityOptions = {}): City {
   const entries: Array<{ day: number; date: string; count: number }> = [];
   const start = Math.round(Date.UTC(data.year, 0, 1) / DAY_MS);
   const end = Math.round(Date.UTC(data.year, 11, 31) / DAY_MS);
@@ -131,22 +198,39 @@ export function buildCity(fromCol = 0, toCol = -1): City {
 
   const firstWeek = start - new Date(start * DAY_MS).getUTCDay(); // the Sunday on or before Jan 1
   const columns = entries.length ? Math.floor((entries[entries.length - 1].day - firstWeek) / 7) + 1 : 1;
-  const lo = Math.max(0, fromCol < 0 ? columns + fromCol : fromCol);
-  const hi = Math.min(columns - 1, toCol < 0 ? columns + toCol : toCol);
+  const hi = columns - 1;
+  const lo = weeks ? Math.max(0, columns - weeks) : 0;
 
-  // A column belongs to the month of its first day in the year.
+  // A column belongs to the month of its Wednesday (the month holding most
+  // of its days), kept inside the year.
   const columnMonth: string[] = [];
   for (let col = 0; col < columns; col++) {
-    const first = Math.max(start, firstWeek + col * 7);
-    columnMonth.push(monthLabel.format(new Date(first * DAY_MS)));
+    const wednesday = Math.min(end, Math.max(start, firstWeek + col * 7 + 3));
+    columnMonth.push(monthLabel.format(new Date(wednesday * DAY_MS)));
   }
 
-  // Column → x, with an avenue before each new month.
+  const bands = fold ? bandCount(hi - lo + 1) : 1;
+  const starts = bandStarts(lo, hi, columnMonth, bands);
+  const bandOf = (col: number) => {
+    let band = 0;
+    while (band + 1 < starts.length && col >= starts[band + 1]) band++;
+    return band;
+  };
+  const bandZ = (band: number) => band * (7 * DAY_PITCH + BOULEVARD);
+
+  // Column → x within its band, with an avenue before each new month.
   const columnX: number[] = [];
-  let x = 0;
   for (let col = lo; col <= hi; col++) {
-    if (col > lo) x += WEEK_PITCH + (columnMonth[col] !== columnMonth[col - 1] ? AVENUE : 0);
-    columnX[col] = x;
+    const band = bandOf(col);
+    if (col === starts[band]) columnX[col] = 0;
+    else columnX[col] = columnX[col - 1] + WEEK_PITCH + (columnMonth[col] !== columnMonth[col - 1] ? AVENUE : 0);
+  }
+  // Bands of different lengths sit centred on the plinth, so the open
+  // ground at their ends is shared out instead of pooling in one corner.
+  if (bands > 1) {
+    const widths = starts.map((first, band) => columnX[band + 1 < starts.length ? starts[band + 1] - 1 : hi] - columnX[first]);
+    const widest = Math.max(...widths);
+    for (let col = lo; col <= hi; col++) columnX[col] += (widest - widths[bandOf(col)]) / 2;
   }
 
   const lots: Lot[] = [];
@@ -155,21 +239,22 @@ export function buildCity(fromCol = 0, toCol = -1): City {
     const col = Math.floor(offset / 7);
     if (col < lo || col > hi) return;
     const row = offset % 7;
-    const seed = hash2(col, row, 7);
-    const height = heightFor(entry.count);
+    const band = bandOf(col);
     lots.push({
       index,
+      slot: lots.length,
       date: entry.date,
       count: entry.count,
       col,
       row,
+      band,
       x: columnX[col],
-      z: row * DAY_PITCH,
-      height,
+      z: bandZ(band) + row * DAY_PITCH,
+      height: heightFor(entry.count),
       tiers: [],
       roofBox: null,
       mast: 0,
-      seed,
+      seed: hash2(col, row, 7),
     });
   });
 
@@ -210,25 +295,50 @@ export function buildCity(fromCol = 0, toCol = -1): City {
     }
   }
 
-  // Districts (for the month labels on the plinth).
+  // Districts: one per month per band (for the month labels).
   const districts: District[] = [];
   for (let col = lo; col <= hi; col++) {
     const month = columnMonth[col];
+    const band = bandOf(col);
     const last = districts[districts.length - 1];
-    if (last && last.month === month) last.x1 = columnX[col];
-    else districts.push({ month, x0: columnX[col], x1: columnX[col] });
+    if (last && last.month === month && last.band === band) last.x1 = columnX[col];
+    else {
+      const z0 = bandZ(band);
+      districts.push({
+        month,
+        band,
+        x0: columnX[col],
+        x1: columnX[col],
+        zBack: z0 - LOT / 2 - BOULEVARD * 0.42,
+        zFront: z0 + 6 * DAY_PITCH + LOT / 2 + BOULEVARD * 0.42,
+      });
+    }
   }
 
-  const xs = lots.map((lot) => lot.x);
-  const zs = lots.map((lot) => lot.z);
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+  for (const lot of lots) {
+    minX = Math.min(minX, lot.x);
+    maxX = Math.max(maxX, lot.x);
+  }
+  // Every band keeps its full seven rows of ground, even where a week is short.
+  for (let band = 0; band < bands; band++) {
+    minZ = Math.min(minZ, bandZ(band));
+    maxZ = Math.max(maxZ, bandZ(band) + 6 * DAY_PITCH);
+  }
   const inRange = lots.length > 0;
   return {
     lots,
-    minX: inRange ? Math.min(...xs) : 0,
-    maxX: inRange ? Math.max(...xs) : 0,
-    minZ: inRange ? Math.min(...zs, 0) : 0,
-    maxZ: inRange ? Math.max(...zs, 6) : 6,
+    minX: inRange ? minX : 0,
+    maxX: inRange ? maxX : 0,
+    minZ: inRange ? minZ : 0,
+    maxZ: inRange ? maxZ : 6,
     districts,
+    bands,
+    marginX: margin[0],
+    marginZ: margin[1],
     tallest,
     total: data.total ?? lots.reduce((sum, lot) => sum + lot.count, 0),
     year: data.year,

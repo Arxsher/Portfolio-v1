@@ -11,6 +11,12 @@
 //                   the stage and outside text fields
 //
 // The rest of the page is server-rendered (app/lab/[slug]/page.tsx).
+//
+// Contract for pieces that adapt to full screen (stable, safe to read):
+// the stage element carries `data-lab-stage`; in native full screen it is
+// `document.fullscreenElement`, and in the overlay fallback <html> carries
+// `data-lab-expanded` (the stage also gets `data-expanded`). Esc leaves the
+// overlay; a piece that uses Esc itself should ignore it while either holds.
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";

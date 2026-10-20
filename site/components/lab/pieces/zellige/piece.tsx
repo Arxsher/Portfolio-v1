@@ -19,10 +19,22 @@
 //   wipes to its new glaze, rocks as if pressed into its bed, and stays wet
 //   (glossier) for a moment. A new pattern is laid from the centre out,
 //   each piece growing from its centre on a spring.
+// - Touch: the wall leaves vertical swipes to the page (touch-action:
+//   pan-y), so it never traps a scroll on a phone; a sideways drag or a tap
+//   moves the lamp, and a tap re-glazes.
 // - Sound (stage, after a gesture, respecting the lab mute): a dull knock
-//   under the finger and one ceramic clink per ring of the ripple.
-// - Tile mode: a fixed khatam patch under a slowly drifting lamp (the mouse
-//   can borrow it), no controls, no sound, half the frame rate.
+//   under the finger (a mouse on press, a finger only once it proves to be
+//   a tap, not a drag) and one ceramic clink per ring of the ripple.
+// - Tile mode: a small panel of the wall, cut square and set in a plaster
+//   frame that stands on the tile's own ground with a soft shadow (like
+//   the other tiles' objects), showing the khatam medallion under a slowly
+//   drifting lamp that keeps to the middle (the mouse can borrow it). The
+//   tile's lamp is dimmer and tighter than the stage's, so it reads as a
+//   glint moving over the glaze rather than a pool of light; a brighter
+//   room at night, no controls, no sound, half the frame rate, DPR 1.5.
+// - Frames allocate nothing: the lighting, frame and lamp target are
+//   rewritten in place. Resizes repaint at once (the cleared canvas is
+//   never shown), and the WebGL context is handed back on unmount.
 // - Reduced motion: one composed still frame with the lamp at the upper
 //   left; re-glazes cross-fade in place.
 //
@@ -37,15 +49,17 @@ import {
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
   type RefObject,
 } from "react";
-import { damp, lerp, Spring, useFinePointer, useFrame, useLatest, usePointer, useWebGL2 } from "../../hooks";
+import { cn } from "@/lib/cn";
+import { damp, lerp, Spring, useFinePointer, useFrame, useLatest, useMediaQuery, usePointer, useWebGL2 } from "../../hooks";
 import type { PieceProps, PieceTheme } from "../../types";
 import { MuteButton, Segmented, Slider, StageControls, StageHint, Swatches, Tray, TrayDivider, TrayRow } from "../../ui";
 import { Wallworks } from "./engine";
 import type { Fold } from "./geometry";
 import { linear, PALETTES, paletteById, type PaletteId } from "./glaze";
-import { WallRenderer, type Lighting, type Vec3 } from "./renderer";
+import { WallRenderer, type Frame, type Lighting, type Vec3 } from "./renderer";
 import { cascade, tap, type Step } from "./sound";
 
 /* ---------------------------------------------------------------------- */
@@ -54,15 +68,16 @@ import { cascade, tap, type Step } from "./sound";
 
 const DAY: Lighting = {
   key: [1, 0.96, 0.9],
-  ambient: [0.52, 0.52, 0.55],
-  lightPower: 0.95,
+  // a bright room: white glaze stays white (not plaster grey) away from the lamp
+  ambient: [0.61, 0.61, 0.63],
+  lightPower: 0.9,
   lightRadius: 0.36,
   lightSize: 20,
   specGain: 0.85,
   groutColor: linear("#cfc6b4"),
   body: linear("#a8775e"),
-  envTop: [0.46, 0.48, 0.52],
-  envBottom: [0.3, 0.26, 0.22],
+  envTop: [0.5, 0.52, 0.56],
+  envBottom: [0.32, 0.28, 0.24],
   windowColor: [3.6, 3.55, 3.4],
   window: [-0.07, -0.11, 0.075, 0.05],
   vignette: 0.07,
@@ -86,58 +101,87 @@ const NIGHT: Lighting = {
   exposure: 1,
 };
 
-const mix3 = (a: Vec3, b: Vec3, t: number): Vec3 => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
+type V3 = [number, number, number];
+/** A Lighting whose colours can be rewritten in place (one per piece instance, reused every frame). */
+type LightingState = { -readonly [K in keyof Lighting]: Lighting[K] extends Vec3 ? V3 : Lighting[K] };
 
-/** Tiles are small: a brighter room and a fainter window keep them crisp. */
-function forTile(l: Lighting): Lighting {
-  return {
-    ...l,
-    ambient: [l.ambient[0] * 1.12, l.ambient[1] * 1.12, l.ambient[2] * 1.12],
-    windowColor: [l.windowColor[0] * 0.55, l.windowColor[1] * 0.55, l.windowColor[2] * 0.55],
-    vignette: l.vignette * 0.6,
-  };
+const newLighting = (): LightingState => ({
+  key: [0, 0, 0],
+  ambient: [0, 0, 0],
+  lightPower: 0,
+  lightRadius: 0,
+  lightSize: 0,
+  specGain: 0,
+  groutColor: [0, 0, 0],
+  body: [0, 0, 0],
+  envTop: [0, 0, 0],
+  envBottom: [0, 0, 0],
+  windowColor: [0, 0, 0],
+  window: DAY.window,
+  vignette: 0,
+  exposure: 1,
+});
+
+function mixInto(out: V3, a: Vec3, b: Vec3, t: number, scale = 1) {
+  out[0] = lerp(a[0], b[0], t) * scale;
+  out[1] = lerp(a[1], b[1], t) * scale;
+  out[2] = lerp(a[2], b[2], t) * scale;
 }
 
-function lightingAt(t: number): Lighting {
-  if (t <= 0) return DAY;
-  if (t >= 1) return NIGHT;
-  return {
-    key: mix3(DAY.key, NIGHT.key, t),
-    ambient: mix3(DAY.ambient, NIGHT.ambient, t),
-    lightPower: lerp(DAY.lightPower, NIGHT.lightPower, t),
-    lightRadius: lerp(DAY.lightRadius, NIGHT.lightRadius, t),
-    lightSize: lerp(DAY.lightSize, NIGHT.lightSize, t),
-    specGain: lerp(DAY.specGain, NIGHT.specGain, t),
-    groutColor: mix3(DAY.groutColor, NIGHT.groutColor, t),
-    body: mix3(DAY.body, NIGHT.body, t),
-    envTop: mix3(DAY.envTop, NIGHT.envTop, t),
-    envBottom: mix3(DAY.envBottom, NIGHT.envBottom, t),
-    windowColor: mix3(DAY.windowColor, NIGHT.windowColor, t),
-    window: DAY.window,
-    vignette: lerp(DAY.vignette, NIGHT.vignette, t),
-    exposure: 1,
-  };
+/**
+ * The room between day (0) and night (1), written into `out`. Tiles are
+ * small: a brighter room and a fainter window keep them crisp, and at night
+ * the room keeps enough light to show the pattern while the lamp, a little
+ * wider, stays the bright spot.
+ */
+function lightingInto(out: LightingState, t: number, tile: boolean): Lighting {
+  const room = tile ? lerp(1.12, 2, t) : 1;
+  const pane = tile ? 0.55 : 1;
+  // on a tile the lamp is a glint, not a hot spot: less power, a tighter pool
+  const power = tile ? lerp(0.56, 0.62, t) : 1;
+  const radius = tile ? lerp(0.78, 1.05, t) : 1;
+  mixInto(out.key, DAY.key, NIGHT.key, t);
+  mixInto(out.ambient, DAY.ambient, NIGHT.ambient, t, room);
+  mixInto(out.groutColor, DAY.groutColor, NIGHT.groutColor, t);
+  mixInto(out.body, DAY.body, NIGHT.body, t);
+  mixInto(out.envTop, DAY.envTop, NIGHT.envTop, t);
+  mixInto(out.envBottom, DAY.envBottom, NIGHT.envBottom, t);
+  mixInto(out.windowColor, DAY.windowColor, NIGHT.windowColor, t, pane);
+  out.lightPower = lerp(DAY.lightPower, NIGHT.lightPower, t) * power;
+  out.lightRadius = lerp(DAY.lightRadius, NIGHT.lightRadius, t) * radius;
+  out.lightSize = lerp(DAY.lightSize, NIGHT.lightSize, t);
+  out.specGain = lerp(DAY.specGain, NIGHT.specGain, t);
+  out.vignette = lerp(DAY.vignette, NIGHT.vignette, t) * (tile ? 0.6 : 1);
+  return out;
 }
 
 /** The lamp's resting place (reduced motion, and where it starts). */
 const REST = { x: 0.34, y: 0.36 };
 
-/** Where the idle lamp wanders (fractions of the view), over time t in seconds. */
-function drift(mode: "tile" | "stage", t: number) {
+/**
+ * Where the idle lamp wanders (fractions of the view) at time t in seconds,
+ * written into `out`. On tiles it keeps to the middle, so its glint never
+ * sits clipped on the card's rounded edge.
+ */
+function drift(mode: "tile" | "stage", t: number, out: { x: number; y: number }) {
   if (mode === "tile") {
-    return { x: 0.5 + 0.34 * Math.sin(t * 0.33 + 0.4), y: 0.58 + 0.24 * Math.sin(t * 0.21 + 1.3) };
+    // phased so it opens up and to the left, the light a still frame would choose
+    out.x = 0.5 + 0.25 * Math.sin(t * 0.33 - 1.63);
+    out.y = 0.515 + 0.165 * Math.sin(t * 0.21 - 1.75);
+    return out;
   }
-  return {
-    x: 0.5 + 0.3 * Math.sin(t * 0.16 + 0.6) + 0.05 * Math.sin(t * 0.41),
-    y: 0.47 + 0.22 * Math.sin(t * 0.23 + 1.9),
-  };
+  out.x = 0.5 + 0.3 * Math.sin(t * 0.16 + 0.6) + 0.05 * Math.sin(t * 0.41);
+  out.y = 0.47 + 0.22 * Math.sin(t * 0.23 + 1.9);
+  return out;
 }
 
-const FOLDS: ReadonlyArray<{ value: Fold; label: string }> = [
-  { value: 8, label: "8" },
-  { value: 12, label: "12" },
-  { value: 16, label: "16" },
-];
+// Equal 40px options; the visible number keeps the tray small, the name says what it is.
+const FOLDS = ([8, 12, 16] as const).map((value) => ({
+  value: value as Fold,
+  label: `${value}-fold`,
+  icon: <span className="tabular-nums">{value}</span>,
+  iconOnly: true,
+}));
 
 const FOLD_NAMES: Record<Fold, string> = {
   8: "Eight-fold: the khatam, star and cross",
@@ -160,6 +204,9 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
     return works;
   });
   const rendererRef = useRef<WallRenderer | null>(null);
+  /** The context this piece made, kept to hand it back on unmount. */
+  const contextRef = useRef<WebGL2RenderingContext | null>(null);
+  const mountedRef = useRef(false);
   const surfaceRef = useRef<HTMLDivElement>(null);
   const markerRef = useRef<HTMLDivElement>(null);
   const hintId = useId();
@@ -170,6 +217,7 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
   const [announce, setAnnounce] = useState("");
   const [touched, setTouched] = useState(false);
   const fine = useFinePointer();
+  const wide = useMediaQuery("(min-width: 640px)", true);
 
   // the lamp
   const lamp = useRef({
@@ -181,15 +229,29 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
     driver: "drift" as "drift" | "pointer" | "keys",
     keyX: 0,
     keyY: 0,
-    idleAt: 0,
     night: theme === "dark" ? 1 : 0,
     acc: 0,
     clock: 0,
+    /** Where the keyboard marker was last put (it only moves when the lamp does). */
+    markX: Number.NaN,
+    markY: Number.NaN,
+  });
+
+  // everything a frame hands the renderer, allocated once and rewritten in place
+  const [scratch] = useState(() => {
+    const light: V3 = [0, 0, 0];
+    const lighting = newLighting();
+    const frame: Frame = { time: 0, width: 0, height: 0, grout: 0, relief: 0, light, motion: true, lighting };
+    return { light, lighting, frame, aim: { x: 0, y: 0 } };
   });
 
   const settings = useLatest({ grout, reducedMotion, theme, mode });
 
-  const wake = useFrame(active, (dt, time) => {
+  /**
+   * One frame. The loop calls it; resizes and a new context call it at
+   * once with `force`, so the freshly cleared (black) canvas is never shown.
+   */
+  const render = (dt: number, time: number, force = false): void | false => {
     const renderer = rendererRef.current;
     const gl = glRef.current;
     const s = settings.current;
@@ -201,7 +263,7 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
     // half the frame rate on tiles
     if (!stage) {
       L.acc += dt;
-      if (L.acc < 1 / 30 - 0.002) return;
+      if (!force && L.acc < 1 / 30 - 0.002) return;
       dt = L.acc;
       L.acc = 0;
     }
@@ -236,7 +298,7 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
       tx = REST.x * width;
       ty = REST.y * height;
     } else {
-      const d = drift(stage ? "stage" : "tile", time);
+      const d = drift(mode, time, scratch.aim);
       tx = d.x * width;
       ty = d.y * height;
     }
@@ -261,19 +323,24 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
     }
     L.night = s.reducedMotion ? (s.theme === "dark" ? 1 : 0) : damp(L.night, s.theme === "dark" ? 1 : 0, 6, dt);
 
-    renderer.draw({
-      time,
-      width,
-      height,
-      grout: s.grout / 2,
-      relief: stage ? 1.5 : 1.2,
-      light: [L.x.value, L.y.value, L.z.value],
-      motion: !s.reducedMotion,
-      lighting: stage ? lightingAt(L.night) : forTile(lightingAt(L.night)),
-    });
+    const f = scratch.frame;
+    f.time = time;
+    f.width = width;
+    f.height = height;
+    f.grout = s.grout / 2;
+    f.relief = stage ? 1.5 : 1.2;
+    f.motion = !s.reducedMotion;
+    scratch.light[0] = L.x.value;
+    scratch.light[1] = L.y.value;
+    scratch.light[2] = L.z.value;
+    lightingInto(scratch.lighting, L.night, !stage);
+    renderer.draw(f);
 
-    if (markerRef.current) {
-      markerRef.current.style.transform = `translate(${L.x.value}px, ${L.y.value}px)`;
+    const marker = markerRef.current;
+    if (marker && (Math.abs(L.markX - L.x.value) > 0.05 || Math.abs(L.markY - L.y.value) > 0.05)) {
+      L.markX = L.x.value;
+      L.markY = L.y.value;
+      marker.style.transform = `translate(${L.markX}px, ${L.markY}px)`;
     }
 
     // sleep once nothing moves
@@ -281,11 +348,13 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
     const lampStill = L.x.settled && L.y.settled && L.z.settled;
     const themeStill = Math.abs(L.night - (s.theme === "dark" ? 1 : 0)) < 0.002;
     if (!drifting && lampStill && themeStill && time > engine.busyUntil) return false;
-  });
+  };
+
+  const wake = useFrame(active, (dt, time) => render(dt, time));
 
   const { canvasRef, glRef, sizeRef, supported } = useWebGL2({
     mode,
-    maxDpr: 2,
+    maxDpr: stage ? 2 : 1.5,
     attributes: { alpha: false, antialias: true, premultipliedAlpha: false, preserveDrawingBuffer: false },
     onContext: (gl) => {
       let renderer: WallRenderer | null = null;
@@ -296,16 +365,42 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
         return;
       }
       rendererRef.current = renderer;
+      contextRef.current = gl;
       engine.geometryDirty = true;
       engine.tilesDirty = true;
+      // paint straight away (the hook sets the viewport after this returns)
+      gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+      render(0, lamp.current.clock, true);
       wake();
       return () => {
         renderer?.dispose();
         rendererRef.current = null;
       };
     },
-    onResize: () => wake(),
+    onResize: () => {
+      // the backing store was just cleared: repaint before the browser shows it
+      render(0, lamp.current.clock, true);
+      wake();
+    },
   });
+
+  // Give the WebGL context back when the piece really goes away (home and
+  // /lab/ run several at once, and browsers cap how many stay alive). The
+  // check runs a tick later because StrictMode's rehearsal unmount remounts
+  // at once and keeps using the same context.
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      const gl = contextRef.current;
+      if (!gl) return;
+      window.setTimeout(() => {
+        if (mountedRef.current || gl.isContextLost()) return;
+        gl.getExtension("WEBGL_lose_context")?.loseContext();
+        if (contextRef.current === gl) contextRef.current = null;
+      }, 0);
+    };
+  }, []);
 
   /* -------------------------------------------------------------------- */
   /* gestures                                                              */
@@ -338,7 +433,8 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
       if (!stage) return;
       press.current = { x: state.x, y: state.y, t: performance.now() };
       lamp.current.driver = "pointer";
-      tap(panAt(state.x));
+      // a mouse knocks as it presses; a finger only once the touch turns out to be a tap
+      if (state.type === "mouse") tap(panAt(state.x));
       wake();
     },
     onMove: (state) => {
@@ -346,10 +442,14 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
       lamp.current.driver = "pointer";
       wake();
     },
-    onUp: (state) => {
+    onUp: (state, event) => {
       if (!stage) return;
       const moved = Math.hypot(state.x - press.current.x, state.y - press.current.y);
-      if (moved < 10 && performance.now() - press.current.t < 700) reglazeAt(state.x, state.y);
+      const tapped = event.type !== "pointercancel" && moved < 10 && performance.now() - press.current.t < 700;
+      if (tapped) {
+        if (state.type !== "mouse") tap(panAt(state.x));
+        reglazeAt(state.x, state.y);
+      }
       if (state.type !== "mouse") lamp.current.driver = "pointer";
       wake();
     },
@@ -440,17 +540,20 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
     return () => el.removeEventListener("blur", onBlur);
   }, [stage, wake]);
 
-  if (supported === false) return <Fallback mode={mode} engine={engine} theme={theme} />;
+  if (supported === false) {
+    const art = <Fallback mode={mode} engine={engine} theme={theme} />;
+    return stage ? art : <TilePanel>{art}</TilePanel>;
+  }
 
   if (!stage) {
     return (
-      <canvas
-        ref={canvasRef}
-        aria-hidden="true"
-        className="absolute inset-0 block size-full"
-      />
+      <TilePanel>
+        <canvas ref={canvasRef} aria-hidden="true" className="absolute inset-0 block size-full" />
+      </TilePanel>
     );
   }
+
+  const glazes = <Swatches label="Glaze" options={SWATCHES} value={palette} onChange={choosePalette} />;
 
   return (
     <div className="absolute inset-0 select-none">
@@ -462,7 +565,7 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
         aria-label="Zellige wall"
         aria-describedby={hintId}
         onKeyDown={onKeyDown}
-        className="group/wall absolute inset-0 cursor-crosshair touch-none outline-none [-webkit-tap-highlight-color:transparent]"
+        className="group/wall absolute inset-0 cursor-crosshair touch-pan-y outline-none [-webkit-tap-highlight-color:transparent]"
       >
         <canvas ref={canvasRef} className="absolute inset-0 block size-full" />
         {/* where the lamp is, for keyboard users */}
@@ -471,11 +574,13 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
           aria-hidden="true"
           className="pointer-events-none absolute top-0 left-0 opacity-0 transition-opacity duration-200 group-focus-visible/wall:opacity-100"
         >
-          <span className="absolute -top-[15px] -left-[15px] size-[30px] rounded-full shadow-[0_0_0_1.5px_var(--cobalt),0_0_0_5px_rgb(255_255_255/0.35)]" />
+          <span className="absolute -top-[15px] -left-[15px] size-[30px] rounded-full shadow-[0_0_0_1.5px_var(--foreground),0_0_0_4px_color-mix(in_oklab,var(--background)_60%,transparent)]" />
+          <span className="absolute -top-[2px] -left-[2px] size-[4px] rounded-full bg-primary shadow-[0_0_0_1.5px_color-mix(in_oklab,var(--background)_60%,transparent)]" />
         </div>
+        {/* the focus ring, concentric with the stage's corners */}
         <span
           aria-hidden="true"
-          className="pointer-events-none absolute inset-0 shadow-[inset_0_0_0_2px_var(--cobalt)] opacity-0 transition-opacity duration-200 group-focus-visible/wall:opacity-100"
+          className="pointer-events-none absolute inset-1 rounded-[20px] shadow-[inset_0_0_0_2px_var(--foreground)] opacity-0 transition-opacity duration-200 group-focus-visible/wall:opacity-100"
         />
       </div>
 
@@ -487,37 +592,74 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
       </p>
 
       <StageControls placement="top">
-        <Tray label="Glaze">
-          <Swatches label="Glaze" options={SWATCHES} value={palette} onChange={choosePalette} />
-        </Tray>
+        {wide ? (
+          <Tray label="Glaze">{glazes}</Tray>
+        ) : (
+          <Tray label="Glaze and sound">
+            {glazes}
+            <TrayDivider />
+            <MuteButton />
+          </Tray>
+        )}
       </StageControls>
 
       <StageControls placement="bottom">
         <TrayRow>
           <Tray label="Pattern">
-            <Segmented label="Rosette" showLabel options={FOLDS} value={fold} onChange={chooseFold} />
+            <Segmented label="Rosette" showLabel={wide} options={FOLDS} value={fold} onChange={chooseFold} />
           </Tray>
-          <Tray label="Grout and sound">
+          <Tray label={wide ? "Grout and sound" : "Grout"}>
             <Slider
               label="Grout"
               value={grout}
               min={0.6}
               max={4}
               step={0.1}
-              width={96}
+              width={wide ? 96 : 72}
+              showValue={wide}
               onChange={setGrout}
-              format={(v) => v.toFixed(1)}
+              format={(v) => `${v.toFixed(1)} px`}
             />
-            <TrayDivider />
-            <MuteButton />
+            {wide ? (
+              <>
+                <TrayDivider />
+                <MuteButton />
+              </>
+            ) : null}
           </Tray>
         </TrayRow>
         <StageHint
-          className={touched ? "opacity-0 transition-opacity duration-700" : "transition-opacity duration-700"}
+          className={cn(
+            "rounded-[8px] bg-float/90 px-2 py-1 text-secondary! shadow-lift backdrop-blur-sm transition-opacity duration-700 max-sm:hidden",
+            touched && "opacity-0",
+          )}
         >
-          {fine ? "Move to light the glaze · click to re-glaze" : "Drag to move the light · tap to re-glaze"}
+          {fine ? "Move to light the glaze · click to re-glaze" : "Drag sideways to move the light · tap to re-glaze"}
         </StageHint>
       </StageControls>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* the tile's panel                                                        */
+/* ---------------------------------------------------------------------- */
+
+/**
+ * The tile shows a square-cut panel of the wall in a thin plaster frame,
+ * standing on the tile's ground with a soft contact shadow; the frame's
+ * inner edge throws a little shade onto the glaze. On hover the panel
+ * lifts a touch, like the other tiles' objects.
+ */
+function TilePanel({ children }: { children: ReactNode }) {
+  return (
+    <div aria-hidden="true" className="absolute inset-x-[13%] top-[11%] bottom-[14%]">
+      <div className="absolute inset-0 rounded-[11px] bg-[#e4dccd] p-[3px] shadow-[inset_0_1px_0_rgb(255_255_255/0.85),0_0_0_0.5px_rgb(60_44_28/0.16),0_1px_1.5px_rgb(52_36_24/0.16),0_3px_7px_-1px_rgb(52_36_24/0.12),0_12px_22px_-8px_rgb(52_36_24/0.26)] transition-[translate,box-shadow] duration-300 ease-out group-hover:-translate-y-px group-hover:shadow-[inset_0_1px_0_rgb(255_255_255/0.85),0_0_0_0.5px_rgb(60_44_28/0.16),0_2px_3px_rgb(52_36_24/0.15),0_6px_12px_-2px_rgb(52_36_24/0.13),0_16px_28px_-8px_rgb(52_36_24/0.28)] dark:bg-[#3a3631] dark:shadow-[inset_0_1px_0_rgb(255_255_255/0.08),0_0_0_0.5px_rgb(0_0_0/0.6),0_2px_4px_rgb(0_0_0/0.4),0_10px_22px_-8px_rgb(0_0_0/0.6)] dark:group-hover:shadow-[inset_0_1px_0_rgb(255_255_255/0.09),0_0_0_0.5px_rgb(0_0_0/0.6),0_3px_6px_rgb(0_0_0/0.45),0_14px_28px_-8px_rgb(0_0_0/0.65)]">
+        <div className="relative size-full overflow-hidden rounded-[8px]">
+          {children}
+          <span className="pointer-events-none absolute inset-0 rounded-[8px] shadow-[inset_0_1px_1.5px_rgb(40_28_16/0.32),inset_1px_0_1px_rgb(40_28_16/0.14),inset_0_0_0_0.5px_rgb(40_28_16/0.2)] dark:shadow-[inset_0_1px_1.5px_rgb(0_0_0/0.55),inset_1px_0_1px_rgb(0_0_0/0.3),inset_0_0_0_0.5px_rgb(0_0_0/0.4)]" />
+        </div>
+      </div>
     </div>
   );
 }

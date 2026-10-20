@@ -42,7 +42,7 @@ export const BANDS: readonly Band[] = [
   { id: "A1", name: "Full loop", outer: 146, inner: 118.5, stems: [1, 1, 1], loud: 1 },
   { id: "A2", name: "Drums and bass", outer: 116.5, inner: 97, stems: [1, 1, 0], loud: 0.8 },
   { id: "A3", name: "Drums", outer: 95, inner: 80, stems: [1, 0, 0], loud: 0.62 },
-  { id: "A4", name: "Keys", outer: 78, inner: 64, stems: [0, 0.55, 1], loud: 0.45 },
+  { id: "A4", name: "Keys and bass", outer: 78, inner: 64, stems: [0, 0.55, 1], loud: 0.45 },
 ];
 
 export const PIVOT = { x: 404, y: 84 } as const;
@@ -55,7 +55,7 @@ export const REST_ANGLE = (91.2 * Math.PI) / 180;
 /** Headshell length, collar to stylus. */
 export const HEAD_LEN = 36;
 /** Where the tube lies in the rest's cradle, measured from the pivot. */
-export const REST_AT = 132;
+export const REST_AT = 172;
 
 export const START_BUTTON = { x: 37, y: 323, half: 15 } as const;
 export const SPEED_BUTTONS = [
@@ -64,6 +64,10 @@ export const SPEED_BUTTONS = [
 ] as const;
 export const STROBE_LAMP = { x: 24, y: 262, r: 6.5 } as const;
 export const CUE = { x: 448, y: 150, r: 6.5, length: 19 } as const;
+/** The pitch fader: its slot's centre, half its travel, and the range (±8%). */
+export const FADER = { x: 458, y: 238, half: 48, range: 0.08 } as const;
+/** The fader cap: half its size along the slot and across it. */
+export const FADER_CAP = { along: 4.6, across: 8 } as const;
 /** Cue handle angle: down (arm lowered) and up. */
 export const CUE_DOWN = (200 * Math.PI) / 180;
 export const CUE_UP = (156 * Math.PI) / 180;
@@ -93,8 +97,7 @@ export function stylusAt(phi: number): Vec {
 
 /** Where on the record (radius, mm) the stylus sits at arm angle phi. */
 export function radiusAt(phi: number): number {
-  const s = stylusAt(phi);
-  return Math.hypot(s.x - CENTRE.x, s.y - CENTRE.y);
+  return Math.hypot(PIVOT.x + ARM_LENGTH * Math.cos(phi) - CENTRE.x, PIVOT.y + ARM_LENGTH * Math.sin(phi) - CENTRE.y);
 }
 
 /** The arm angle that puts the stylus on radius r. */
@@ -127,12 +130,21 @@ export type ArmPose = {
   u: Vec;
 };
 
-export function armPose(phi: number): ArmPose {
-  const s = stylusAt(phi);
-  const h = { x: Math.cos(phi + OFFSET), y: Math.sin(phi + OFFSET) };
-  const k = { x: s.x - h.x * HEAD_LEN, y: s.y - h.y * HEAD_LEN };
+export const newPose = (): ArmPose => ({ s: { x: 0, y: 0 }, k: { x: 0, y: 0 }, h: { x: 0, y: 0 }, u: { x: 0, y: 0 } });
+
+/** The arm's pose at angle phi, written into `out` (a fresh one if none is given). */
+export function armPose(phi: number, out: ArmPose = newPose()): ArmPose {
+  const { s, k, h, u } = out;
+  s.x = PIVOT.x + ARM_LENGTH * Math.cos(phi);
+  s.y = PIVOT.y + ARM_LENGTH * Math.sin(phi);
+  h.x = Math.cos(phi + OFFSET);
+  h.y = Math.sin(phi + OFFSET);
+  k.x = s.x - h.x * HEAD_LEN;
+  k.y = s.y - h.y * HEAD_LEN;
   const len = Math.hypot(k.x - PIVOT.x, k.y - PIVOT.y);
-  return { s, k, h, u: { x: (k.x - PIVOT.x) / len, y: (k.y - PIVOT.y) / len } };
+  u.x = (k.x - PIVOT.x) / len;
+  u.y = (k.y - PIVOT.y) / len;
+  return out;
 }
 
 /** The rest's cradle: under the tube when the arm is parked. */
@@ -143,8 +155,8 @@ export const REST_POINT: Vec = (() => {
 
 /** Furthest in the arm can go (stylus just short of the label). */
 export const MAX_ANGLE = angleFor(LABEL_R + 4);
-/** The lead-in's outer edge, where an automatic cue sets down. */
-export const LEAD_ANGLE = angleFor(LEAD_IN - 0.6);
+/** Just inside the lead-in's outer edge, where an automatic cue sets down. */
+export const LEAD_ANGLE = angleFor(LEAD_IN - 1);
 
 /* ---------------------------------------------------------------------- */
 /* hit testing                                                             */
@@ -157,11 +169,18 @@ function segmentDistance(p: Vec, a: Vec, b: Vec) {
   return Math.hypot(p.x - a.x - bx * t, p.y - a.y - by * t);
 }
 
-export type Target = "arm" | "record" | "start" | "speed33" | "speed45" | "cue" | null;
+export type Target = "arm" | "record" | "start" | "speed33" | "speed45" | "cue" | "pitch" | null;
+
+/** Where the fader cap sits (y, mm) for a pitch. Toward you is faster, as on a DJ deck. */
+export const faderY = (pitch: number) => FADER.y + (pitch / FADER.range) * FADER.half;
+/** The pitch for a cap position. */
+export const pitchAt = (y: number) => clamp((y - FADER.y) / FADER.half, -1, 1) * FADER.range;
+
+const hitPose = newPose();
 
 /** What a press at p (mm) takes hold of. */
 export function hitTest(p: Vec, phi: number, slop = 0): Target {
-  const pose = armPose(phi);
+  const pose = armPose(phi, hitPose);
   const tip = { x: pose.s.x + pose.h.x * 16, y: pose.s.y + pose.h.y * 16 };
   // the headshell and the outer half of the tube (near the pivot a drag
   // would swing the arm too fast to control)
@@ -173,6 +192,7 @@ export function hitTest(p: Vec, phi: number, slop = 0): Target {
   const lift = { x: pose.s.x + side.x * 15 - pose.h.x * 4, y: pose.s.y + side.y * 15 - pose.h.y * 4 };
   if (Math.hypot(p.x - lift.x, p.y - lift.y) < 9 + slop) return "arm";
 
+  if (Math.abs(p.x - FADER.x) < FADER_CAP.across + 2 + slop && Math.abs(p.y - FADER.y) < FADER.half + FADER_CAP.along + 2 + slop) return "pitch";
   if (Math.abs(p.x - START_BUTTON.x) < START_BUTTON.half + 3 + slop && Math.abs(p.y - START_BUTTON.y) < START_BUTTON.half + 3 + slop) return "start";
   for (const b of SPEED_BUTTONS) {
     if (Math.hypot(p.x - b.x, p.y - b.y) < b.r + 4 + slop) return b.rpm === 33 ? "speed33" : "speed45";
@@ -191,7 +211,14 @@ export function cueHandle(t: number): Vec {
 
 /** Which band a radius falls in, or -1 (gap, lead-in, run-out). */
 export function bandAt(r: number): number {
-  return BANDS.findIndex((b) => r <= b.outer + 0.05 && r >= b.inner - 0.05);
+  for (let i = 0; i < BANDS.length; i++) if (r <= BANDS[i].outer + 0.05 && r >= BANDS[i].inner - 0.05) return i;
+  return -1;
+}
+
+/** The outer edge of the first band inside radius r, or null past the last one. */
+function nextBandIn(r: number): number | null {
+  for (let i = 0; i < BANDS.length; i++) if (BANDS[i].outer < r) return BANDS[i].outer;
+  return null;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -212,12 +239,33 @@ const TAU = Math.PI * 2;
 /** Spin-up and braking, rad/s² (a direct drive is quick: about 0.5 s to 33⅓). */
 const TORQUE = 7.4;
 const BRAKE = 4.6;
+/** Freewheeling friction after a flick with the motor off. */
+const COAST = 1.5;
 /** How hard the slipmat pulls the record back to the platter, 1/s. */
 const SLIP = 13;
+
+// The automatic cue (start, a band key, park): a brisk lift, a swing that
+// lands without hunting, and a lowering that begins as the swing settles, so
+// the needle is in the lead-in a little over a second after start.
+const CUE_LIFT = { stiffness: 240, damping: 31 };
+/** The swing begins once the arm is this far up. */
+const CUE_LIFTED = 0.72;
+const CUE_SWING = { stiffness: 120, damping: 21 };
+const CUE_SWING_REDUCED = { stiffness: 160, damping: 26 };
+const CUE_LOWER = { stiffness: 72, damping: 16 };
+/** The cue lever's own descent, slower: it's damped like a real one. */
+const LEVER_LOWER = { stiffness: 46, damping: 13.2 };
+const LOWER_REDUCED = { stiffness: 120, damping: 22 };
+/** How far a turning record carries the stylus, mm a turn: the lead-in is pitched wide, the gaps and run-out tighter. */
+const CARRY_LEAD_IN = 16;
+const CARRY_GAP = 4;
+const CARRY_RUNOUT = 4.2;
 
 export class Deck {
   motor = false;
   speed: Speed = 33;
+  /** Pitch fader, -0.08..0.08 (0 is quartz-locked to the speed). */
+  pitch = 0;
 
   platterAngle = 0;
   platterVel = 0;
@@ -228,6 +276,9 @@ export class Deck {
   held = false;
   holdTarget = 0;
   private hold = new Spring(0, { stiffness: 2600, damping: 96, precision: 1e-6 });
+
+  /** Freewheeling after a flick (bearing friction, not the brake). */
+  private coasting = false;
 
   /** Apparent phase of each strobe row (what the lamp shows). */
   strobe = [0, 0];
@@ -289,8 +340,15 @@ export class Deck {
 
   setMotor(on: boolean) {
     this.motor = on;
+    this.coasting = false;
     if (on && this.onRest && !this.dragging) this.cueTo(LEAD_ANGLE);
     else if (on && !this.onRest && this.lift.target > 0.5 && !this.dragging && !this.plan) this.lower();
+  }
+
+  setPitch(pitch: number) {
+    this.pitch = clamp(pitch, -FADER.range, FADER.range);
+    // a detent at zero
+    if (Math.abs(this.pitch) < 0.0012) this.pitch = 0;
   }
 
   setSpeed(speed: Speed) {
@@ -300,7 +358,7 @@ export class Deck {
   /** Lift the arm (cue lever up). */
   raise() {
     this.plan = null;
-    this.lift.configure({ stiffness: 190, damping: 27 }).to(1);
+    this.lift.configure(CUE_LIFT).to(1);
     if (this.onRest) this.onRest = false;
   }
 
@@ -312,7 +370,7 @@ export class Deck {
       this.plan = { phi: REST_ANGLE, then: "rest", stage: "swing" };
       return;
     }
-    this.lift.configure(this.reduced ? { stiffness: 120, damping: 22 } : { stiffness: 34, damping: 11.6 }).to(-0.04);
+    this.lift.configure(this.reduced ? LOWER_REDUCED : LEVER_LOWER).to(-0.04);
   }
 
   toggleCue() {
@@ -326,14 +384,14 @@ export class Deck {
     const target = clamp(phi, REST_ANGLE, MAX_ANGLE);
     this.plan = { phi: target, then: "lower", stage: "lift" };
     this.onRest = false;
-    this.lift.configure({ stiffness: 190, damping: 27 }).to(1);
+    this.lift.configure(CUE_LIFT).to(1);
   }
 
   /** Lift and take the arm home. */
   park() {
     this.dragging = false;
     this.plan = { phi: REST_ANGLE, then: "rest", stage: "lift" };
-    this.lift.configure({ stiffness: 190, damping: 27 }).to(1);
+    this.lift.configure(CUE_LIFT).to(1);
   }
 
   /** Move to band i (0-based) and drop the needle at its first groove. */
@@ -398,10 +456,25 @@ export class Deck {
     this.holdTarget += dAngle;
   }
 
-  releaseRecord() {
+  /**
+   * Let go of the record. A pointer lets go with the hand's speed (a flick
+   * spins a stopped record on). Keys aren't a flick: with the motor off the
+   * record stops where the hand left it; with it on the slipmat takes over.
+   */
+  releaseRecord({ flick = true }: { flick?: boolean } = {}) {
     if (!this.held) return;
     this.held = false;
+    if (!flick && !this.motor) {
+      this.recordVel = this.platterVel;
+      return;
+    }
     this.recordVel = clamp(this.hold.velocity, -OMEGA_33 * 5, OMEGA_33 * 5);
+    // With the motor off nothing holds the platter: a flick drags it along
+    // and the two coast down together on the bearing and the brake.
+    if (!this.motor && Math.abs(this.recordVel) > Math.abs(this.platterVel)) {
+      this.platterVel = this.platterVel + (this.recordVel - this.platterVel) * 0.55;
+      this.coasting = true;
+    }
   }
 
   /* the step ----------------------------------------------------------- */
@@ -409,10 +482,14 @@ export class Deck {
   step(dt: number) {
     if (dt <= 0) return;
     // motor and platter
-    const target = this.motor ? omegaFor(this.speed) : 0;
+    const target = this.motor ? omegaFor(this.speed) * (1 + this.pitch) : 0;
     const want = (target - this.platterVel) * 11;
-    this.platterVel += clamp(want, -BRAKE, TORQUE) * dt;
-    if (!this.motor && Math.abs(this.platterVel) < 0.002) this.platterVel = 0;
+    const brake = this.motor ? BRAKE : this.coasting ? COAST : BRAKE;
+    this.platterVel += clamp(want, -brake, this.motor ? TORQUE : brake) * dt;
+    if (!this.motor && Math.abs(this.platterVel) < 0.002) {
+      this.platterVel = 0;
+      this.coasting = false;
+    }
     this.platterAngle += this.platterVel * dt;
 
     // record: the hand, or the slipmat
@@ -431,12 +508,12 @@ export class Deck {
     if (Math.abs(this.platterAngle) > TAU * 64) this.platterAngle %= TAU;
 
     // strobe: what 120 flashes a second make of each row
-    STROBE_ROWS.forEach((row, i) => {
-      const period = TAU / row.dots;
-      const perFlash = this.platterVel / STROBE_HZ;
+    const perFlash = this.platterVel / STROBE_HZ;
+    for (let i = 0; i < STROBE_ROWS.length; i++) {
+      const period = TAU / STROBE_ROWS[i].dots;
       const alias = perFlash - Math.round(perFlash / period) * period;
       this.strobe[i] = (this.strobe[i] + alias * STROBE_HZ * dt) % TAU;
-    });
+    }
 
     this.stepArm(dt);
   }
@@ -445,19 +522,20 @@ export class Deck {
     const plan = this.plan;
     if (plan) {
       if (plan.stage === "lift") {
-        if (this.lift.value > 0.82) {
+        if (this.lift.value > CUE_LIFTED) {
           plan.stage = "swing";
-          this.arm.configure(this.reduced ? { stiffness: 160, damping: 26 } : { stiffness: 46, damping: 12.4 }).to(plan.phi);
+          this.arm.configure(this.reduced ? CUE_SWING_REDUCED : CUE_SWING).to(plan.phi);
         }
       } else if (plan.stage === "swing") {
-        const near = Math.abs(this.arm.value - plan.phi) < 0.004 && Math.abs(this.arm.velocity) < 0.03;
+        // start down as the swing comes in: the arm has settled by the time the stylus lands
+        const near = Math.abs(this.arm.value - plan.phi) < 0.02 && Math.abs(this.arm.velocity) < 0.15;
         if (near) {
           if (plan.then === "lower") {
             plan.stage = "settle";
-            this.lift.configure(this.reduced ? { stiffness: 120, damping: 22 } : { stiffness: 34, damping: 11.6 }).to(-0.04);
+            this.lift.configure(this.reduced ? LOWER_REDUCED : CUE_LOWER).to(-0.04);
           } else if (plan.then === "rest") {
             plan.stage = "settle";
-            this.lift.configure({ stiffness: 70, damping: 16 }).to(-0.04);
+            this.lift.configure(CUE_LOWER).to(-0.04);
           } else {
             this.plan = null;
           }
@@ -478,8 +556,8 @@ export class Deck {
       const r = this.radius;
       if (bandAt(r) < 0 && r > LOCK_R + 0.05) {
         const target =
-          r > BANDS[0].outer ? BANDS[0].outer - 0.4 : r < RUNOUT_OUTER + 0.3 ? LOCK_R : (BANDS.find((b) => b.outer < r)?.outer ?? LOCK_R + 0.4) - 0.4;
-        const pitch = r < RUNOUT_OUTER + 0.3 ? 4.2 : 2.6;
+          r > BANDS[0].outer ? BANDS[0].outer - 0.4 : r < RUNOUT_OUTER + 0.3 ? LOCK_R : (nextBandIn(r) ?? LOCK_R + 0.4) - 0.4;
+        const pitch = r < RUNOUT_OUTER + 0.3 ? CARRY_RUNOUT : r > BANDS[0].outer ? CARRY_LEAD_IN : CARRY_GAP;
         const next = Math.max(target, r - (Math.abs(this.recordVel) / TAU) * pitch * dt);
         if (next !== r) this.arm.set(angleFor(next));
       }

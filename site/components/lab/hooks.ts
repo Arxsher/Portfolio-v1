@@ -259,7 +259,11 @@ export type CanvasSize = {
 
 export type CanvasOptions = {
   mode: PieceMode;
-  /** DPR cap. Defaults: 2 on the stage, 1.5 on tiles. */
+  /**
+   * DPR cap. Defaults: 2 on the stage, 1.5 on tiles. It may change while
+   * mounted (e.g. a frame-rate safety net stepping down): the canvas is
+   * re-sized and onResize called; the context and onContext are kept.
+   */
   maxDpr?: number;
   /** Called after every resize (the backing store was just cleared). */
   onResize?: (size: CanvasSize) => void;
@@ -275,7 +279,8 @@ function dprFor(mode: PieceMode, maxDpr?: number) {
 /**
  * Sizes a canvas's backing store to its CSS box × DPR whenever either
  * changes (ResizeObserver + DPR media query). `apply` receives the new
- * pixel size; returns a cleanup.
+ * pixel size. Returns `stop` (the cleanup) and `measure` (re-size now, e.g.
+ * after the DPR cap changed).
  */
 function observeCanvas(canvas: HTMLCanvasElement, getDpr: () => number, apply: (size: CanvasSize) => void) {
   let frame = 0;
@@ -316,11 +321,27 @@ function observeCanvas(canvas: HTMLCanvasElement, getDpr: () => number, apply: (
   dprQuery.addEventListener("change", onDpr);
 
   measure();
-  return () => {
+  const stop = () => {
     observer.disconnect();
     dprQuery?.removeEventListener("change", onDpr);
     cancelAnimationFrame(frame);
   };
+  return { stop, measure };
+}
+
+/**
+ * Re-sizes the canvas when the DPR cap changes, without tearing the
+ * context down (the cap is read live through `latest`).
+ */
+function useDprCap(maxDpr: number | undefined, measureRef: RefObject<(() => void) | null>) {
+  const first = useRef(true);
+  useIsoLayoutEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    measureRef.current?.();
+  }, [maxDpr, measureRef]);
 }
 
 export type Canvas2D = {
@@ -345,6 +366,7 @@ export function useCanvas2D(options: CanvasOptions & { alpha?: boolean }): Canva
   const sizeRef = useRef<CanvasSize>(EMPTY_SIZE);
   const [size, setSize] = useState<CanvasSize>(EMPTY_SIZE);
   const latest = useLatest(options);
+  const measureRef = useRef<(() => void) | null>(null);
   const { mode, maxDpr, alpha = true } = options;
 
   useIsoLayoutEffect(() => {
@@ -352,9 +374,9 @@ export function useCanvas2D(options: CanvasOptions & { alpha?: boolean }): Canva
     if (!canvas) return;
     const ctx = canvas.getContext("2d", { alpha });
     ctxRef.current = ctx;
-    const stop = observeCanvas(
+    const { stop, measure } = observeCanvas(
       canvas,
-      () => dprFor(mode, maxDpr),
+      () => dprFor(mode, latest.current.maxDpr),
       (next) => {
         ctx?.setTransform(next.dpr, 0, 0, next.dpr, 0, 0);
         sizeRef.current = next;
@@ -362,11 +384,14 @@ export function useCanvas2D(options: CanvasOptions & { alpha?: boolean }): Canva
         latest.current.onResize?.(next);
       },
     );
+    measureRef.current = measure;
     return () => {
       stop();
+      measureRef.current = null;
       ctxRef.current = null;
     };
-  }, [mode, maxDpr, alpha, latest]);
+  }, [mode, alpha, latest]);
+  useDprCap(maxDpr, measureRef);
 
   return { canvasRef, ctxRef, sizeRef, size };
 }
@@ -395,6 +420,14 @@ export type WebGL2 = {
 /**
  * A DPR-aware WebGL2 canvas. The viewport is set to the full backing store
  * after every resize; draw with sizeRef.current (CSS px) × dpr in mind.
+ *
+ * When the component really unmounts, the context is handed back to the
+ * browser (WEBGL_lose_context) and the backing store freed, a tick later:
+ * home and /lab/ run several pieces at once, and browsers keep only about
+ * 16 live contexts, force-losing the oldest (maybe a live tile) past that.
+ * The tick matters for StrictMode's rehearsal unmount, which remounts at
+ * once on the same canvas and must keep its context. A piece that also
+ * releases its own context is fine: whichever runs second sees it lost.
  */
 export function useWebGL2(options: WebGLOptions): WebGL2 {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -403,11 +436,15 @@ export function useWebGL2(options: WebGLOptions): WebGL2 {
   const [size, setSize] = useState<CanvasSize>(EMPTY_SIZE);
   const [supported, setSupported] = useState<boolean | null>(null);
   const latest = useLatest(options);
+  const measureRef = useRef<(() => void) | null>(null);
+  /** Bumped by every run of the effect below, so a stale release can tell it was superseded. */
+  const runRef = useRef(0);
   const { mode, maxDpr } = options;
 
   useIsoLayoutEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    const run = ++runRef.current;
     const attributes: WebGLContextAttributes = {
       antialias: true,
       alpha: true,
@@ -440,9 +477,9 @@ export function useWebGL2(options: WebGLOptions): WebGL2 {
     canvas.addEventListener("webglcontextlost", onLost);
     canvas.addEventListener("webglcontextrestored", onRestored);
 
-    const stop = observeCanvas(
+    const { stop, measure } = observeCanvas(
       canvas,
-      () => dprFor(mode, maxDpr),
+      () => dprFor(mode, latest.current.maxDpr),
       (next) => {
         if (glRef.current) glRef.current.viewport(0, 0, canvas.width, canvas.height);
         sizeRef.current = next;
@@ -450,15 +487,26 @@ export function useWebGL2(options: WebGLOptions): WebGL2 {
         latest.current.onResize?.(next);
       },
     );
+    measureRef.current = measure;
     setup();
 
     return () => {
       stop();
+      measureRef.current = null;
       canvas.removeEventListener("webglcontextlost", onLost);
       canvas.removeEventListener("webglcontextrestored", onRestored);
       teardown();
+      // Released only if nothing re-ran on this canvas meanwhile (StrictMode,
+      // a mode change) and the canvas has left the document.
+      window.setTimeout(() => {
+        if (runRef.current !== run || canvas.isConnected || gl.isContextLost()) return;
+        gl.getExtension("WEBGL_lose_context")?.loseContext();
+        canvas.width = 0;
+        canvas.height = 0;
+      }, 0);
     };
-  }, [mode, maxDpr, latest]);
+  }, [mode, latest]);
+  useDprCap(maxDpr, measureRef);
 
   return { canvasRef, glRef, sizeRef, size, supported };
 }

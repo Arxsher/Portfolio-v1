@@ -2,29 +2,32 @@
 
 // Seal: hold to press a wax seal onto a letter, then break it.
 //
-// Look. A real-paper envelope seen from the back, lying on the tile: cotton
-// paper with grain, cloudy formation and fibres (drawn in code), a top
-// flap whose fold catches the light and whose edges cast a soft shadow on
-// the pocket, a printed oxblood lining inside. Ivory by day, charcoal by
-// night. The wax is deep sealing red, shaded per pixel from a height
-// field (see wax.ts): glossy and bright while molten, satin once set, with
-// the arsher mark, a ring of beads and a border ring pressed into it. The
-// stamp is a walnut handle on a turned brass head.
+// Look. A real-paper envelope seen from the back, lying on the table:
+// cotton paper with grain, cloudy formation and fibres (drawn in code), a
+// top flap whose fold catches the light and whose edges cast a soft shadow
+// on the pocket, a printed oxblood lining inside. Ivory by day, charcoal by
+// night. Beside it stands the stamp: a turned brass head with a knurled
+// band, a walnut handle and a small brass medallion with the arsher mark on
+// top. The wax is deep sealing red, shaded per pixel from a height field
+// (see wax.ts): glossy and bright while molten, satin once set.
 //
-// Motion. Hold the button (or the envelope, or Space / Enter): the ring
-// fills, the button sinks under the pressure, the stamp comes down out of
-// the air, slowing, and starts to tremble over the last third. Let go
-// early and it all eases back. Hold to the end and the stamp drops, lands
-// with a squash and a thunk, the wax squeezes out on a spring, the stamp
-// lifts away and the wax cools. A chip then counts down the twenty-four
-// hours until it opens on its own (as on sealed., the confessions game in
-// the work list). Click the seal to break it early: cracks run out from
-// where you struck, the pieces pop off and scatter, the flap swings open
-// and the letter slides out.
+// Motion. Hold the button (or the envelope, the stamp, or Space / Enter):
+// the ring fills, the button sinks under the pressure, three drops of wax
+// fall onto the flap's tip and spread into a puddle, the stamp is lifted,
+// carried over and lowered, slowing and trembling over the last third. Let
+// go early and the stamp goes back; the wax stays poured. Hold to the end
+// and the stamp lands with a squash and a thunk, the wax squeezes out on a
+// spring and takes the mark, and the stamp is carried back and set down.
+// A chip then counts down the twenty-four hours until it opens on its own
+// (as on sealed., the confessions game in the work list). Click the seal
+// to break it early: cracks run along the flap's edge, the half on the
+// flap goes up with it, the half on the pocket stays, a few crumbs skitter
+// off, and the letter slides out as the view pulls back.
 //
-// Tile: the same scene, small, stamping and breaking in a loop.
-// Reduced motion: no stamp flight, no tremble, no flying pieces; each
-// state cross-fades into the next. The tile shows the sealed envelope.
+// Tile: the same scene, small, sealing and opening in a loop.
+// Reduced motion: no flight, no tremble, no flying pieces; each state
+// fades into the next (through the bare table when the view changes). The
+// tile shows the sealed envelope with the stamp beside it.
 
 import {
   useCallback,
@@ -110,6 +113,8 @@ function letterFor(sealedAt: number, remaining: number): LetterCopy {
 
 const RING = 2 * Math.PI * 6.25;
 
+type HoldSource = "button" | "key" | "canvas";
+
 function Stage({ active, reducedMotion, theme }: PieceProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const { canvasRef, ctxRef, size } = useCanvas2D({ mode: "stage" });
@@ -121,10 +126,15 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
   const [announce, setAnnounce] = useState("");
   /** A finger, mouse button or key is down on the hold right now. */
   const [held, setHeld] = useState(false);
+  /** Poured wax waiting for the stamp (Start over can clear it). */
+  const [puddle, setPuddle] = useState(false);
+  /** Sealing on its own after an assistive click. */
+  const [autoSealing, setAutoSealing] = useState(false);
   const buttonId = useId();
   const ringRef = useRef<SVGCircleElement>(null);
   const pressPhase = useRef<Phase | null>(null);
-  const canvasHold = useRef(false);
+  /** What started the hold that is going on, so only that can end it. */
+  const holdSource = useRef<HoldSource | null>(null);
   const sealedAtRef = useLatest(sealedAt);
 
   const wake = useFrame(active, (dt) => engineRef.current?.step(dt) ?? false);
@@ -148,8 +158,9 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
   }, [buttonId]);
 
   const onPhase = useCallback(
-    (next: Phase) => {
+    (next: Phase, previous: Phase) => {
       setPhase(next);
+      if (next !== "holding") setAutoSealing(false);
       if (next === "sealed") {
         const at = sealedAtRef.current ?? Date.now();
         if (sealedAtRef.current === null) {
@@ -158,7 +169,7 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
           setAnnounce("Sealed. It opens on its own in 24 hours. Press the button again, or click the seal, to break it.");
         }
         setNow(Date.now());
-      } else if (next === "breaking" || (next === "open" && reducedMotion)) {
+      } else if (next === "breaking" || (next === "open" && previous === "sealed")) {
         // Opened: nothing left to keep for next time.
         writeSealedAt(null);
         setAnnounce("The seal breaks and the letter slides out.");
@@ -168,9 +179,16 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
         writeSealedAt(null);
         const ring = ringRef.current;
         if (ring) ring.style.strokeDashoffset = String(RING);
+        if (previous === "holding")
+          setAnnounce(
+            engineRef.current?.hasPuddle
+              ? "Let go early, not sealed. The wax is poured; hold again to press the stamp."
+              : "Let go early, not sealed.",
+          );
+        else if (previous === "closing" || previous === "sealed" || previous === "open") setAnnounce("Ready to seal again.");
       }
     },
-    [sealedAtRef, reducedMotion],
+    [sealedAtRef],
   );
   const onPhaseRef = useLatest(onPhase);
   const onHoldRef = useLatest(onHold);
@@ -180,15 +198,17 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
     const ctx = ctxRef.current;
     const canvas = canvasRef.current;
     if (!ctx || !canvas || !size.width || !size.height) return;
-    const reserve = size.width < 640 ? { top: 54, bottom: 74 } : { top: 62, bottom: 100 };
+    // What the chip and the tray take (their placement switches at the sm breakpoint).
+    const reserve = window.innerWidth < 640 ? { top: 48, bottom: 60 } : { top: 52, bottom: 89 };
     if (!engineRef.current) {
       const engine = new SealEngine(ctx, size.width, size.height, size.dpr, {
         mode: "stage",
         theme,
         reducedMotion,
         reserve,
-        onPhase: (p) => onPhaseRef.current(p),
+        onPhase: (p, previous) => onPhaseRef.current(p, previous),
         onHold: (p, t) => onHoldRef.current(p, t),
+        onPuddle: (has) => setPuddle(has),
       });
       engineRef.current = engine;
       // A seal pressed earlier (in this browser) is still sealed.
@@ -243,7 +263,7 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
   useEffect(() => {
     if (active) return;
     engineRef.current?.holdEnd();
-    canvasHold.current = false;
+    holdSource.current = null;
     setHeld(false);
   }, [active]);
 
@@ -280,24 +300,41 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
     wake();
   };
 
-  const primary = (source: "pointer" | "key" | "click") => {
+  /** Start a hold from one source; whatever else was holding hands over to it. */
+  const hold = (source: HoldSource) => {
+    const engine = engineRef.current;
+    if (!engine || !engine.holdStart()) return false;
+    holdSource.current = source;
+    setHeld(true);
+    return true;
+  };
+
+  /** End the hold, but only if `source` is what started it (a blur must not end a press on the envelope). */
+  const release = (source: HoldSource) => {
+    if (holdSource.current !== source) return;
+    holdSource.current = null;
+    engineRef.current?.holdEnd();
+    setHeld(false);
+    wake();
+  };
+
+  const primary = (source: HoldSource | "click") => {
     const engine = engineRef.current;
     if (!engine) return;
     ensureAudio();
     const current = engine.phase;
     if (current === "idle" || current === "holding") {
-      if (source === "click") engine.sealNow();
-      else if (engine.holdStart()) setHeld(true);
+      if (source === "click") {
+        engine.sealNow();
+        setAutoSealing(engine.sealing);
+      }
+      else hold(source);
     } else if (current === "sealed") breakAt();
     else if (current === "open" || current === "breaking") engine.reset();
     wake();
   };
 
-  const release = () => {
-    engineRef.current?.holdEnd();
-    setHeld(false);
-    wake();
-  };
+  const releaseButton = () => release("button");
 
   const buttonHandlers = {
     onPointerDown(event: ReactPointerEvent<HTMLButtonElement>) {
@@ -308,11 +345,11 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
       try {
         event.currentTarget.setPointerCapture(event.pointerId);
       } catch {}
-      if (engine.phase === "idle" || engine.phase === "holding") primary("pointer");
+      if (engine.phase === "idle" || engine.phase === "holding") primary("button");
     },
-    onPointerUp: release,
-    onPointerCancel: release,
-    onLostPointerCapture: release,
+    onPointerUp: releaseButton,
+    onPointerCancel: releaseButton,
+    onLostPointerCapture: releaseButton,
     onClick(event: ReactMouseEvent<HTMLButtonElement>) {
       const engine = engineRef.current;
       if (!engine) return;
@@ -323,7 +360,7 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
       }
       const started = pressPhase.current;
       pressPhase.current = null;
-      if (started && started === engine.phase && (started === "sealed" || started === "open" || started === "breaking")) primary("pointer");
+      if (started && started === engine.phase && (started === "sealed" || started === "open" || started === "breaking")) primary("button");
     },
     onKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>) {
       if (event.key !== " " && event.key !== "Enter") return;
@@ -334,12 +371,16 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
     onKeyUp(event: ReactKeyboardEvent<HTMLButtonElement>) {
       if (event.key !== " " && event.key !== "Enter") return;
       event.preventDefault();
-      release();
+      release("key");
     },
-    onBlur: release,
+    // Focus leaving ends a key hold only; a press on the envelope moves focus off the button on purpose.
+    onBlur: () => release("key"),
   };
 
-  // Press and hold the envelope itself; click the seal to break it.
+  const cursorFor = (over: ReturnType<SealEngine["pointer"]>) =>
+    holdSource.current === "canvas" ? "grabbing" : over === "stamp" ? "grab" : over ? "pointer" : "";
+
+  // Press and hold the envelope or the stamp itself; click the seal to break it.
   usePointer(rootRef, {
     onDown(state) {
       const engine = engineRef.current;
@@ -347,10 +388,8 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
       ensureAudio();
       const over = engine.pointer(state.x, state.y, true);
       if (over === "seal") breakAt([state.x, state.y]);
-      else if (over === "envelope" && engine.holdStart()) {
-        canvasHold.current = true;
-        setHeld(true);
-      }
+      else if (over === "envelope" || over === "stamp") hold("canvas");
+      if (canvasRef.current) canvasRef.current.style.cursor = cursorFor(over);
       wake();
     },
     onMove(state) {
@@ -358,13 +397,13 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
       const canvas = canvasRef.current;
       if (!engine || !canvas) return;
       const over = engine.pointer(state.x, state.y, true);
-      canvas.style.cursor = over ? "pointer" : "";
+      canvas.style.cursor = cursorFor(over);
       wake();
     },
-    onUp() {
-      if (!canvasHold.current) return;
-      canvasHold.current = false;
-      release();
+    onUp(state) {
+      release("canvas");
+      const engine = engineRef.current;
+      if (engine && canvasRef.current) canvasRef.current.style.cursor = cursorFor(engine.pointer(state.x, state.y, state.inside));
     },
     onLeave() {
       engineRef.current?.pointer(0, 0, false);
@@ -377,8 +416,11 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
 
   const sealed = phase === "sealed";
   const opened = phase === "breaking" || phase === "open";
+  const waiting = phase === "idle" && puddle;
   const label =
-    phase === "idle" || (phase === "holding" && !held)
+    autoSealing
+      ? "Sealing"
+      : phase === "idle" || (phase === "holding" && !held)
       ? "Hold to seal"
       : phase === "holding"
         ? "Keep holding"
@@ -391,8 +433,10 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
   const description = sealed
     ? `An envelope sealed with red wax, the arsher mark pressed into it. It opens on its own in ${clock(remaining)}.`
     : opened
-      ? "The seal is broken and the letter is out. It reads: Some things keep better under wax."
-      : "An envelope, closed but not sealed, lying on the table.";
+      ? "The seal is broken, half of it still on the pocket, and the letter is out. It reads: Some things keep better under wax."
+      : waiting
+        ? "An envelope with a puddle of red wax poured on its flap, and a brass seal stamp standing beside it."
+        : "An envelope, closed but not sealed, lying on the table, with a brass seal stamp standing beside it.";
 
   return (
     <div
@@ -435,8 +479,9 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
           </TrayButton>
           <TrayDivider />
           <IconButton
-            label="Start over"
-            disabled={phase === "idle" || phase === "holding" || phase === "pressing" || phase === "closing"}
+            label={waiting ? "Clear the wax" : "Start over"}
+            // Only where it does something the main button doesn't: re-seal without breaking, or clear poured wax.
+            disabled={!(sealed || waiting)}
             onClick={() => {
               engineRef.current?.reset();
               // This button disables itself once back at rest: keep focus on the main one.
@@ -449,10 +494,20 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
           <MuteButton />
         </Tray>
         <span id={`${buttonId}-hint`} className="sr-only">
-          {sealed || opened ? "" : `Press and hold for ${HOLD_SECONDS} seconds, or hold Space or Enter.`}
+          {sealed
+            ? "Press to break the seal early."
+            : opened
+              ? "Press to put the letter back and seal another."
+              : `Press and hold for ${HOLD_SECONDS} seconds, or hold Space or Enter.`}
         </span>
         <StageHint className="max-sm:hidden">
-          {sealed ? "Click the seal to break it" : opened ? "Start over to seal another" : "Hold the button, or press and hold the envelope"}
+          {sealed
+            ? "Click the seal to break it"
+            : opened
+              ? "Seal another to start again"
+              : waiting
+                ? "The wax is poured: hold to press the stamp"
+                : "Hold the button, or press and hold the envelope or the stamp"}
         </StageHint>
       </StageControls>
     </div>
@@ -591,6 +646,16 @@ function Tile({ active, reducedMotion, theme }: PieceProps) {
     engine.step(0);
     wake();
   }, [theme, wake]);
+
+  // The OS setting can change while the page is open: settle on the sealed still, or start the loop again.
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    engine.setReducedMotion(reducedMotion);
+    if (reducedMotion) engine.showSealed();
+    engine.step(0);
+    wake();
+  }, [reducedMotion, wake]);
 
   useEffect(
     () => () => {

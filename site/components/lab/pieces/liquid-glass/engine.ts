@@ -1,6 +1,6 @@
 // Layout and motion for liquid glass. No React and no GL here: the piece
 // feeds it input and time, and reads back a GlassFrame for the renderer
-// plus the dock icons' transforms.
+// plus the dock icons' transforms and tone.
 //
 // The droplet is a point on two springs chasing a target (the pointer, the
 // keys, or an idle figure-eight that dips in and out of the dock). Its
@@ -9,15 +9,22 @@
 // stops, the overshoot wobbles it like jelly. Merging and pinching off are
 // read from the gap between the two shapes and kick off a ripple through
 // the glass and a little extra wobble.
+//
+// The frame loop allocates nothing: the GlassFrame, the palette and the
+// targets are written in place.
 
 import { clamp, damp, lerp, Spring } from "../../hooks";
 import type { PieceMode } from "../../types";
-import type { GlassFrame, Vec3, Vec4 } from "./renderer";
+import { createFrame, type GlassFrame } from "./renderer";
 import type { WordMask } from "./type";
+
+type Vec3 = readonly [number, number, number];
 
 /* ---------------------------------------------------------------------- */
 /* layout                                                                  */
 /* ---------------------------------------------------------------------- */
+
+type Band = { x: number; y: number; hw: number; hh: number; angle: number };
 
 export type Layout = {
   width: number;
@@ -37,9 +44,11 @@ export type Layout = {
   /** Centre x and baseline of the word. */
   word: { cx: number; baseline: number };
   disc: { x: number; y: number; r: number };
-  band: { x: number; y: number; hw: number; hh: number; angle: number };
+  band: Band;
+  /** A thin echo of the band, parallel to it. */
+  band2: Band;
   grid: number;
-  fade: Vec4;
+  fade: readonly [number, number, number, number];
   shadow: { x: number; y: number; blur: number };
   /** Idle figure-eight: half width, rise above the dock, dip below it. */
   path: { ax: number; up: number; down: number; period: number };
@@ -51,6 +60,28 @@ export type Layout = {
 
 /** Geist's x-height as a share of the font size. */
 const X_HEIGHT = 0.53;
+/** Room the top tray takes on the stage (12px inset + 48px tray) plus a 24px gap. */
+const TOP_TRAY = 84;
+/**
+ * Room the bottom controls take on a phone stage: 12px inset, the 48px
+ * tray, the hint line above it and a little air. The poster keeps clear.
+ */
+const BOTTOM_CONTROLS = 96;
+/** The word's ink width as a share of its font size (Geist 600, tracked in). */
+const WORD_WIDTH = 2.75;
+
+/** A thin band parallel to `b`, `off` along its normal and `along` its axis. */
+function echo(b: Band, along: number, off: number, length: number, thickness: number): Band {
+  const c = Math.cos(b.angle);
+  const s = Math.sin(b.angle);
+  return {
+    x: b.x + c * along - s * off,
+    y: b.y + s * along + c * off,
+    hw: b.hw * length,
+    hh: thickness,
+    angle: b.angle,
+  };
+}
 
 export function computeLayout(width: number, height: number, mode: PieceMode, count: number): Layout {
   const tile = mode === "tile";
@@ -65,6 +96,8 @@ export function computeLayout(width: number, height: number, mode: PieceMode, co
   let iconSize: number;
   let fontPx: number;
   let grid: number;
+  /** Share of the x-height the dock covers. */
+  let cover: number;
   if (tile) {
     dockH = Math.round(width * 0.2);
     pitch = Math.round(width * 0.148);
@@ -74,15 +107,22 @@ export function computeLayout(width: number, height: number, mode: PieceMode, co
     iconSize = Math.round(width * 0.068);
     fontPx = width * 0.245;
     grid = width > 190 ? 10 : 9;
+    cover = 0.5;
   } else if (compact) {
     dockH = 58;
     pitch = Math.min(52, Math.floor((width - 56) / count));
     padX = 8;
-    cy = height * 0.52;
+    // The band under the dock (and its drift) stays above the bottom
+    // controls and their hint: on short stages the poster moves up.
+    const drift = width * 1.35 * 0.03;
+    const reach = width * 0.25 * Math.sin(0.2) + width * 0.06 * Math.cos(0.2) + drift;
+    cy = Math.max(TOP_TRAY + dockH, Math.min(height * 0.56, height - BOTTOM_CONTROLS - reach - height * 0.17));
     dropR = 27;
     iconSize = 21;
-    fontPx = Math.min(width * 0.235, height * 0.25);
+    // and the word, drifting, keeps a margin from the stage's sides
+    fontPx = Math.min(width * 0.272, height * 0.27, (width - 48 - drift * 2.8) / WORD_WIDTH);
     grid = 14;
+    cover = 0.44;
   } else {
     dockH = 78;
     pitch = 70;
@@ -92,12 +132,34 @@ export function computeLayout(width: number, height: number, mode: PieceMode, co
     iconSize = 24;
     fontPx = Math.min(width * 0.2, height * 0.46, 270);
     grid = 16;
+    cover = 0.5;
   }
   const hw = (count * pitch) / 2 + padX;
   const hh = dockH / 2;
   const left = cx - hw + padX;
   const icons = Array.from({ length: count }, (_, i) => ({ x: left + pitch * (i + 0.5), y: cy }));
   const unit = tile ? width : compact ? width * 1.35 : Math.min(width, height * 2.1);
+
+  let disc: Layout["disc"];
+  let band: Band;
+  let band2: Band;
+  if (tile) {
+    disc = { x: cx + width * 0.2, y: cy - height * 0.33, r: width * 0.17 };
+    band = { x: cx - width * 0.16, y: cy + height * 0.15, hw: width * 0.2, hh: width * 0.052, angle: -0.21 };
+    band2 = echo(band, width * 0.05, band.hh * 2.4, 0.62, width * 0.011);
+  } else if (compact) {
+    const r = width * 0.17;
+    disc = { x: cx + width * 0.2, y: Math.max(cy - height * 0.2, TOP_TRAY + r), r };
+    band = { x: cx - width * 0.15, y: cy + height * 0.17, hw: width * 0.25, hh: width * 0.06, angle: -0.2 };
+    // no echo on phones: the controls need that ground
+    band2 = { x: -1e4, y: -1e4, hw: 0, hh: 0, angle: band.angle };
+  } else {
+    // small enough that the droplet's upper loop always passes over it
+    const r = Math.min(height * 0.16, dockH * 1.3);
+    disc = { x: cx + hw * 0.8, y: Math.max(cy - dockH * 1.6, TOP_TRAY * 0.6 + r), r };
+    band = { x: cx - unit * 0.22, y: cy + height * 0.03, hw: unit * 0.17, hh: height * 0.05, angle: -0.2 };
+    band2 = echo(band, -unit * 0.035, band.hh * 2.5, 0.62, 4.5);
+  }
 
   return {
     width,
@@ -111,21 +173,15 @@ export function computeLayout(width: number, height: number, mode: PieceMode, co
     iconSize,
     dropR,
     k: dropR * 1.05,
-    bevelDock: dockH * 0.36,
-    bevelDrop: dropR * 0.98,
+    // a narrow rim: the lensed sliver stays thin at every size
+    bevelDock: dockH * (tile || compact ? 0.22 : 0.3),
+    // the droplet's middle is flat enough to see through cleanly
+    bevelDrop: dropR * 0.6,
     fontPx,
-    // the dock covers the lower half of the letters' x-height
-    word: { cx, baseline: cy - hh + fontPx * X_HEIGHT * 0.5 },
-    disc: tile
-      ? { x: cx + width * 0.2, y: cy - height * 0.33, r: width * 0.17 }
-      : compact
-        ? { x: cx + width * 0.2, y: cy - height * 0.25, r: width * 0.2 }
-        : { x: cx + unit * 0.21, y: cy - height * 0.09, r: height * 0.22 },
-    band: tile
-      ? { x: cx - width * 0.16, y: cy + height * 0.15, hw: width * 0.2, hh: width * 0.052, angle: -0.21 }
-      : compact
-        ? { x: cx - width * 0.16, y: cy + height * 0.115, hw: width * 0.25, hh: width * 0.065, angle: -0.2 }
-        : { x: cx - unit * 0.22, y: cy + height * 0.03, hw: unit * 0.17, hh: height * 0.05, angle: -0.2 },
+    word: { cx, baseline: cy - hh + fontPx * X_HEIGHT * cover },
+    disc,
+    band,
+    band2,
     grid,
     fade: tile ? [6, 6, width * 0.16, 1] : compact ? [0, 0, 56, 0.85] : [0, 0, 90, 0.85],
     shadow: tile ? { x: 0, y: 4.5, blur: 10 } : compact ? { x: 0, y: 9, blur: 20 } : { x: 0, y: 12, blur: 26 },
@@ -162,15 +218,24 @@ const hex = (value: string): Vec3 => {
   return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
 };
 
+const luma = (r: number, g: number, b: number) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
+
+/** Moves a colour `amount` of the way to its own grey. */
+const desaturate = (c: Vec3, amount: number): Vec3 => {
+  const y = luma(c[0], c[1], c[2]);
+  return [lerp(c[0], y, amount), lerp(c[1], y, amount), lerp(c[2], y, amount)];
+};
+
 const LIGHT: Palette = {
   base: hex("#f2f2f2"),
   baseHi: hex("#f6f6f6"),
   ink: hex("#161616"),
   inkAlpha: 1,
-  c1: hex("#ff8443"),
-  c1b: hex("#f24a1d"),
-  c2: hex("#2a55f5"),
-  c2b: hex("#6a8bff"),
+  // a little quieter than the pure hues, so the glass stays the subject
+  c1: desaturate(hex("#ff8443"), 0.1),
+  c1b: desaturate(hex("#f24a1d"), 0.1),
+  c2: desaturate(hex("#2a55f5"), 0.1),
+  c2b: desaturate(hex("#6a8bff"), 0.1),
   gridAlpha: 0.062,
   shadow: 0.13,
   caustic: 0.2,
@@ -190,7 +255,11 @@ const DARK: Palette = {
   caustic: 0.1,
 };
 
-const mix3 = (a: Vec3, b: Vec3, t: number): Vec3 => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
+function mix3Into(out: Float32Array, a: Vec3, b: Vec3, t: number) {
+  out[0] = lerp(a[0], b[0], t);
+  out[1] = lerp(a[1], b[1], t);
+  out[2] = lerp(a[2], b[2], t);
+}
 
 /* ---------------------------------------------------------------------- */
 /* tints                                                                   */
@@ -236,7 +305,11 @@ export const TINTS: ReadonlyArray<{ id: TintId; label: string; rgb: Vec3; amount
   },
 ];
 
-export const tintById = (id: TintId) => TINTS.find((t) => t.id === id) ?? TINTS[0];
+export function tintById(id: TintId) {
+  // (a plain loop: this runs every frame)
+  for (let i = 0; i < TINTS.length; i++) if (TINTS[i].id === id) return TINTS[i];
+  return TINTS[0];
+}
 
 /* ---------------------------------------------------------------------- */
 /* the world                                                               */
@@ -259,6 +332,9 @@ export type GlassEvents = {
   onMerge?: (merged: boolean, x: number, y: number) => void;
 };
 
+/** How strongly the dock calms the ground under each icon (light, dark theme). */
+const PLATE = [0.36, 0.44] as const;
+
 export class GlassWorld {
   readonly mode: PieceMode;
   layout: Layout | null = null;
@@ -270,8 +346,8 @@ export class GlassWorld {
   readonly qx = new Spring(0, { stiffness: 230, damping: 8.5 });
   readonly qy = new Spring(0, { stiffness: 230, damping: 8.5 });
   driver: Driver = "path";
-  target = { x: 0, y: 0 };
-  grab = { x: 0, y: 0 };
+  readonly target = { x: 0, y: 0 };
+  readonly grab = { x: 0, y: 0 };
   placed = false;
   merged = false;
   /** Seconds along the idle path (it pauses while the user has the droplet). */
@@ -281,6 +357,7 @@ export class GlassWorld {
   readonly count: number;
   selected = 0;
   readonly pill = new Spring(0, { stiffness: 340, damping: 26 });
+  pillVelocity = 0;
   hoverIndex = -1;
   readonly hover: Spring[];
   readonly press: Spring[];
@@ -289,28 +366,29 @@ export class GlassWorld {
 
   // light and material
   readonly pointerLight = new Spring(0, { stiffness: 120, damping: 20 });
-  pointer = { x: 0, y: 0, inside: false };
-  ripples: Ripple[] = [];
+  readonly pointer = { x: 0, y: 0, inside: false };
+  /** A fixed pool; amp 0 is a free slot. */
+  private readonly ripples: Ripple[] = Array.from({ length: 4 }, () => ({ x: 0, y: 0, age: 0, amp: 0 }));
   dark = 0;
   refraction = 0.6;
   frost = 0.18;
-  tint: [number, number, number, number] = [1, 1, 1, 0];
+  readonly tint = new Float32Array([1, 1, 1, 0]);
   backdropTime = 0;
 
-  private rippleData = new Float32Array(16);
-  /** 0: ink icons, 1: light icons (they flip over dark things under the glass). */
-  readonly tone: number[];
-  private readonly toneTarget: number[];
-  private lastDt = 1 / 60;
+  /** 0: ink icons, 1: white icons. One tone for the whole bar, so they switch together. */
+  tone = 0;
+  private toneTarget = 0;
   private toneReady = false;
+  private lastDt = 1 / 60;
+
+  private readonly out: GlassFrame = createFrame();
+  private readonly contactPoint = { x: 0, y: 0 };
 
   constructor(mode: PieceMode, count: number) {
     this.mode = mode;
     this.count = count;
     this.hover = Array.from({ length: count }, () => new Spring(0, { stiffness: 320, damping: 24 }));
     this.press = Array.from({ length: count }, () => new Spring(0, { stiffness: 520, damping: 15 }));
-    this.tone = Array.from({ length: count }, () => 0);
-    this.toneTarget = Array.from({ length: count }, () => 0);
   }
 
   /** Returns true when the layout changed. */
@@ -332,46 +410,101 @@ export class GlassWorld {
     return true;
   }
 
-  pathAt(t: number) {
+  /** The idle figure-eight at time t, written into `out`. */
+  pathInto(t: number, out: { x: number; y: number }) {
     const l = this.layout!;
     const w = (Math.PI * 2) / l.path.period;
     const v = Math.sin(2 * w * t);
-    return {
-      x: l.dock.cx + l.path.ax * Math.sin(w * t),
-      y: l.dock.cy - v * (v > 0 ? l.path.up : l.path.down),
-    };
+    out.x = l.dock.cx + l.path.ax * Math.sin(w * t);
+    out.y = l.dock.cy - v * (v > 0 ? l.path.up : l.path.down);
+  }
+
+  private setTarget(x: number, y: number) {
+    this.target.x = x;
+    this.target.y = y;
   }
 
   /** Gap between the droplet's surface and the dock's (negative = overlapping). */
   gap(x = this.dx.value, y = this.dy.value): number {
     const l = this.layout;
     if (!l) return Infinity;
+    return this.dockDistance(x, y) - l.dropR;
+  }
+
+  /** Signed distance from a point to the dock's outline. */
+  dockDistance(x: number, y: number): number {
+    const l = this.layout;
+    if (!l) return Infinity;
     const { cx, cy, hw, hh, r } = l.dock;
     const qx = Math.abs(x - cx) - hw + r;
     const qy = Math.abs(y - cy) - hh + r;
-    const outside = Math.hypot(Math.max(qx, 0), Math.max(qy, 0));
-    return outside + Math.min(Math.max(qx, qy), 0) - r - l.dropR;
+    return Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - r;
   }
 
-  /** The point on the dock nearest the droplet. */
+  /** Distance from a point to the nearest glass (dock or droplet). */
+  glassDistance(x: number, y: number): number {
+    const l = this.layout;
+    if (!l) return Infinity;
+    return Math.min(this.dockDistance(x, y), Math.hypot(x - this.dx.value, y - this.dy.value) - l.dropR);
+  }
+
+  /** The point on the dock nearest the droplet (reused object). */
   contact(): { x: number; y: number } {
     const l = this.layout!;
     const { cx, cy, hw, hh } = l.dock;
-    return {
-      x: clamp(this.dx.value, cx - hw, cx + hw),
-      y: clamp(this.dy.value, cy - hh, cy + hh),
-    };
+    this.contactPoint.x = clamp(this.dx.value, cx - hw, cx + hw);
+    this.contactPoint.y = clamp(this.dy.value, cy - hh, cy + hh);
+    return this.contactPoint;
   }
 
-  hitDroplet(x: number, y: number): boolean {
+  /** Is (x, y) on the droplet? `reach` is in droplet radii (fingers get more). */
+  hitDroplet(x: number, y: number, reach = 1.25): boolean {
     const l = this.layout;
     if (!l) return false;
-    return Math.hypot(x - this.dx.value, y - this.dy.value) < l.dropR * 1.25;
+    return Math.hypot(x - this.dx.value, y - this.dy.value) < l.dropR * reach;
+  }
+
+  /** Start dragging from (x, y): `hit` keeps the grab offset, else the droplet comes to the pointer. */
+  beginDrag(x: number, y: number, hit: boolean) {
+    if (hit) {
+      this.grab.x = x - this.dx.value;
+      this.grab.y = y - this.dy.value;
+    } else {
+      this.grab.x = 0;
+      this.grab.y = 0;
+    }
+    this.driver = "drag";
+    this.dragTo(x, y);
+  }
+
+  dragTo(x: number, y: number) {
+    const t = this.clampTarget(x - this.grab.x, y - this.grab.y);
+    this.setTarget(t.x, t.y);
+  }
+
+  endDrag() {
+    if (this.driver === "drag") this.driver = "rest";
   }
 
   addRipple(x: number, y: number, amp: number) {
-    this.ripples.push({ x, y, age: 0, amp });
-    if (this.ripples.length > 4) this.ripples.shift();
+    // a free slot, or else the oldest ring
+    let slot = this.ripples[0];
+    for (const r of this.ripples) {
+      if (r.amp <= 0) {
+        slot = r;
+        break;
+      }
+      if (r.age > slot.age) slot = r;
+    }
+    slot.x = x;
+    slot.y = y;
+    slot.age = 0;
+    slot.amp = amp;
+  }
+
+  private get rippling(): boolean {
+    for (const r of this.ripples) if (r.amp > 0) return true;
+    return false;
   }
 
   select(index: number, ripple = true) {
@@ -390,29 +523,34 @@ export class GlassWorld {
     const { cx, cy, hw, hh } = l.dock;
     this.driver = "keys";
     if (this.gap(this.target.x, this.target.y) < l.k * 0.5) {
-      this.target = { x: clamp(this.target.x, cx - hw * 0.7, cx + hw * 0.7), y: cy - hh - l.dropR * 2.1 };
+      this.setTarget(clamp(this.target.x, cx - hw * 0.7, cx + hw * 0.7), cy - hh - l.dropR * 2.1);
     } else {
-      this.target = { x: clamp(this.target.x, cx - hw + l.dropR, cx + hw - l.dropR), y: cy };
+      this.setTarget(clamp(this.target.x, cx - hw + l.dropR, cx + hw - l.dropR), cy);
     }
   }
 
   nudge(dx: number, dy: number) {
     const l = this.layout;
     if (!l) return;
-    if (this.driver !== "keys") this.target = { x: this.dx.value, y: this.dy.value };
+    if (this.driver !== "keys") this.setTarget(this.dx.value, this.dy.value);
     this.driver = "keys";
-    this.target = this.clampTarget(this.target.x + dx, this.target.y + dy);
+    const t = this.clampTarget(this.target.x + dx, this.target.y + dy);
+    this.setTarget(t.x, t.y);
   }
 
+  private readonly clamped = { x: 0, y: 0 };
+  /** (reused object) */
   clampTarget(x: number, y: number) {
     const l = this.layout!;
     const m = l.dropR * 0.9;
-    return { x: clamp(x, m, l.width - m), y: clamp(y, m, l.height - m) };
+    this.clamped.x = clamp(x, m, l.width - m);
+    this.clamped.y = clamp(y, m, l.height - m);
+    return this.clamped;
   }
 
-  /** Busy with something that still needs frames. */
+  /** Busy with something that still needs frames (beyond the backdrop's drift). */
   get busy(): boolean {
-    return (
+    if (
       // (reduced motion eases the droplet without its springs)
       Math.hypot(this.dx.value - this.target.x, this.dy.value - this.target.y) > 0.05 ||
       !this.dx.settled ||
@@ -423,10 +561,15 @@ export class GlassWorld {
       !this.glow.settled ||
       !this.glowX.settled ||
       !this.pointerLight.settled ||
-      this.ripples.length > 0 ||
-      this.hover.some((s) => !s.settled) ||
-      this.press.some((s) => !s.settled)
-    );
+      this.rippling ||
+      Math.abs(this.tone - this.toneTarget) > 0.002
+    ) {
+      return true;
+    }
+    for (let i = 0; i < this.count; i++) {
+      if (!this.hover[i].settled || !this.press[i].settled) return true;
+    }
+    return false;
   }
 
   step(dt: number, s: Settings, events: GlassEvents = {}) {
@@ -435,10 +578,10 @@ export class GlassWorld {
     const motion = !s.reducedMotion;
 
     if (!this.placed) {
-      const start = motion ? this.pathAt(0.0) : l.rest;
-      this.dx.set(start.x);
-      this.dy.set(start.y);
-      this.target = { ...start };
+      if (motion) this.pathInto(0, this.target);
+      else this.setTarget(l.rest.x, l.rest.y);
+      this.dx.set(this.target.x);
+      this.dy.set(this.target.y);
       this.pill.set(l.icons[this.selected].x);
       this.glowX.set(l.icons[0].x);
       this.merged = this.gap() < l.k * 0.5;
@@ -447,7 +590,10 @@ export class GlassWorld {
       this.refraction = s.refraction;
       this.frost = s.frost;
       const t = tintById(s.tint);
-      this.tint = [t.rgb[0], t.rgb[1], t.rgb[2], t.amount];
+      this.tint[0] = t.rgb[0];
+      this.tint[1] = t.rgb[1];
+      this.tint[2] = t.rgb[2];
+      this.tint[3] = t.amount;
     }
 
     if (motion) this.backdropTime += dt;
@@ -457,9 +603,9 @@ export class GlassWorld {
     if (this.driver === "path") {
       if (motion) {
         this.pathTime += dt;
-        this.target = this.pathAt(this.pathTime);
+        this.pathInto(this.pathTime, this.target);
       } else {
-        this.target = { ...l.rest };
+        this.setTarget(l.rest.x, l.rest.y);
       }
     }
     if (motion) {
@@ -478,11 +624,9 @@ export class GlassWorld {
     }
 
     // squash chases velocity
-    const vx = this.dx.velocity;
-    const vy = this.dy.velocity;
     const scale = this.mode === "tile" ? 0.0016 : 0.00048;
-    let tx = vx * scale;
-    let ty = vy * scale;
+    let tx = this.dx.velocity * scale;
+    let ty = this.dy.velocity * scale;
     const mag = Math.hypot(tx, ty);
     const max = 0.27;
     if (mag > max) {
@@ -523,7 +667,7 @@ export class GlassWorld {
     const pillPrev = this.pill.value;
     if (motion) this.pill.step(dt);
     else this.pill.set(this.pill.target);
-    const pillV = dt > 0 ? (this.pill.value - pillPrev) / dt : 0;
+    this.pillVelocity = dt > 0 ? (this.pill.value - pillPrev) / dt : 0;
     for (let i = 0; i < this.count; i++) {
       this.hover[i].to(i === this.hoverIndex ? 1 : 0);
       if (motion) {
@@ -538,26 +682,33 @@ export class GlassWorld {
     this.glow.to(this.hoverIndex >= 0 ? 1 : 0);
     this.glowX.step(dt);
     this.glow.step(dt);
-    this.pillVelocity = pillV;
 
-    // ripples
-    for (const r of this.ripples) r.age += dt;
-    this.ripples = this.ripples.filter((r) => r.age < 1.8);
+    // ripples (a finished ring frees its slot)
+    for (const r of this.ripples) {
+      if (r.amp <= 0) continue;
+      r.age += dt;
+      if (r.age >= 1.8) r.amp = 0;
+    }
 
-    // light and material
-    this.pointerLight.to(this.pointer.inside && this.mode === "stage" ? 1 : 0);
-    this.pointerLight.step(dt);
+    // light and material: the pointer is a light only while it hovers near
+    // the glass (not while it is carrying the droplet)
+    const p = this.pointer;
+    const near =
+      this.mode === "stage" && p.inside && this.driver !== "drag" && this.glassDistance(p.x, p.y) < l.dock.hh * 1.4;
+    this.pointerLight.to(near ? 1 : 0);
+    if (motion) this.pointerLight.step(dt);
+    else this.pointerLight.set(this.pointerLight.target);
     const darkTarget = s.dark ? 1 : 0;
     this.dark = motion ? damp(this.dark, darkTarget, 7, dt) : darkTarget;
     if (Math.abs(this.dark - darkTarget) < 0.002) this.dark = darkTarget;
     this.refraction = damp(this.refraction, s.refraction, 14, dt);
     this.frost = damp(this.frost, s.frost, 14, dt);
     const t = tintById(s.tint);
-    const tt = [t.rgb[0], t.rgb[1], t.rgb[2], t.amount];
-    for (let i = 0; i < 4; i++) this.tint[i] = damp(this.tint[i], tt[i], 9, dt);
+    this.tint[0] = damp(this.tint[0], t.rgb[0], 9, dt);
+    this.tint[1] = damp(this.tint[1], t.rgb[1], 9, dt);
+    this.tint[2] = damp(this.tint[2], t.rgb[2], 9, dt);
+    this.tint[3] = damp(this.tint[3], t.amount, 9, dt);
   }
-
-  pillVelocity = 0;
 
   /** Settings or theme still easing toward their targets. */
   easing(s: Settings): boolean {
@@ -574,165 +725,207 @@ export class GlassWorld {
   }
 
   /**
-   * How light the backdrop is under each icon, as the frosted glass shows
-   * it, read from the same shapes the shader draws (the word from its
-   * mask). Icons ease to white over dark ground and back to ink over light.
+   * How light the ground under the icons is, as the frosted, tinted glass
+   * shows it, read from the same shapes the shader draws (the word from its
+   * mask). One decision for the whole bar, from the mean of every icon's
+   * samples, with hysteresis: all icons go white over dark ground and back
+   * to ink over light, together.
    */
-  private updateTone(typeRect: Vec4, disc: Vec4, band: Vec4, angle: number, pal: { base: Vec3; ink: Vec3; c1: Vec3; c2: Vec3; inkAlpha: number }) {
+  private updateTone(f: GlassFrame) {
     const l = this.layout;
     if (!l) return;
-    const luma = (c: Vec3) => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
-    const base = luma(pal.base);
-    const ink = luma(pal.ink);
-    const orange = luma(pal.c1);
-    const blue = luma(pal.c2);
+    const base = luma(f.base[0], f.base[1], f.base[2]);
+    const ink = luma(f.ink[0], f.ink[1], f.ink[2]);
+    const orange = luma(f.c1[0], f.c1[1], f.c1[2]);
+    const blue = luma(f.c2[0], f.c2[1], f.c2[2]);
     const milk = lerp(0.985, 0.26, this.dark);
     const body = 0.16 + 0.7 * this.frost;
-    const cos = Math.cos(angle);
-    const sin = Math.sin(angle);
+    const cos = Math.cos(f.bandAngle);
+    const sin = Math.sin(f.bandAngle);
     const w = this.word;
+    const tr = f.typeRect;
+    const disc = f.disc;
     const radius = l.iconSize * 0.9;
-    const k = 1 - Math.exp(-9 * this.lastDt);
+    let sum = 0;
+    let n = 0;
     for (let i = 0; i < this.count; i++) {
       const icon = l.icons[i];
-      let sum = 0;
-      let n = 0;
       for (let oy = -1; oy <= 1; oy++) {
         for (let ox = -1; ox <= 1; ox++) {
           const x = icon.x + ox * radius * 0.7;
           const y = icon.y + oy * radius * 0.7;
           let c = base;
           if (Math.hypot(x - disc[0], y - disc[1]) < disc[2]) c = orange;
-          const bx = x - band[0];
-          const by = y - band[1];
-          const u = Math.abs(cos * bx + sin * by);
-          const v = Math.abs(-sin * bx + cos * by);
-          if (u < band[2] + band[3] * 0.4 && v < band[3]) c = blue;
-          if (w?.coverage && typeRect[2] > 0) {
-            const tx = Math.floor(((x - typeRect[0]) / typeRect[2]) * w.pw);
-            const ty = Math.floor(((y - typeRect[1]) / typeRect[3]) * w.ph);
+          for (let b = 0; b < 2; b++) {
+            const band = b === 0 ? f.band : f.band2;
+            const bx = x - band[0];
+            const by = y - band[1];
+            const u = Math.abs(cos * bx + sin * by);
+            const v = Math.abs(-sin * bx + cos * by);
+            if (u < band[2] + band[3] * 0.4 && v < band[3]) c = blue;
+          }
+          if (w?.coverage && tr[2] > 0) {
+            const tx = Math.floor(((x - tr[0]) / tr[2]) * w.pw);
+            const ty = Math.floor(((y - tr[1]) / tr[3]) * w.ph);
             if (tx >= 0 && ty >= 0 && tx < w.pw && ty < w.ph) {
-              const a = (w.coverage[ty * w.pw + tx] / 255) * pal.inkAlpha;
-              c = lerp(c, ink, a);
+              c = lerp(c, ink, (w.coverage[ty * w.pw + tx] / 255) * f.inkAlpha);
             }
           }
           sum += c;
           n++;
         }
       }
-      // flip with hysteresis, so an icon is always clearly ink or white
-      const seen = lerp(sum / n, milk, body);
-      const light = this.toneTarget[i] > 0.5 ? seen < 0.56 : seen < 0.46;
-      this.toneTarget[i] = light ? 1 : 0;
-      this.tone[i] = this.toneReady ? lerp(this.tone[i], this.toneTarget[i], k) : this.toneTarget[i];
     }
+    const tl = luma(this.tint[0], this.tint[1], this.tint[2]);
+    let seen = lerp(sum / n, milk, body);
+    seen = lerp(seen, seen * tl * 1.08 + tl * 0.05, this.tint[3] * 0.8);
+    const light = this.toneTarget > 0.5 ? seen < 0.56 : seen < 0.46;
+    this.toneTarget = light ? 1 : 0;
+    const k = 1 - Math.exp(-9 * this.lastDt);
+    this.tone = this.toneReady ? lerp(this.tone, this.toneTarget, k) : this.toneTarget;
+    if (Math.abs(this.tone - this.toneTarget) < 0.002) this.tone = this.toneTarget;
     this.toneReady = true;
   }
 
-  /** Icon i's scale and lift. */
-  iconTransform(i: number): { scale: number; lift: number } {
-    const h = this.hover[i].value;
-    return { scale: 1 + 0.13 * h + this.press[i].value * 0.9, lift: -1.5 * h };
+  /** Icon i's scale. */
+  iconScale(i: number): number {
+    return 1 + 0.13 * this.hover[i].value + this.press[i].value * 0.9;
   }
 
+  /** Icon i's lift (CSS px, negative is up). */
+  iconLift(i: number): number {
+    return -1.5 * this.hover[i].value;
+  }
+
+  /** Writes this frame into the shared GlassFrame and returns it. */
   frame(dpr: number): GlassFrame | null {
     const l = this.layout;
     if (!l) return null;
-    const pal = {
-      base: mix3(LIGHT.base, DARK.base, this.dark),
-      baseHi: mix3(LIGHT.baseHi, DARK.baseHi, this.dark),
-      ink: mix3(LIGHT.ink, DARK.ink, this.dark),
-      inkAlpha: lerp(LIGHT.inkAlpha, DARK.inkAlpha, this.dark),
-      c1: mix3(LIGHT.c1, DARK.c1, this.dark),
-      c1b: mix3(LIGHT.c1b, DARK.c1b, this.dark),
-      c2: mix3(LIGHT.c2, DARK.c2, this.dark),
-      c2b: mix3(LIGHT.c2b, DARK.c2b, this.dark),
-      gridAlpha: lerp(LIGHT.gridAlpha, DARK.gridAlpha, this.dark),
-      shadow: lerp(LIGHT.shadow, DARK.shadow, this.dark),
-      caustic: lerp(LIGHT.caustic, DARK.caustic, this.dark),
-    };
+    const f = this.out;
+    const dk = this.dark;
+    f.width = l.width;
+    f.height = l.height;
+    f.dpr = dpr;
+
+    // palette
+    mix3Into(f.base, LIGHT.base, DARK.base, dk);
+    mix3Into(f.baseHi, LIGHT.baseHi, DARK.baseHi, dk);
+    mix3Into(f.ink, LIGHT.ink, DARK.ink, dk);
+    f.inkAlpha = lerp(LIGHT.inkAlpha, DARK.inkAlpha, dk);
+    mix3Into(f.c1, LIGHT.c1, DARK.c1, dk);
+    mix3Into(f.c1b, LIGHT.c1b, DARK.c1b, dk);
+    mix3Into(f.c2, LIGHT.c2, DARK.c2, dk);
+    mix3Into(f.c2b, LIGHT.c2b, DARK.c2b, dk);
 
     // the backdrop's slow drift
     const bt = this.backdropTime;
     const D = l.drift;
     const wordX = l.word.cx + Math.sin(bt * 0.11) * D * 1.4;
-    const disc: Vec4 = [
-      l.disc.x + Math.cos(bt * 0.13) * D,
-      l.disc.y + Math.sin(bt * 0.17) * D * 0.9,
-      l.disc.r * (1 + Math.sin(bt * 0.21) * 0.025),
-      0,
-    ];
-    const band: Vec4 = [
-      l.band.x + Math.sin(bt * 0.09 + 1.1) * D * 1.1,
-      l.band.y + Math.cos(bt * 0.12) * D * 0.7,
-      l.band.hw,
-      l.band.hh,
-    ];
-    const bandAngle = l.band.angle + Math.sin(bt * 0.08) * 0.05;
+    f.disc[0] = l.disc.x + Math.cos(bt * 0.13) * D;
+    f.disc[1] = l.disc.y + Math.sin(bt * 0.17) * D * 0.9;
+    f.disc[2] = l.disc.r * (1 + Math.sin(bt * 0.21) * 0.025);
+    f.disc[3] = 0;
+    const bdx = Math.sin(bt * 0.09 + 1.1) * D * 1.1;
+    const bdy = Math.cos(bt * 0.12) * D * 0.7;
+    f.band[0] = l.band.x + bdx;
+    f.band[1] = l.band.y + bdy;
+    f.band[2] = l.band.hw;
+    f.band[3] = l.band.hh;
+    // the echo trails the band a little
+    f.band2[0] = l.band2.x + bdx * 1.25;
+    f.band2[1] = l.band2.y + bdy * 1.25;
+    f.band2[2] = l.band2.hw;
+    f.band2[3] = l.band2.hh;
+    f.bandAngle = l.band.angle + Math.sin(bt * 0.08) * 0.05;
 
     const w = this.word;
-    const typeRect: Vec4 = w
-      ? [wordX - w.inkWidth / 2 - w.inkLeft, l.word.baseline - w.baseline, w.width, w.height]
-      : [0, 0, 0, 0];
+    if (w) {
+      f.typeRect[0] = wordX - w.inkWidth / 2 - w.inkLeft;
+      f.typeRect[1] = l.word.baseline - w.baseline;
+      f.typeRect[2] = w.width;
+      f.typeRect[3] = w.height;
+    } else {
+      f.typeRect.fill(0);
+    }
 
-    this.updateTone(typeRect, disc, band, bandAngle, pal);
+    f.grid[0] = l.grid;
+    f.grid[1] = lerp(LIGHT.gridAlpha, DARK.gridAlpha, dk);
+    f.grid[2] = l.width / 2;
+    f.grid[3] = l.height / 2;
+    f.fade.set(l.fade);
+    f.shadow[0] = l.shadow.x;
+    f.shadow[1] = l.shadow.y;
+    f.shadow[2] = l.shadow.blur;
+    f.shadow[3] = lerp(LIGHT.shadow, DARK.shadow, dk);
+    f.caustic = lerp(LIGHT.caustic, DARK.caustic, dk);
+    f.grain = 1.4 / 255;
 
-    // squash: axis and stretch from the vector
+    // shapes
+    f.dock[0] = l.dock.cx;
+    f.dock[1] = l.dock.cy;
+    f.dock[2] = l.dock.hw;
+    f.dock[3] = l.dock.hh;
+    f.dockR = l.dock.r;
+    f.drop[0] = this.dx.value;
+    f.drop[1] = this.dy.value;
+    f.drop[2] = l.dropR;
+    f.drop[3] = l.k;
     const qx = this.qx.value;
     const qy = this.qy.value;
     const q = Math.hypot(qx, qy);
-    const squash: Vec3 = q > 1e-4 ? [qx / q, qy / q, q] : [1, 0, 0];
+    if (q > 1e-4) {
+      f.squash[0] = qx / q;
+      f.squash[1] = qy / q;
+      f.squash[2] = q;
+    } else {
+      f.squash[0] = 1;
+      f.squash[1] = 0;
+      f.squash[2] = 0;
+    }
+    f.bevelDock = l.bevelDock;
+    f.bevelDrop = l.bevelDrop;
 
-    // the selection stretches while it travels
+    // material
+    f.refract = this.refraction;
+    f.frost = this.frost;
+    f.tint.set(this.tint);
+    f.dark = dk;
+
+    // the selection: a capsule that stretches while it travels
     const pv = Math.abs(this.pillVelocity);
-    const pillHw = l.pitch * 0.5 - (l.compact || this.mode === "tile" ? 2 : 3) + Math.min(pv * 0.016, l.pitch * 0.32);
-    const pillHh = l.dock.hh - l.padX * 0.62 - Math.min(pv * 0.0035, l.dock.hh * 0.12);
+    const tile = this.mode === "tile";
+    f.pill[0] = this.pill.value;
+    f.pill[1] = l.dock.cy;
+    f.pill[2] = l.pitch * 0.5 - (tile || l.compact ? 1.5 : 2) + Math.min(pv * 0.016, l.pitch * 0.32);
+    f.pill[3] = l.dock.hh * (tile ? 0.56 : 0.62) - Math.min(pv * 0.0035, l.dock.hh * 0.12);
+    f.pillAmt = 1;
+    f.hover[0] = this.glowX.value;
+    f.hover[1] = l.dock.cy;
+    f.hover[2] = l.pitch * 0.62;
+    f.hover[3] = this.glow.value;
 
-    const rd = this.rippleData;
-    rd.fill(0);
-    this.ripples.forEach((r, i) => {
+    const rd = f.ripples;
+    for (let i = 0; i < 4; i++) {
+      const r = this.ripples[i];
       rd[i * 4] = r.x;
       rd[i * 4 + 1] = r.y;
       rd[i * 4 + 2] = r.age;
       rd[i * 4 + 3] = r.amp;
-    });
+    }
+    f.pointer[0] = this.pointer.x;
+    f.pointer[1] = this.pointer.y;
+    f.pointer[2] = this.pointerLight.value;
 
-    return {
-      width: l.width,
-      height: l.height,
-      dpr,
-      dock: [l.dock.cx, l.dock.cy, l.dock.hw, l.dock.hh],
-      dockR: l.dock.r,
-      drop: [this.dx.value, this.dy.value, l.dropR, l.k],
-      squash,
-      bevelDock: l.bevelDock,
-      bevelDrop: l.bevelDrop,
-      typeRect,
-      base: pal.base,
-      baseHi: pal.baseHi,
-      ink: pal.ink,
-      inkAlpha: pal.inkAlpha,
-      c1: pal.c1,
-      c1b: pal.c1b,
-      c2: pal.c2,
-      c2b: pal.c2b,
-      disc,
-      band,
-      bandAngle,
-      grid: [l.grid, pal.gridAlpha, l.width / 2, l.height / 2],
-      fade: l.fade,
-      shadow: [l.shadow.x, l.shadow.y, l.shadow.blur, pal.shadow],
-      caustic: pal.caustic,
-      grain: 1.4 / 255,
-      refract: this.refraction,
-      frost: this.frost,
-      tint: [this.tint[0], this.tint[1], this.tint[2], this.tint[3]],
-      pill: [this.pill.value, l.dock.cy, pillHw, pillHh],
-      pillAmt: 1,
-      hover: [this.glowX.value, l.dock.cy, l.pitch * 0.62, this.glow.value],
-      ripples: rd,
-      pointer: [this.pointer.x, this.pointer.y, this.pointerLight.value],
-      dark: this.dark,
-    };
+    // the icons and the plate that calms the ground under them
+    this.updateTone(f);
+    f.icons[0] = l.icons[0].x;
+    f.icons[1] = l.dock.cy;
+    f.icons[2] = l.pitch;
+    f.icons[3] = l.count;
+    f.plate[0] = l.pitch * 0.45;
+    f.plate[1] = lerp(PLATE[0], PLATE[1], dk);
+    f.plate[2] = this.tone;
+    f.plate[3] = 0;
+    return f;
   }
 }

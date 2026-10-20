@@ -48,6 +48,9 @@ export function fontReady(): Promise<void> {
 
 type Ctx2D = CanvasRenderingContext2D & { letterSpacing?: string };
 
+/** The small canvas the coverage is read back from (made once). */
+let probeCanvas: HTMLCanvasElement | null = null;
+
 /** Draws the word at `fontPx` CSS px for `dpr`. */
 export function drawWord(fontPx: number, dpr: number, canvas: HTMLCanvasElement = document.createElement("canvas")): WordMask {
   const size = fontPx * dpr;
@@ -81,18 +84,25 @@ export function drawWord(fontPx: number, dpr: number, canvas: HTMLCanvasElement 
   ctx.fillStyle = "#fff";
   ctx.fillText(WORD, pad + left, pad + ascent);
 
-  // a quarter-resolution copy of the coverage for the CPU
+  // a quarter-resolution copy of the coverage for the CPU, drawn into its
+  // own small canvas that is made for readback (the big mask stays on the
+  // GPU path and is never read back)
   const step = 4;
   const pw = Math.max(1, Math.floor(canvas.width / step));
   const ph = Math.max(1, Math.floor(canvas.height / step));
   let coverage: Uint8Array | null = null;
   try {
-    const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-    coverage = new Uint8Array(pw * ph);
-    for (let y = 0; y < ph; y++) {
-      for (let x = 0; x < pw; x++) {
-        coverage[y * pw + x] = data[((y * step + 2) * canvas.width + x * step + 2) * 4];
-      }
+    probeCanvas ??= document.createElement("canvas");
+    probeCanvas.width = pw;
+    probeCanvas.height = ph;
+    const small = probeCanvas.getContext("2d", { willReadFrequently: true });
+    if (small) {
+      small.imageSmoothingEnabled = true;
+      small.imageSmoothingQuality = "medium";
+      small.drawImage(canvas, 0, 0, pw * step, ph * step, 0, 0, pw, ph);
+      const data = small.getImageData(0, 0, pw, ph).data;
+      coverage = new Uint8Array(pw * ph);
+      for (let i = 0; i < pw * ph; i++) coverage[i] = data[i * 4];
     }
   } catch {
     coverage = null;

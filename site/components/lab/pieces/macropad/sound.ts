@@ -78,13 +78,21 @@ function tone(audio: AudioKit, at: number, out: AudioNode, freq: number, from: n
   osc.stop(at + decay + 0.02);
 }
 
-/** The downstroke. `delay`: seconds until the cap bottoms out. */
-export function thock(key: number, pan: number, delay = 0.024, force = 1) {
+const NOOP = () => {};
+
+/**
+ * The downstroke. `delay`: seconds until the cap bottoms out. Returns a
+ * cancel: called before the cap lands (a touch that turned into a scroll),
+ * the thock never sounds; later, it only fades the tail.
+ */
+export function thock(key: number, pan: number, delay = 0.024, force = 1): () => void {
   const audio = kit();
-  if (!audio) return;
+  if (!audio) return NOOP;
   const voice = VOICES[key] ?? VOICES[4];
   const at = audio.ctx.currentTime + delay;
-  const out = panner(audio.ctx, audio.output, pan);
+  const bus = audio.ctx.createGain();
+  bus.connect(panner(audio.ctx, audio.output, pan));
+  const out = bus;
   const level = voice.level * force * jitter(0.08);
   const body = voice.body * jitter(0.035);
   // the case: a low body that settles in pitch, and its first overtone
@@ -98,6 +106,12 @@ export function thock(key: number, pan: number, delay = 0.024, force = 1) {
   noise(audio, at, out, "lowpass", 620 * jitter(0.1), 0.7, 0.24 * level, 0.05);
   // the plastic: a very short bright tick on top
   noise(audio, at, out, "highpass", 4200, 0.7, 0.04 * level, 0.006);
+  return () => {
+    const now = audio.ctx.currentTime;
+    bus.gain.cancelScheduledValues(now);
+    bus.gain.setValueAtTime(now < at ? 0 : bus.gain.value, now);
+    if (now >= at) bus.gain.setTargetAtTime(0, now, 0.004);
+  };
 }
 
 /** The upstroke as the stem returns to the top of the housing. */
