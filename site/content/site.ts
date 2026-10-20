@@ -15,17 +15,28 @@ export const site = {
   description:
     "Designer, developer and builder crafting digital experiences at the intersection of design, technology, and user experience.",
   // Profile photo, e.g. "/images/avatar.jpg" (put the file in public/).
-  // Empty shows the "arsher" mark on a soft tile instead.
+  // Shown beside the name on the home page and in the social panels. Empty:
+  // no photo on the home page, the "arsher" mark in the panels.
   avatar: "",
   // Social preview image (1200 x 630) for links shared on X, LinkedIn …
   ogImage: "/og.png",
   ogImageSize: { width: 1200, height: 630 },
-  verified: true,
 
+  // The line above the name on the home page, with the live local time.
   status: {
     label: "Available for work",
     timeZone: "Africa/Casablanca",
   },
+  location: { city: "Casablanca", country: "Morocco" },
+
+  // "Now" and "Focus" rows of the facts list under the intro on the home page.
+  now: {
+    role: "IT Administrator & Lead Developer",
+    org: "Extra Immobilien",
+    href: "https://www.extraimmobilien.de/",
+    since: "2026-05",
+  },
+  focus: ["AI agent orchestration", "React", "TypeScript", "Figma", "System design"],
 
   email: "nzakaria644@gmail.com",
 
@@ -50,26 +61,24 @@ export const site = {
     { name: "Spotify", href: "https://open.spotify.com/user/arxsher", handle: "Arxsher" },
   ],
 
-  // Intro copy. `strong` segments render in the foreground colour; `chip`
-  // segments render as the small inline pills.
+  // Intro copy on the home page, one array per paragraph. Plain `text`
+  // renders in the body colour; `strong` in the foreground colour; `strong`
+  // with an `href` is an underlined link (an arrow marks links that leave
+  // the site).
   intro: [
     [
-      { text: "Hey, I'm " },
-      { strong: "Zakaria" },
-      { text: ". I'm a designer, developer and builder crafting digital experiences at the intersection of " },
+      { text: "I craft digital experiences at the intersection of " },
       { strong: "design, technology, and user experience" },
-      { text: "." },
+      { text: ", and I believe software should feel physically grounded and fast, with zero room for jank." },
     ],
     [
-      { text: "By day I'm IT Administrator & Lead Developer at " },
-      { strong: "Extra Immobilien", href: "https://www.extraimmobilien.de/" },
-      { text: ". The rest of the time I'm deep into AI agent orchestration: " },
-      { chip: "AegiLabs", icon: "github", href: "https://github.com/Arxsher/AegiLabs" },
+      { text: "Beyond full-stack builds, I'm deep into AI agent orchestration: " },
+      { strong: "AegiLabs", href: "https://github.com/Arxsher/AegiLabs" },
       { text: " is my latest build, and the rest of my " },
-      { chip: "experiments", icon: "folder", href: "#work" },
-      { text: " are just below. The " },
-      { chip: "lab", icon: "sparkle", href: "/lab/" },
-      { text: " is where I build small interactive pieces." },
+      { strong: "experiments", href: "#work" },
+      { text: " are further down. Smaller interactive pieces live in the " },
+      { strong: "lab", href: "/lab/" },
+      { text: "." },
     ],
   ],
 

@@ -51,7 +51,7 @@ import { clamp, damp, hash2, lerp, smoothstep, Spring, useCanvas2D, useFrame, us
 import { Minus, Plus, Reset } from "../../lab-icons";
 import type { PieceProps } from "../../types";
 import { IconButton, MuteButton, StageControls, StageHint, Tray, TrayDivider, TrayRow } from "../../ui";
-import { buildCity, describeLot, heightFor, longDate, plural, type City, type Lot } from "./city";
+import { buildCity, describeLot, heightFor, longDate, plural, shortDate, type City, type Lot } from "./city";
 import { TurnLeft, TurnRight } from "./icons";
 import { css, lookAt, rgb, type Look } from "./look";
 import {
@@ -84,7 +84,7 @@ const MAX_ZOOM = 5;
 /** Below this stage width the stage counts as narrow (phones). */
 const NARROW = 520;
 
-function fontFamily(): string {
+export function fontFamily(): string {
   try {
     return getComputedStyle(document.body).fontFamily || "system-ui, sans-serif";
   } catch {
@@ -93,19 +93,19 @@ function fontFamily(): string {
 }
 
 /** The nearest resting angle to `yaw` (45° + k·90°). */
-const nearestRest = (yaw: number) => Math.round((yaw - REST) / STEP) * STEP + REST;
+export const nearestRest = (yaw: number) => Math.round((yaw - REST) / STEP) * STEP + REST;
 
 const fitBounds: Bounds = { minU: 0, maxU: 0, minW: 0, maxW: 0 };
 
 /** Scale that fits the city into a box at a given yaw (CSS px per unit). */
-function fitScale(city: City, yaw: number, width: number, height: number) {
+export function fitScale(city: City, yaw: number, width: number, height: number) {
   const b = boundsAt(city, yaw, fitBounds);
   return Math.min(width / Math.max(1e-3, b.maxU - b.minU), height / Math.max(1e-3, b.maxW - b.minW));
 }
 
-type Star = { x: number; y: number; r: number; a: number; phase: number; speed: number };
+export type Star = { x: number; y: number; r: number; a: number; phase: number; speed: number };
 
-function makeStars(width: number, height: number, seed: number): Star[] {
+export function makeStars(width: number, height: number, seed: number): Star[] {
   const count = Math.round(Math.min(90, (width * height) / 9000));
   const stars: Star[] = [];
   for (let i = 0; i < count; i++) {
@@ -123,10 +123,10 @@ function makeStars(width: number, height: number, seed: number): Star[] {
 }
 
 /** Sky gradients, made again only when the size or the (quantised) night changes. */
-type SkyCache = { ctx: CanvasRenderingContext2D | null; w: number; h: number; key: number; sky: CanvasGradient | null; haze: CanvasGradient | null };
+export type SkyCache = { ctx: CanvasRenderingContext2D | null; w: number; h: number; key: number; sky: CanvasGradient | null; haze: CanvasGradient | null };
 
 /** Sky over the stage and its stars: painted under the city layer. */
-function paintSky(
+export function paintSky(
   ctx: CanvasRenderingContext2D,
   cache: SkyCache,
   width: number,
@@ -194,7 +194,7 @@ function beaconHalo(): HTMLCanvasElement | null {
   return canvas;
 }
 
-function paintBeacon(
+export function paintBeacon(
   ctx: CanvasRenderingContext2D,
   dpr: number,
   at: { x: number; y: number } | null,
@@ -228,7 +228,7 @@ function paintBeacon(
  * Day ⇄ night on the wall clock (not on frames, which a busy or slow
  * device may drop): eases from where it was to the new target in 1.6s.
  */
-class NightBlend {
+export class NightBlend {
   value: number;
   private from: number;
   private target: number;
@@ -1096,7 +1096,7 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
           <>
             <span className="font-medium tabular-nums">{selected.count === 0 ? "No" : selected.count}</span>{" "}
             <span className="text-secondary">
-              {plural(selected.count, "contribution")} on {describeLot(selected).split(" on ")[1]}
+              {plural(selected.count, "contribution")} on {shortDate(selected.date)}
             </span>
           </>
         ) : null}

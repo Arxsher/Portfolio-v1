@@ -45,7 +45,7 @@ To roll back, set the Pages source back to **Deploy from a branch**
 | Contribution graph | `data/contributions.json` (`npm run contributions`) |
 | Profile photo | `site.avatar` in `content/site.ts`, file in `public/`. Empty shows the mark instead. |
 | Social preview image | `public/og.png` (1200 x 630), set as `site.ogImage` |
-| Hero pond | `components/home/hero-pond.tsx` (placeholder slot, see the comment at the top) |
+| Intro (status line, name, copy, facts, featured lab pieces) | `components/home/profile.tsx`, `intro.tsx`, `intro-contact.tsx`, `intro-clock.tsx`, `intro-lab.tsx`; copy in `content/site.ts`. A custom hero animation would need a new slot. |
 
 ## Optional services
 

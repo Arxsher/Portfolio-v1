@@ -556,6 +556,24 @@ export class CityRenderer {
   }
 
   /**
+   * Lets go of the offscreen canvases' pixels at once (each shrinks to
+   * 1 × 1) instead of waiting for the garbage collector. Rendering again
+   * afterwards still works: every buffer is re-sized on use and the tile's
+   * shadow sprites are made again.
+   */
+  dispose() {
+    const release = (canvas: Canvas) => {
+      canvas.width = 1;
+      canvas.height = 1;
+    };
+    for (const canvas of [this.shadow, this.shadowSoft, this.glow, this.glowWide, this.glowTight]) release(canvas);
+    for (const pair of this.drops) for (const canvas of pair) release(canvas);
+    this.dropSprites = null;
+    this.dropSpriteScale = 0;
+    this.gradients.ctx = null;
+  }
+
+  /**
    * The lot under a screen point (CSS px) in the last frame drawn. With a
    * `radius`, a point that misses everything takes the nearest lot within
    * that many px (fingers are wider than buildings).

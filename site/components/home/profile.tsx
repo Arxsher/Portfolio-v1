@@ -1,19 +1,22 @@
-// Home hero, part 2: avatar, name (+ verified badge), title and the
-// availability pill with Zakaria's local time.
+// Home intro, part 1: the status line and the name.
 //
-//   [avatar]  Zakaria ✓
-//             Full-stack developer & designer
-//   ( ● Available for work · 8:28am GMT+1 )
+//   ● Available for work                    Casablanca · 18:53 GMT+1
+//
+//   Zakaria
+//   Full-stack developer & designer                          [photo]
+//
+// The name and title are one heading in two tones (id "intro-heading": it
+// names the intro section that app/page.tsx wraps around Profile, Intro and
+// IntroLab). The photo only shows once site.avatar points at one. Below
+// 360px the city is left to screen readers so the line stays on one row.
 
-import { AvatarFill } from "@/components/avatar";
-import { LocalTime } from "@/components/home/hero-client";
-import { Verified } from "@/components/icons";
+import { LocalClock } from "@/components/home/intro-clock";
 import { site } from "@/content/site";
 
-/** Short zone name ("GMT+1") at build time; only used to size the clock slot before it hydrates. */
+/** Short zone name ("GMT+1") at build time; only sizes the clock slot before it hydrates. */
 function shortZoneName(timeZone: string): string {
   try {
-    const parts = new Intl.DateTimeFormat("en-US", { timeZone, timeZoneName: "short" }).formatToParts(new Date());
+    const parts = new Intl.DateTimeFormat("en-GB", { timeZone, timeZoneName: "short" }).formatToParts(new Date());
     return parts.find((part) => part.type === "timeZoneName")?.value ?? "";
   } catch {
     return "";
@@ -22,33 +25,48 @@ function shortZoneName(timeZone: string): string {
 
 export function Profile() {
   const { timeZone, label } = site.status;
+  const avatar: string = site.avatar;
 
   return (
-    <section className="mt-6">
-      <div className="flex items-center gap-4">
-        <span className="relative size-16 shrink-0 overflow-hidden rounded-[20px] bg-tile outline -outline-offset-1 outline-black/10 dark:outline-white/10">
-          <AvatarFill mark={24} eager />
-        </span>
-        <div className="min-w-0">
-          <h1 className="text-[22px]/[1.25] font-medium tracking-[-0.02em] text-primary">
-            {site.name}
-            {site.verified ? (
-              // The check is drawn in the page colour so it reads as cut out of the badge.
-              <Verified size={17} className="ms-1.5 inline align-[-2px] text-verified [&>path+path]:stroke-background" />
-            ) : null}
-          </h1>
-          <p className="mt-0.5 text-[15px] text-secondary">{site.title}</p>
-        </div>
+    <div className="mt-10 sm:mt-16">
+      <div className="flex items-center justify-between gap-3 text-[13px] text-tertiary">
+        <p className="flex min-w-0 items-center gap-2">
+          <span
+            aria-hidden="true"
+            className="size-1.5 shrink-0 rounded-full bg-status shadow-[0_0_0_3px_color-mix(in_oklab,var(--status)_18%,transparent)]"
+          />
+          <span className="whitespace-nowrap text-secondary">{label}</span>
+        </p>
+        <p className="flex shrink-0 items-center gap-1.5 whitespace-nowrap">
+          <span className="sr-only">Local time in</span>
+          <span className="sr-only min-[360px]:not-sr-only">{site.location.city}</span>
+          <span aria-hidden="true" className="hidden opacity-60 min-[360px]:inline">
+            ·
+          </span>
+          <LocalClock timeZone={timeZone} zoneFallback={shortZoneName(timeZone)} />
+        </p>
       </div>
 
-      <p className="mt-4 inline-flex items-center gap-2 rounded-[10px] bg-tile py-1.5 ps-2.5 pe-3 text-[13px] whitespace-nowrap">
-        <span aria-hidden="true" className="relative flex size-2 text-status">
-          <span className="absolute inset-0 rounded-full bg-current opacity-60 motion-safe:animate-ping" />
-          <span className="relative size-2 rounded-full bg-current" />
-        </span>
-        <span className="font-medium text-primary">{label}</span>
-        <LocalTime timeZone={timeZone} zoneFallback={shortZoneName(timeZone)} />
-      </p>
-    </section>
+      <div className="mt-5 flex items-end justify-between gap-6 sm:mt-6">
+        <h1
+          id="intro-heading"
+          className="text-[28px]/[1.14] font-medium tracking-[-0.03em] text-balance text-primary sm:text-[34px]/[1.12]"
+        >
+          {site.name}{" "}
+          <span className="block text-tertiary">{site.title}</span>
+        </h1>
+        {avatar ? (
+          <img
+            src={avatar}
+            alt=""
+            width={56}
+            height={56}
+            fetchPriority="high"
+            decoding="async"
+            className="size-14 shrink-0 rounded-[16px] bg-tile object-cover outline -outline-offset-1 outline-black/10 dark:outline-white/10"
+          />
+        ) : null}
+      </div>
+    </div>
   );
 }
