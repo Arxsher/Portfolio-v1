@@ -32,12 +32,20 @@ import { meta as rainWindow } from "./pieces/rain-window/meta";
 import { CATEGORY_LABELS, type Category, type PieceMeta } from "./types";
 
 const published: readonly PieceMeta[] = [
+  snowGlobe,
+  tinyPlanet,
+  nightTrain,
+  dusk,
   goldenRoom,
-  commitCity,
+  holoCards,
+  rainWindow,
   macropad,
+  yearRings,
+  commitCity,
   liquidGlass,
   turntable,
-  dusk,
+  pullCord,
+  liquidTabs,
   splitFlap,
   agentRun,
 ];
@@ -48,14 +56,6 @@ const published: readonly PieceMeta[] = [
  * until they are finished: move one into `pieces` to publish it.
  */
 export const drafts: readonly PieceMeta[] = [
-  snowGlobe,
-  tinyPlanet,
-  nightTrain,
-  rainWindow,
-  holoCards,
-  pullCord,
-  yearRings,
-  liquidTabs,
   island,
   magneticDock,
   textMorph,
@@ -104,14 +104,15 @@ export function getNeighbours(slug: string): { previous: PieceMeta; next: PieceM
  * `pieces` are skipped, so a removed piece can't break the home page.
  */
 const FEATURED: readonly string[] = [
+  "snow-globe",
+  "tiny-planet",
+  "night-train",
+  "holo-cards",
   "golden-room",
+  "rain-window",
   "macropad",
-  "commit-city",
+  "year-rings",
   "liquid-glass",
-  "turntable",
-  "dusk",
-  "split-flap",
-  "agent-run",
 ];
 
 export const featured: readonly PieceMeta[] = FEATURED.map((slug) => getPiece(slug)).filter(

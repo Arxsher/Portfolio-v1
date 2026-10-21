@@ -54,9 +54,9 @@ export const viewport: Viewport = {
   colorScheme: "light dark",
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#fbfbfb" },
-    // Red Dragon, the default dark palette; lib/theme.ts retints both
-    // metas to whichever palette is picked.
-    { media: "(prefers-color-scheme: dark)", color: "#1a0b0c" },
+    // AMOLED, the default dark palette; lib/theme.ts retints both metas
+    // to whichever palette is picked.
+    { media: "(prefers-color-scheme: dark)", color: "#000000" },
   ],
 };
 
