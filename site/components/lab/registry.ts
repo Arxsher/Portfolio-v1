@@ -34,7 +34,6 @@ import { CATEGORY_LABELS, type Category, type PieceMeta } from "./types";
 const published: readonly PieceMeta[] = [
   snowGlobe,
   tinyPlanet,
-  nightTrain,
   dusk,
   goldenRoom,
   holoCards,
@@ -44,7 +43,6 @@ const published: readonly PieceMeta[] = [
   commitCity,
   liquidGlass,
   turntable,
-  pullCord,
   liquidTabs,
   splitFlap,
   agentRun,
@@ -56,6 +54,8 @@ const published: readonly PieceMeta[] = [
  * until they are finished: move one into `pieces` to publish it.
  */
 export const drafts: readonly PieceMeta[] = [
+  nightTrain,
+  pullCord,
   island,
   magneticDock,
   textMorph,
@@ -106,13 +106,13 @@ export function getNeighbours(slug: string): { previous: PieceMeta; next: PieceM
 const FEATURED: readonly string[] = [
   "snow-globe",
   "tiny-planet",
-  "night-train",
   "holo-cards",
   "golden-room",
   "rain-window",
   "macropad",
   "year-rings",
   "liquid-glass",
+  "turntable",
 ];
 
 export const featured: readonly PieceMeta[] = FEATURED.map((slug) => getPiece(slug)).filter(
