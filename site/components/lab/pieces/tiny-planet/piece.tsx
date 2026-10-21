@@ -267,9 +267,12 @@ function makeLive(mode: "tile" | "stage", theme: PieceTheme, reduced: boolean): 
     planet.kick(planet.idle);
   }
   const dark = theme === "dark";
+  // the stage's planet arrives a little small and swells into place with a soft bounce
+  const press = new Spring(intro ? 0.86 : 1, { stiffness: 90, damping: 11 });
+  press.to(1);
   return {
     planet,
-    press: new Spring(intro ? 0.84 : 1, { stiffness: 120, damping: 11 }),
+    press,
     moonHold: new Spring(0, { stiffness: 380, damping: 24 }),
     theme: new Spring(dark ? 1 : 0, { stiffness: 18, damping: 8.2 }),
     themeName: theme,
@@ -326,7 +329,9 @@ function TinyPlanet({ mode, active, reducedMotion, theme }: PieceProps) {
   const stage = mode === "stage";
   const [live] = useState(() => makeLive(mode, theme, reducedMotion));
   const L = live;
-  if (typeof window !== "undefined") (window as unknown as { __tp?: Live }).__tp = L; // DEBUG-TP
+  useEffect(() => {
+    (window as unknown as { __tp?: Live }).__tp = L; // DEBUG-TP
+  }); // DEBUG-TP
   const rendererRef = useRef<PlanetRenderer | null>(null);
   const surfaceRef = useRef<HTMLDivElement>(null);
   const rateRef = useRef<HTMLSpanElement>(null);

@@ -199,7 +199,7 @@ export class Planet {
       let ws = dot3(w, p);
       const tx = w[0] - p[0] * ws, ty = w[1] - p[1] * ws, tz = w[2] - p[2] * ws;
       const excess = ws - this.idle;
-      const rate = 0.32 + 0.055 * Math.abs(excess);
+      const rate = 0.8 + 0.05 * Math.abs(excess);
       ws = this.idle + excess * Math.exp(-rate * h);
       // tumble: a spring sets the axis upright again
       cross3(e, p, this.rest);

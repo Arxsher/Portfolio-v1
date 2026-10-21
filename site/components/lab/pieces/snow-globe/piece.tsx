@@ -379,7 +379,11 @@ function SnowGlobe({ mode, active, reducedMotion, theme }: PieceProps) {
     const { width, height } = sizeRef.current;
     if (!renderer || !canvas || width < 2 || height < 2) return false;
     fillFrame();
-    if (sceneChanged()) renderer.drawScene(L.frame);
+    if (sceneChanged()) {
+      renderer.drawScene(L.frame);
+      // DEBUG-SG
+      (window as unknown as { __sg?: number }).__sg = ((window as unknown as { __sg?: number }).__sg ?? 0) + 1;
+    }
     if (L.flakesDirty) {
       renderer.setFlakes(L.snow.pos, L.snow.count);
       L.flakesDirty = !!L.reduced ? false : true;

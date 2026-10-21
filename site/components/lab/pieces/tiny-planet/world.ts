@@ -624,7 +624,7 @@ function buildClouds(count: number, rand: () => number) {
     const ez = tz * Math.cos(turn) + bz * Math.sin(turn);
     const n = 3 + Math.floor(rand() * 4);
     const length = 0.1 + n * 0.045;
-    const altitude = 1.072 + rand() * 0.026;
+    const altitude = 1.055 + rand() * 0.02;
     const shade = 0.94 + rand() * 0.06;
     let sx = 0, sy = 0, sz = 0;
     for (let i = 0; i < n; i++) {

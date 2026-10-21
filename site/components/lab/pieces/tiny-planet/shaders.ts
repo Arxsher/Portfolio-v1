@@ -70,7 +70,7 @@ float dayAt(vec3 sn) { return smoothstep(-0.1, 0.12, dot(sn, uSun)); }
 
 vec3 ambientAt(vec3 sn, vec3 n) {
   float h = dot(sn, uSun);
-  vec3 nightLight = mix(vec3(0.03, 0.04, 0.075), vec3(0.011, 0.014, 0.03), uDark);
+  vec3 nightLight = mix(vec3(0.03, 0.04, 0.075), vec3(0.0045, 0.006, 0.013), uDark);
   vec3 dayLight = vec3(0.17, 0.2, 0.25);
   vec3 a = mix(nightLight, dayLight, smoothstep(-0.2, 0.32, h));
   // facets turned up toward open sky get a little more fill
@@ -274,7 +274,7 @@ void main() {
   float h = dot(sn, uSun);
   float day = smoothstep(-0.2, 0.16, h);
   float diff = clamp(dot(n, uSun) * 0.6 + 0.4, 0.0, 1.0) * day * moonShadow(vW);
-  vec3 nightLight = mix(vec3(0.045, 0.052, 0.085), vec3(0.014, 0.016, 0.028), uDark);
+  vec3 nightLight = mix(vec3(0.075, 0.085, 0.125), vec3(0.008, 0.009, 0.017), uDark);
   vec3 amb = mix(nightLight, vec3(0.3, 0.33, 0.39), smoothstep(-0.22, 0.3, h)) * (0.75 + 0.25 * max(dot(n, sn), 0.0));
   vec3 c = vec3(0.92) * vShade * (sunColour(h) * diff * 1.45 + amb * 1.25);
   o = vec4(finish(c), 1.0);
