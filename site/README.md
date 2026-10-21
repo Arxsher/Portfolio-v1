@@ -42,10 +42,10 @@ To roll back, set the Pages source back to **Deploy from a branch**
 | Name, title, status, intro, socials, writing | `content/site.ts` |
 | Lab pieces (one folder each: `meta.ts` + `piece.tsx`) | `components/lab/pieces/` |
 | Projects (home list, `/projects`, detail pages) | `content/projects.json` |
-| Contribution graph | `data/contributions.json` (`npm run contributions`) |
+| Contribution data | `data/contributions.json` (this year) and `data/contributions-last.json` (last 12 months), refreshed by `npm run contributions` and the daily deploy |
 | Profile photo | `site.avatar` in `content/site.ts`, file in `public/`. Empty shows the mark instead. |
 | Social preview image | `public/og.png` (1200 x 630), set as `site.ogImage` |
-| Intro (status line, name, copy, facts, featured lab pieces) | `components/home/profile.tsx`, `intro.tsx`, `intro-contact.tsx`, `intro-clock.tsx`, `intro-lab.tsx`; copy in `content/site.ts`. A custom hero animation would need a new slot. |
+| Intro | `components/home/profile.tsx`, `intro.tsx` (copy in `content/site.ts`); the "From the lab" card under it is `components/home/intro-lab.tsx` (its `ROTATION` picks the pieces) |
 
 ## Optional services
 

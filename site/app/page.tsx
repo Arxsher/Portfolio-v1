@@ -29,12 +29,9 @@ export default function Home() {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(person).replace(/</g, "\\u003c") }}
       />
-      {/* The intro: status line, name, copy, facts and the featured lab pieces. */}
-      <section aria-labelledby="intro-heading">
-        <Profile />
-        <Intro />
-        <IntroLab />
-      </section>
+      <Profile />
+      <Intro />
+      <IntroLab />
       <Work />
       <Lab />
       <Writing />

@@ -1,13 +1,15 @@
 "use client";
 
 // Site header: mark + handle on the left (with a breadcrumb trail on inner
-// pages), the theme switch on the right. Rendered once by app/layout.tsx; the
+// pages), theme toggle on the right. Rendered once by app/layout.tsx; the
 // trail is derived from the URL so pages don't have to pass anything.
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useLayoutEffect } from "react";
+import { Moon, Sun } from "@/components/icons";
 import { Logo } from "@/components/logo";
-import { ThemeSwitch } from "@/components/theme-switch";
+import { syncTheme, toggleTheme, useResolvedTheme } from "@/lib/theme";
 
 type Crumb = { label: string; href?: string };
 
@@ -52,7 +54,7 @@ export function Header({
   /** The name next to the mark (site.handle). Passed in so this client
       component doesn't pull the whole content module into the bundle. */
   handle: string;
-  /** Titles of known detail pages keyed by "segment/slug", e.g. { "projects/aegilabs": "AegiLabs", "lab/macropad": "Macropad" }. */
+  /** Titles of known detail pages keyed by "segment/slug", e.g. { "projects/aegilabs": "AegiLabs", "lab/zellige": "Zellige" }. */
   pages?: Record<string, string>;
 }) {
   const pathname = usePathname() ?? "/";
@@ -96,8 +98,37 @@ export function Header({
           );
         })}
       </nav>
-      {/* the theme toggle is the lab's Daylight switch (components/theme-switch.tsx) */}
-      <ThemeSwitch />
+      <ThemeToggle />
     </header>
+  );
+}
+
+function ThemeToggle() {
+  const dark = useResolvedTheme() === "dark";
+
+  // React's dev remount resets <html> attributes set by the inline script.
+  useLayoutEffect(() => {
+    syncTheme();
+  }, []);
+
+  return (
+    <button
+      type="button"
+      onClick={toggleTheme}
+      aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
+      title={dark ? "Light mode" : "Dark mode"}
+      className="relative -me-2 flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-[12px] text-secondary transition-[background-color,color,scale] duration-150 ease-out hover:bg-well hover:text-primary active:scale-[0.96] focus-ring"
+    >
+      {/* Which icon shows is decided by the `dark` class in CSS, so the
+          right one is visible before hydration. */}
+      <span className="grid place-items-center">
+        <span className="theme-icon" data-icon="sun" data-keep-transition="">
+          <Sun />
+        </span>
+        <span className="theme-icon" data-icon="moon" data-keep-transition="">
+          <Moon />
+        </span>
+      </span>
+    </button>
   );
 }

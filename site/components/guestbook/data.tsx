@@ -1,11 +1,10 @@
 "use client";
 
-// Client-side guestbook state shared by the guest house on the home page,
-// the /guestbook page and the sign form: one fetch, one cache, and every
-// view updates the moment someone signs in this tab (the house reserves the
-// new window at once).
+// Client-side guestbook state shared by the home section, the /guestbook
+// wall and the sign form: one fetch, one cache, and every view updates the
+// moment someone signs in this tab.
 //
-//   const { status, entries, count } = useGuestbook(20);
+//   const { status, entries, count } = useGuestbook(5);
 //   const count = useGuestbookCount();
 //
 // The first render (and the static HTML) is always the loading state, so

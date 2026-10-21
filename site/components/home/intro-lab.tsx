@@ -43,7 +43,7 @@ import { CATEGORY_SINGULAR, type PieceMeta } from "@/components/lab/types";
 import { cn } from "@/lib/cn";
 
 /** The featured pieces, in order. They read well as one object on a wide tile. */
-const ROTATION = ["dusk", "split-flap", "turntable", "agent-run"] as const;
+const ROTATION = ["dusk", "golden-room", "turntable", "macropad"] as const;
 
 /**
  * The same chunks load-piece.tsx loads (one literal import per piece, so the
@@ -52,9 +52,9 @@ const ROTATION = ["dusk", "split-flap", "turntable", "agent-run"] as const;
  */
 const PRELOAD: Record<(typeof ROTATION)[number], () => Promise<unknown>> = {
   dusk: () => import("@/components/lab/pieces/dusk/piece"),
-  "split-flap": () => import("@/components/lab/pieces/split-flap/piece"),
+  "golden-room": () => import("@/components/lab/pieces/golden-room/piece"),
   turntable: () => import("@/components/lab/pieces/turntable/piece"),
-  "agent-run": () => import("@/components/lab/pieces/agent-run/piece"),
+  macropad: () => import("@/components/lab/pieces/macropad/piece"),
 };
 
 const DWELL_MS = 6000;

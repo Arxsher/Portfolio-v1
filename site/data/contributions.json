@@ -1,8 +1,8 @@
 {
   "username": "Arxsher",
   "year": 2026,
-  "total": 544,
-  "updatedAt": "2026-10-14",
+  "total": 562,
+  "updatedAt": "2026-10-21",
   "days": [
     {
       "date": "2026-01-01",
@@ -1406,12 +1406,12 @@
     },
     {
       "date": "2026-10-08",
-      "count": 54,
+      "count": 56,
       "level": 4
     },
     {
       "date": "2026-10-09",
-      "count": 4,
+      "count": 5,
       "level": 2
     },
     {
@@ -1436,8 +1436,43 @@
     },
     {
       "date": "2026-10-14",
+      "count": 2,
+      "level": 1
+    },
+    {
+      "date": "2026-10-15",
       "count": 0,
       "level": 0
+    },
+    {
+      "date": "2026-10-16",
+      "count": 1,
+      "level": 1
+    },
+    {
+      "date": "2026-10-17",
+      "count": 1,
+      "level": 1
+    },
+    {
+      "date": "2026-10-18",
+      "count": 0,
+      "level": 0
+    },
+    {
+      "date": "2026-10-19",
+      "count": 7,
+      "level": 2
+    },
+    {
+      "date": "2026-10-20",
+      "count": 2,
+      "level": 1
+    },
+    {
+      "date": "2026-10-21",
+      "count": 2,
+      "level": 1
     }
   ]
 }

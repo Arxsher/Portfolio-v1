@@ -10,7 +10,6 @@
 
 import { meta as agentRun } from "./pieces/agent-run/meta";
 import { meta as commitCity } from "./pieces/commit-city/meta";
-import { meta as daylight } from "./pieces/daylight/meta";
 import { meta as disintegrate } from "./pieces/disintegrate/meta";
 import { meta as dusk } from "./pieces/dusk/meta";
 import { meta as elasticScrubber } from "./pieces/elastic-scrubber/meta";
@@ -22,7 +21,6 @@ import { meta as liquidTabs } from "./pieces/liquid-tabs/meta";
 import { meta as macropad } from "./pieces/macropad/meta";
 import { meta as magneticDock } from "./pieces/magnetic-dock/meta";
 import { meta as pullCord } from "./pieces/pull-cord/meta";
-import { meta as seal } from "./pieces/seal/meta";
 import { meta as splitFlap } from "./pieces/split-flap/meta";
 import { meta as textMorph } from "./pieces/text-morph/meta";
 import { meta as turntable } from "./pieces/turntable/meta";
@@ -30,9 +28,22 @@ import { meta as yearRings } from "./pieces/year-rings/meta";
 import { CATEGORY_LABELS, type Category, type PieceMeta } from "./types";
 
 export const pieces: readonly PieceMeta[] = [
-  // new this round
-  daylight,
   goldenRoom,
+  commitCity,
+  macropad,
+  liquidGlass,
+  turntable,
+  dusk,
+  splitFlap,
+  agentRun,
+];
+
+/**
+ * Pieces that are still being built. They keep their folders, metas and
+ * loader entries but stay out of the lab, the home page and the palette
+ * until they are finished: move one into `pieces` to publish it.
+ */
+export const drafts: readonly PieceMeta[] = [
   holoCards,
   pullCord,
   yearRings,
@@ -42,15 +53,6 @@ export const pieces: readonly PieceMeta[] = [
   textMorph,
   disintegrate,
   elasticScrubber,
-  // the first nine (less one)
-  commitCity,
-  macropad,
-  liquidGlass,
-  turntable,
-  dusk,
-  splitFlap,
-  seal,
-  agentRun,
 ];
 
 export type PieceSlug = (typeof pieces)[number]["slug"];
@@ -82,20 +84,18 @@ export function getNeighbours(slug: string): { previous: PieceMeta; next: PieceM
  * The nine pieces in the home page's lab section, in reading order (three
  * columns read across: 1-2-3 / 4-5-6 / 7-8-9; the masonry levels the
  * column ends whatever the tile shapes). A curated mix of interactions,
- * objects, data and a scene. Commit city is left out on purpose: the
- * GitHub section right below already shows it. Slugs that aren't in
+ * objects, data and scenes. Slugs that aren't in
  * `pieces` are skipped, so a removed piece can't break the home page.
  */
 const FEATURED: readonly string[] = [
-  "daylight",
-  "holo-cards",
   "golden-room",
-  "pull-cord",
-  "year-rings",
-  "liquid-glass",
   "macropad",
-  "island",
+  "commit-city",
+  "liquid-glass",
   "turntable",
+  "dusk",
+  "split-flap",
+  "agent-run",
 ];
 
 export const featured: readonly PieceMeta[] = FEATURED.map((slug) => getPiece(slug)).filter(

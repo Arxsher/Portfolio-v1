@@ -1,55 +1,34 @@
 "use client";
 
-// Home page guestbook: the guest house (components/guestbook/house), where
-// every signature is a lit window with the guest's own hand-drawn
-// signature on the pane. Point at a window (or tap it) and the note leans
-// out; the dashed window is the next free one and opens the sign form, as
-// does the button in the panel. Signing flies your signature from the form
-// into that window.
-//
-//   guestbook / 12 signed ................................ Read them all ›
-//   ┌──────────────────────────────────────────────────────────────────┐
-//   │ Every signature lights a window.              [ ✎ Sign the book ] │
-//   │                    ▟▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▙                            │
-//   │                    █ ▢ ▢ ▢ ▢ ▢ █                                  │
-//   │                    █ ▣ ▣ ▣ ▣ ⬚ █        (▣ lit · ⬚ yours)         │
-//   │              🌳    █▄▄ GUESTBOOK ▄▄█   ┃                           │
-//   └──────────────────────────────────────────────────────────────────┘
-//
-// Home shows the lobby and the newest floors (MAX_FLOORS); a taller house
-// hides the floors in between behind a break line. The entries load in
-// the browser; until then the building stands with its lights off. No
-// entries, no fake ones: an unlit house with one glowing "your window".
+// Home page guestbook: the five newest signatures (three on phones) in a
+// 3-column grid, closed by the dashed "Leave a note" card that opens the
+// sign form in the command bar. Entries load in the browser; until then
+// the cells hold skeletons of the same size. No entries, no fake ones:
+// just the note card and a quiet line.
 
+import { EntryCard, EntryCardSkeleton } from "@/components/guestbook/entry-card";
 import { useGuestbook } from "@/components/guestbook/data";
-import { GuestHouse } from "@/components/guestbook/house/house";
-import { PER_FLOOR } from "@/components/guestbook/house/layout";
 import { Pen } from "@/components/icons";
 import { Section } from "@/components/section";
-import { useFinePointer } from "@/components/lab/hooks";
+import { cn } from "@/lib/cn";
 import { openCommand } from "@/lib/command";
 
-const MAX_FLOORS = 4;
-/** Enough entries to fill every window home can show. */
-const SHOWN = MAX_FLOORS * PER_FLOOR;
+const SHOWN = 5;
+// The 4th and 5th entries only show from sm up (2×2 grid on phones).
+const cellVisibility = (index: number) => (index >= 3 ? "hidden sm:flex" : undefined);
 
 export function Guestbook() {
   const { status, entries, count, enabled } = useGuestbook(SHOWN);
-  const fine = useFinePointer();
-  const guests = Math.max(count ?? 0, entries.length);
+  const loading = status === "loading";
 
-  const hint =
+  const emptyLine =
     status === "error"
       ? "Couldn't load the guestbook right now."
       : !enabled
-        ? "The guestbook isn't connected yet. The lights come on once it is."
-        : status === "ready" && guests === 0
-          ? "No one has signed yet. The first window is yours."
-          : status === "ready"
-            ? fine
-              ? "Every signature lights a window. Point at one to read it."
-              : "Every signature lights a window. Tap one."
-            : "Turning the lights on…";
+        ? "Signatures will show up here once the guestbook is live."
+        : status === "ready" && entries.length === 0
+          ? "No signatures yet. Yours could be the first."
+          : null;
 
   return (
     <Section
@@ -58,29 +37,45 @@ export function Guestbook() {
       count={enabled && count !== null ? `${count} signed` : undefined}
       action={{ label: "Read them all", href: "/guestbook/" }}
     >
-      <GuestHouse
-        entries={entries}
-        count={count}
-        status={status}
-        enabled={enabled}
-        maxFloors={MAX_FLOORS}
-        hint={hint}
-        action={<SignButton />}
-      />
+      <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3" aria-busy={loading || undefined}>
+        {loading
+          ? Array.from({ length: SHOWN }, (_, index) => (
+              <EntryCardSkeleton key={`skeleton-${index}`} className={cellVisibility(index)} />
+            ))
+          : entries.map((entry, index) => (
+              <EntryCard
+                key={entry.id}
+                entry={entry}
+                className={cn("animate-fade-in", cellVisibility(index))}
+              />
+            ))}
+        <li>
+          <LeaveNoteCard />
+        </li>
+        {emptyLine ? (
+          <li className="col-span-1 flex min-h-[148px] items-center px-3.5 text-[13px] leading-[1.5] text-tertiary text-pretty sm:col-span-2">
+            {emptyLine}
+          </li>
+        ) : null}
+      </ul>
     </Section>
   );
 }
 
-export function SignButton({ label = "Sign the guestbook" }: { label?: string }) {
+function LeaveNoteCard() {
   return (
     <button
       type="button"
       onClick={() => openCommand("guestbook")}
-      className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-pill bg-float px-3 text-[13px] text-primary shadow-lift transition-[box-shadow,scale] duration-150 ease-out hover:shadow-lift-hover active:scale-[0.96] focus-ring"
+      className="group flex size-full min-h-[148px] cursor-pointer flex-col justify-between rounded-card border border-dashed border-line-firm p-3.5 text-start transition-[border-color,background-color] duration-200 ease-out hover:border-transparent hover:bg-tile focus-visible:border-transparent focus-visible:bg-tile focus-ring"
     >
-      <Pen size={14} className="text-secondary" />
-      <span className="max-sm:hidden">{label}</span>
-      <span className="sm:hidden">Sign</span>
+      <span className="grid size-8 place-items-center rounded-[9px] bg-well text-secondary transition-[color] duration-200 group-hover:text-primary group-focus-visible:text-primary">
+        <Pen />
+      </span>
+      <span className="text-[13px] leading-[1.5]">
+        <span className="block text-primary">Leave a note</span>
+        <span className="block text-tertiary">Signed by hand, kept here</span>
+      </span>
     </button>
   );
 }

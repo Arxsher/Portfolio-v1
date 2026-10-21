@@ -1,69 +1,100 @@
-// Home intro, part 2: the intro paragraphs (site.intro) and the facts list
-// (site.now, site.focus, the contact actions and site.socials).
-//
-//   I craft digital experiences … AegiLabs ↗ … experiments … lab.
-//   ─────────────────────────────────────────────────────────────────────
-//   Now      IT Administrator & Lead Developer at Extra Immobilien ↗   Since May 2026
-//   ─────────────────────────────────────────────────────────────────────
-//   Focus    AI agent orchestration · React · TypeScript · Figma · System design
-//   ─────────────────────────────────────────────────────────────────────
-//   Contact  Say hi ›   Book a call ›               GitHub  X  Instagram  Spotify
-//   ─────────────────────────────────────────────────────────────────────
-//
-// On phones the right-hand column folds under the value: "since May 2026"
-// joins the end of the Now line, and the socials get a line of their own.
+// Home hero, part 3: the intro paragraphs from site.intro and the row of
+// actions under them (Say hi, Book a call, social links).
 //
 // Intro segments (see content/site.ts):
-//   { text }            plain copy in the body colour
-//   { strong }          emphasis, in the foreground colour
-//   { strong, href }    the same as an underlined link; ↗ when it leaves the site
+//   { text }                 plain copy in the secondary colour
+//   { strong }               emphasis, in the foreground colour
+//   { strong, href }         the same, as a link (underline firms up on hover)
+//   { chip, icon, href }     a small inline pill with an icon (github | sparkle | folder)
 
 import Link from "next/link";
-import { Fragment, type ReactNode } from "react";
-import { ContactActions } from "@/components/home/intro-contact";
-import { ArrowUpRight } from "@/components/icons";
+import type { ComponentType, ReactNode } from "react";
+import { CommandButton } from "@/components/home/hero-client";
+import { Calendar, Folder, GitHub, Mail, SocialIcons, Sparkle, type IconProps } from "@/components/icons";
 import { site } from "@/content/site";
-import { cn } from "@/lib/cn";
-import { formatMonthYear } from "@/lib/format";
 
-type Segment = (typeof site.intro)[number][number];
-
-const isExternal = (href: string) => /^https?:\/\//.test(href);
-
-const NEW_TAB = <span className="sr-only"> (opens in a new tab)</span>;
-
-/** An inline link; pages of this site navigate client-side, other sites open in a new tab. */
-function InlineLink({ href, className, children }: { href: string; className: string; children: ReactNode }) {
-  if (isExternal(href)) {
-    return (
-      <a href={href} target="_blank" rel="noopener noreferrer" className={className}>
-        {children}
-        <ArrowUpRight size={11} className="ms-0.5 inline align-[-0.5px] text-tertiary" />
-        {NEW_TAB}
-      </a>
-    );
-  }
-  if (href.startsWith("/")) {
-    return (
-      <Link href={href} className={className}>
-        {children}
-      </Link>
-    );
-  }
+/**
+ * A heavier X mark for the social row. The shared icon is the fine brand
+ * outline, which reads small and light next to the solid GitHub mark; this
+ * one is a solid stroke-drawn X on the same 16px grid (about 13 x 13.5px
+ * of ink, the optical size of the reference's 20px glyph), so the four
+ * glyphs carry the same weight.
+ */
+function XMark({ size = 16, className }: IconProps) {
   return (
-    <a href={href} className={className}>
-      {children}
-    </a>
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="none"
+      aria-hidden="true"
+      focusable="false"
+      className={className ? `shrink-0 ${className}` : "shrink-0"}
+    >
+      <path
+        d="M2.6 2h2.1l8.6 12h-2.1z"
+        fill="currentColor"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        strokeLinejoin="round"
+      />
+      <path d="M13.75 2.05 2.25 13.95" stroke="currentColor" strokeWidth={1.55} strokeLinecap="round" />
+    </svg>
   );
 }
 
+const socialIcons: Record<string, ComponentType<IconProps>> = { ...SocialIcons, X: XMark };
+
+type Segment = (typeof site.intro)[number][number];
+
+const chipIcons: Record<string, ComponentType<IconProps>> = {
+  github: GitHub,
+  sparkle: Sparkle,
+  folder: Folder,
+};
+
+const isExternal = (href: string) => /^https?:\/\//.test(href);
+
+/** target/rel for links that leave the site. */
+function linkProps(href: string) {
+  return isExternal(href) ? { target: "_blank", rel: "noopener noreferrer" } : {};
+}
+
+// The focus ring hugs the chip (1px off its edge) instead of the global 2px,
+// so a chip at the start of a line stays within the text column.
+const chipClass =
+  "mx-0.5 inline-flex cursor-pointer items-center gap-1.5 rounded-[8px] bg-well px-1.5 py-0.5 align-middle text-[15px]/[1.3] text-primary [translate:0_-1px] transition-[scale,background-color] duration-150 ease-out hover:bg-well-hover active:scale-[0.96] focus-visible:outline-offset-1";
+
 function renderSegment(segment: Segment, key: number): ReactNode {
+  if ("chip" in segment) {
+    const Icon = chipIcons[segment.icon];
+    const content = (
+      <>
+        {Icon ? <Icon size={13} /> : null}
+        {segment.chip}
+      </>
+    );
+    // Pages of this site ("/lab/") navigate client-side; anchors and other
+    // sites stay plain links.
+    if (segment.href.startsWith("/")) {
+      return (
+        <Link key={key} href={segment.href} className={chipClass}>
+          {content}
+        </Link>
+      );
+    }
+    return (
+      <a key={key} href={segment.href} {...linkProps(segment.href)} className={chipClass}>
+        {content}
+      </a>
+    );
+  }
   if ("strong" in segment) {
     if ("href" in segment && segment.href) {
       return (
-        <InlineLink key={key} href={segment.href} className="link rounded-[2px] whitespace-nowrap">
+        <a key={key} href={segment.href} {...linkProps(segment.href)} className="link rounded-[2px]">
           {segment.strong}
-        </InlineLink>
+        </a>
       );
     }
     return (
@@ -75,115 +106,52 @@ function renderSegment(segment: Segment, key: number): ReactNode {
   return segment.text;
 }
 
-/**
- * A label + value row of the facts list. `aside` sits in a right-hand
- * column from sm up and folds under the value on phones (pass
- * `asideDesktopOnly` when the value already carries it inline there).
- */
-function Fact({
-  label,
-  children,
-  aside,
-  asideDesktopOnly,
-}: {
-  label: string;
-  children: ReactNode;
-  aside?: ReactNode;
-  asideDesktopOnly?: boolean;
-}) {
-  return (
-    <div className="grid grid-cols-[64px_minmax(0,1fr)] gap-x-4 gap-y-1 py-3 sm:grid-cols-[80px_minmax(0,1fr)_auto]">
-      <dt className="text-[13px]/[21px] text-tertiary">{label}</dt>
-      <dd className="text-[14px]/[21px] text-pretty text-primary">{children}</dd>
-      {aside ? (
-        <dd
-          className={cn(
-            "col-start-2 text-[13px]/[21px] text-tertiary tabular-nums sm:col-start-3 sm:text-end",
-            asideDesktopOnly && "hidden sm:block",
-          )}
-        >
-          {aside}
-        </dd>
-      ) : null}
-    </div>
-  );
-}
-
 export function Intro() {
-  const { now, focus } = site;
-  const since = formatMonthYear(now.since);
-
   return (
     <>
-      <div className="mt-5 flex max-w-[600px] flex-col gap-4 text-[16px]/[1.65] text-pretty text-body sm:mt-6">
+      <section className="mt-6 flex max-w-[600px] flex-col gap-4 text-[16px]/[1.65] text-pretty text-secondary">
         {site.intro.map((paragraph, index) => (
           <p key={index}>{paragraph.map(renderSegment)}</p>
         ))}
-      </div>
+      </section>
 
-      <dl className="mt-6 divide-y divide-border border-y border-border sm:mt-8">
-        <Fact label="Now" aside={`Since ${since}`} asideDesktopOnly>
-          {now.role} <span className="text-tertiary">at</span>{" "}
-          {/* Phones: "… Extra Immobilien ↗ · since May 2026", breaking only after the dot. */}
-          <span className="whitespace-nowrap">
-            <InlineLink href={now.href} className="link rounded-[2px]">
-              {now.org}
-            </InlineLink>
-            <span aria-hidden="true" className="ms-1.5 text-tertiary opacity-60 sm:hidden">
-              ·
-            </span>
-          </span>
-          <span className="text-[13px] text-tertiary sm:hidden">
-            {" "}
-            <span className="sr-only">, </span>
-            <span className="whitespace-nowrap">since {since}</span>
-          </span>
-        </Fact>
-        <Fact label="Focus">
-          {/* Lines break only after a dot, so a dot never starts a line. */}
-          {focus.map((item, index) => {
-            const last = index === focus.length - 1;
+      <div className="mt-6 flex flex-wrap items-center gap-x-2 gap-y-2">
+        {/* The shared 16-grid glyphs are drawn a touch larger than the
+            reference's, so they render at 13px inside a 14px slot (the
+            0.5px margins keep the button widths at 87 / 117px). */}
+        <CommandButton view="say-hi" className="btn btn-solid">
+          <Mail size={13} className="mx-[0.5px]" />
+          Say hi
+        </CommandButton>
+        <CommandButton view="book-call" className="btn btn-soft">
+          <Calendar size={13} className="mx-[0.5px]" />
+          Book a call
+        </CommandButton>
+        {/* Four 34px socials don't fit next to the buttons on a 390px phone,
+            so between 389px and `sm` they tighten to 30px (30 x 40 on touch
+            screens) to stay on one line. Narrower than that (388px and
+            down) they wrap onto their own line at full size (34px, or 40px
+            on touch, as .btn-icon sets), pulled left by the glyph's inset
+            so the first one lines up with the text above. */}
+        <span className="flex items-center max-[389px]:-ms-[9px] max-[389px]:basis-full max-[389px]:pointer-coarse:-ms-3 sm:ms-1">
+          {site.socials.map((social) => {
+            const Icon = socialIcons[social.name];
+            if (!Icon) return null;
             return (
-              <Fragment key={item}>
-                <span className="whitespace-nowrap">
-                  {item}
-                  {last ? null : (
-                    <>
-                      <span className="sr-only">,</span>
-                      <span aria-hidden="true" className="mx-2 text-tertiary opacity-60">
-                        ·
-                      </span>
-                    </>
-                  )}
-                </span>
-                {last ? null : <wbr />}
-              </Fragment>
+              <a
+                key={social.name}
+                href={social.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={social.name}
+                className="btn btn-icon min-[389px]:max-sm:w-[30px]!"
+              >
+                <Icon />
+              </a>
             );
           })}
-        </Fact>
-        <Fact
-          label="Contact"
-          aside={
-            <ul aria-label="Elsewhere" className="-ms-2 flex flex-wrap items-center sm:ms-0 sm:-me-2 sm:justify-end">
-              {site.socials.map((social) => (
-                <li key={social.name}>
-                  <a
-                    href={social.href}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="-my-1.5 block rounded-[6px] px-2 py-1.5 text-secondary underline decoration-transparent underline-offset-[3px] transition-colors duration-150 ease-out hover:text-primary hover:decoration-current focus-ring"
-                  >
-                    {social.name}
-                    {NEW_TAB}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          }
-        >
-          <ContactActions />
-        </Fact>
-      </dl>
+        </span>
+      </div>
     </>
   );
 }
