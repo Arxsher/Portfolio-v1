@@ -141,7 +141,7 @@ export type Flight = { name: string; remark: Remark; tone: Tone };
 const REMARK_TONE: Record<Remark, Tone> = { "ON TIME": "green", BOARDING: "amber", DEPARTED: "muted" };
 
 /**
- * Zakaria's projects as departures: work in progress is boarding, this
+ * Ashh's projects as departures: work in progress is boarding, this
  * year's launches are on time, earlier ones have left.
  */
 export const FLIGHTS: readonly Flight[] = projects.map((project) => {

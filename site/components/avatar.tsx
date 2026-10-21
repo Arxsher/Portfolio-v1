@@ -1,4 +1,4 @@
-// Zakaria's picture for the profile row and the social panels. It fills
+// Ashh's picture for the profile row and the social panels. It fills
 // its parent (which sets the size, shape and tile colour). Until
 // site.avatar points at a photo, the "arsher" mark stands in, centred on
 // the tile.
@@ -7,7 +7,7 @@ import { Logo } from "@/components/logo";
 import { site } from "@/content/site";
 
 export function AvatarFill({ mark = 24, eager = false }: { mark?: number; eager?: boolean }) {
-  const src: string = site.avatar;
+  const src: string = site.avatar ? `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}${site.avatar}` : "";
   if (src) {
     return (
       <img

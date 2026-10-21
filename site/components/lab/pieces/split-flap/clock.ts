@@ -1,4 +1,4 @@
-// Zakaria's local time for the board's clock bay, read from the browser's
+// Ashh's local time for the board's clock bay, read from the browser's
 // own time-zone data (site.status.timeZone): hours and minutes for the
 // drums, the zone ("GMT+1") and the day ("Tue 20 Oct") for the legend.
 import { site } from "@/content/site";

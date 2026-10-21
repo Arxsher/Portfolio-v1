@@ -9,14 +9,14 @@ export type Project = (typeof projects)[number];
 export const site = {
   url: "https://arsher.is-a.dev",
   handle: "arsher",
-  name: "Zakaria",
+  name: "Ashh",
   title: "Full-stack developer & designer",
-  metaTitle: "Zakaria • Full-stack Developer & Designer",
+  metaTitle: "Ashh • Full-stack Developer & Designer",
   description:
     "Designer, developer and builder crafting digital experiences at the intersection of design, technology, and user experience.",
   // Profile photo, e.g. "/images/avatar.jpg" (put the file in public/).
   // Empty shows the "arsher" mark on a soft tile instead.
-  avatar: "",
+  avatar: "/images/avatar.jpg",
   // Social preview image (1200 x 630) for links shared on X, LinkedIn …
   ogImage: "/og.png",
   ogImageSize: { width: 1200, height: 630 },
@@ -55,7 +55,7 @@ export const site = {
   intro: [
     [
       { text: "Hey, I'm " },
-      { strong: "Zakaria" },
+      { strong: "Ashh" },
       { text: ". I'm a designer, developer and builder crafting digital experiences at the intersection of " },
       { strong: "design, technology, and user experience" },
       { text: "." },

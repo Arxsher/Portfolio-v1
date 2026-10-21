@@ -4,7 +4,7 @@
 //
 // Look. An object on the stage, not a screen: a housing in satin white
 // enamel (graphite in dark mode) held by four steel screws, a recessed bay
-// of charcoal flaps with white letters in Geist, Zakaria's local time in
+// of charcoal flaps with white letters in Geist, Ashh's local time in
 // its own little bay (labelled with the day and the GMT offset, read from
 // the browser's time-zone data) and a lamp at the end of every row. One light from above
 // does all the shading (see engine.ts): falling fronts darken, landing

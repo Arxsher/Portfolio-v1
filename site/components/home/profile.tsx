@@ -1,7 +1,7 @@
 // Home hero, part 2: avatar, name (+ verified badge), title and the
-// availability pill with Zakaria's local time.
+// availability pill with Ashh's local time.
 //
-//   [avatar]  Zakaria ✓
+//   [avatar]  Ashh ✓
 //             Full-stack developer & designer
 //   ( ● Available for work · 8:28am GMT+1 )
 
