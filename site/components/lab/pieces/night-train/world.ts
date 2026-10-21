@@ -35,12 +35,15 @@ export const CROWN_Y = DECK_Y - 1.45;
 export const SPRING_Y = CROWN_Y - ARCH_R;
 /** Outer faces of the viaduct are ±HALF_W from the line. */
 export const HALF_W = 2.1;
-const PARAPET = 0.42;
+const PARAPET = 0.3;
 const BALLAST_Y = DECK_Y - 0.14;
 
 /** A car: length (the gap to the next one is CAR_PITCH − CAR_LEN). */
 export const CAR_LEN = 9.8;
 export const CAR_PITCH = 10.05;
+/** The car meshes are drawn this much taller and wider (shaders.ts), so the train reads from the bank. */
+export const CAR_SCALE_Y = 1.32;
+export const CAR_SCALE_Z = 1.25;
 
 const T0x = Math.cos(-ARC_HALF);
 const T0z = Math.sin(-ARC_HALF);
@@ -192,8 +195,8 @@ function natural(x: number, z: number): number {
   // the valley sides: gentle near the camera, rising to meet the viaduct's
   // ends, then steep toward the far ranges
   const amp = left
-    ? lerp(lerp(9, 22.5, smooth(30, 92, z)), 44, smooth(110, 230, z))
-    : lerp(lerp(11, 24, smooth(30, 92, z)), 50, smooth(115, 235, z));
+    ? lerp(lerp(6, 22.5, smooth(34, 92, z)), 44, smooth(110, 230, z))
+    : lerp(lerp(7, 24, smooth(34, 92, z)), 50, smooth(115, 235, z));
   const spread = left ? lerp(30, 36, smooth(40, 100, z)) : lerp(32, 37, smooth(40, 100, z));
   const t = Math.min(1, Math.max(0, (ad - w - BANK) / spread));
   const rise = amp * Math.pow(t, 1.55) + Math.max(0, ad - w - BANK - spread) * (0.32 + 0.25 * smooth(100, 200, z));
@@ -279,9 +282,10 @@ class Builder {
   ) {
     const ux = p1[0] - p0[0], uy = p1[1] - p0[1], uz = p1[2] - p0[2];
     const vx = p3[0] - p0[0], vy = p3[1] - p0[1], vz = p3[2] - p0[2];
-    let nx = uy * vz - uz * vy;
-    let ny = uz * vx - ux * vz;
-    let nz = ux * vy - uy * vx;
+    // v × u: counter-clockwise as seen on screen (x right, y up, looking +z)
+    let nx = vy * uz - vz * uy;
+    let ny = vz * ux - vx * uz;
+    let nz = vx * uy - vy * ux;
     const l = Math.hypot(nx, ny, nz) || 1;
     nx /= l;
     ny /= l;
@@ -305,9 +309,9 @@ const GRID_Z0 = 0.5;
 const GRID_Z1 = 255;
 const gridHalfWidth = (z: number) => 14 + 0.76 * z;
 
-function addTerrain(b: Builder, cols: number, rows: number) {
+function addTerrain(b: Builder, cols: number, rows: number, AS: number) {
   // a coarse regular height grid for ambient occlusion lookups
-  const AX0 = -210, AX1 = 210, AZ0 = -10, AZ1 = 270, AS = 1.5;
+  const AX0 = -210, AX1 = 210, AZ0 = -10, AZ1 = 270;
   const aw = Math.ceil((AX1 - AX0) / AS) + 1;
   const ah = Math.ceil((AZ1 - AZ0) / AS) + 1;
   const grid = new Float32Array(aw * ah);
@@ -327,35 +331,58 @@ function addTerrain(b: Builder, cols: number, rows: number) {
     const e = grid[(j + 1) * aw + i + 1];
     return a + (c - a) * tx + (d - a) * tz + (a - c - d + e) * tx * tz;
   };
-  const DIRS = 8;
-  const DISTS = [1.5, 4, 9, 18, 32];
+  const DIRS = 7;
+  const DISTS = [2, 6, 14, 30];
+  const dirX = Array.from({ length: DIRS }, (_, k) => Math.cos((k / DIRS) * Math.PI * 2 + 0.3));
+  const dirZ = Array.from({ length: DIRS }, (_, k) => Math.sin((k / DIRS) * Math.PI * 2 + 0.3));
   const start = b.n;
+  // heights first; normals come from each vertex's neighbours on the grid
+  const row = cols + 1;
+  const xs = new Float32Array(row * (rows + 1));
+  const zs = new Float32Array(row * (rows + 1));
+  const hs = new Float32Array(row * (rows + 1));
   for (let r = 0; r <= rows; r++) {
     const v = r / rows;
     const z = GRID_Z0 + (GRID_Z1 - GRID_Z0) * (0.3 * v + 0.7 * v * v);
     const half = gridHalfWidth(z);
     for (let c = 0; c <= cols; c++) {
-      const x = -half + (2 * half * c) / cols;
-      const h = terrainHeight(x, z);
-      const e = 0.35;
-      const hx = terrainHeight(x + e, z) - terrainHeight(x - e, z);
-      const hz = terrainHeight(x, z + e) - terrainHeight(x, z - e);
-      let nx = -hx / (2 * e);
-      let ny = 1;
-      let nz = -hz / (2 * e);
-      const l = Math.hypot(nx, ny, nz);
+      const i = r * row + c;
+      xs[i] = -half + (2 * half * c) / cols;
+      zs[i] = z;
+      hs[i] = terrainHeight(xs[i], z);
+    }
+  }
+  for (let r = 0; r <= rows; r++) {
+    for (let c = 0; c <= cols; c++) {
+      const i = r * row + c;
+      const x = xs[i];
+      const z = zs[i];
+      const h = hs[i];
+      const l0 = r * row + Math.max(0, c - 1);
+      const r0 = r * row + Math.min(cols, c + 1);
+      const d0 = Math.max(0, r - 1) * row + c;
+      const u0 = Math.min(rows, r + 1) * row + c;
+      // tangents along the row and down the column, crossed
+      const ax = xs[r0] - xs[l0], ay = hs[r0] - hs[l0], az = zs[r0] - zs[l0];
+      const bx = xs[u0] - xs[d0], by = hs[u0] - hs[d0], bz = zs[u0] - zs[d0];
+      let nx = by * az - bz * ay;
+      let ny = bz * ax - bx * az;
+      let nz = bx * ay - by * ax;
+      if (ny < 0) {
+        nx = -nx;
+        ny = -ny;
+        nz = -nz;
+      }
+      const l = Math.hypot(nx, ny, nz) || 1;
       nx /= l;
       ny /= l;
       nz /= l;
       // horizon-based occlusion: how much of the sky the slopes around hide
       let occ = 0;
       for (let k = 0; k < DIRS; k++) {
-        const a = (k / DIRS) * Math.PI * 2;
-        const ca = Math.cos(a);
-        const sa = Math.sin(a);
         let best = 0;
         for (const dist of DISTS) {
-          const rise = (sample(x + ca * dist, z + sa * dist) - h) / dist;
+          const rise = (sample(x + dirX[k] * dist, z + dirZ[k] * dist) - h) / dist;
           if (rise > best) best = rise;
         }
         occ += best / Math.sqrt(1 + best * best);
@@ -364,7 +391,6 @@ function addTerrain(b: Builder, cols: number, rows: number) {
       b.vert(x, h, z, nx, ny, nz, MAT.terrain, ao, x, z, 0);
     }
   }
-  const row = cols + 1;
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const a = start + r * row + c;
@@ -624,7 +650,7 @@ function addPortal(b: Builder, end: 0 | 1) {
   const sFront = sF - inward * 0.35;
   const add = (d0: number, d1: number, ya0: number, ya1: number, yb0: number, yb1: number) => {
     // corners at d0 (heights ya0..ya1) and d1 (yb0..yb1), wound to face out
-    if (inward < 0) {
+    if (inward > 0) {
       at(sFront, d0, ya0, p[0]); at(sFront, d1, yb0, p[1]); at(sFront, d1, yb1, p[2]); at(sFront, d0, ya1, p[3]);
       b.face(p[0], p[1], p[2], p[3], MAT.stone, [0.9, 0.9, 1, 1], [d0, ya0, d1, yb0, d1, yb1, d0, ya1], 3);
     } else {
@@ -652,7 +678,7 @@ function addPortal(b: Builder, end: 0 | 1) {
   const sBack = sF + inward * 0.4;
   const s0 = Math.min(sFront, sBack);
   const s1 = Math.max(sFront, sBack);
-  lineBox(b, s0 - 0.12, s1 + 0.12, -FW - 0.15, FW + 0.15, y1, y1 + 0.32, MAT.stone, 0b111101);
+  lineBox(b, s0 - 0.12, s1 + 0.12, -FW - 0.15, FW + 0.15, y1, y1 + 0.32, MAT.stone, 0b111111);
   lineBox(b, s0, s1, FW - 0.01, FW, y0, y1, MAT.stone, 0b000001);
   lineBox(b, s0, s1, -FW, -FW + 0.01, y0, y1, MAT.stone, 0b000010);
   // the recess: two walls, a vault, a floor and a black back
@@ -674,7 +700,7 @@ function addPortal(b: Builder, end: 0 | 1) {
     const ya = MOUTH_WALL + Math.sin(a0) * MOUTH_HALF;
     const yb = MOUTH_WALL + Math.sin(a1) * MOUTH_HALF;
     // the vault, facing down and in
-    at(ss0, d1, yb, p[0]); at(ss1, d1, yb, p[1]); at(ss1, d0, ya, p[2]); at(ss0, d0, ya, p[3]);
+    at(ss0, d0, ya, p[0]); at(ss1, d0, ya, p[1]); at(ss1, d1, yb, p[2]); at(ss0, d1, yb, p[3]);
     b.face(p[0], p[1], p[2], p[3], MAT.recess, [0.35, 0.35, 0.35, 0.35], [ss0, yb, ss1, yb, ss1, ya, ss0, ya], 0);
   }
   at(ss0, MOUTH_HALF, BALLAST_Y, p[0]); at(ss1, MOUTH_HALF, BALLAST_Y, p[1]); at(ss1, -MOUTH_HALF, BALLAST_Y, p[2]); at(ss0, -MOUTH_HALF, BALLAST_Y, p[3]);
@@ -735,10 +761,13 @@ function addHouse(b: Builder, house: House) {
     [hw, hd, -hw, hd, 2],
     [-hw, hd, -hw, -hd, 3],
   ];
+  // window layout code for the shader: house, storeys, long wall, face
+  const two = h >= 2.25 ? 16 : 0;
   for (const [ax, az, cx, cz, f] of walls) {
     const len = Math.hypot(cx - ax, cz - az);
+    const wide = len >= 2.6 ? 8 : 0;
     W(ax, 0, az, p[0]); W(cx, 0, cz, p[1]); W(cx, top, cz, p[2]); W(ax, top, az, p[3]);
-    b.face(p[0], p[1], p[2], p[3], MAT.wall, [0.75, 0.75, 1, 1], [0, 0.3, len, 0.3, len, top, 0, top], id * 8 + f);
+    b.face(p[0], p[1], p[2], p[3], MAT.wall, [0.75, 0.75, 1, 1], [-len / 2, 0.3, len / 2, 0.3, len / 2, top, -len / 2, top], id * 32 + two + wide + f);
   }
   // gables on the short (x) ends
   for (const side of [1, -1]) {
@@ -748,9 +777,9 @@ function addHouse(b: Builder, house: House) {
     const cpt = W(gx, ridge, 0, P());
     const nx = side * c;
     const nz = -side * s;
-    const i0 = b.vert(a[0], a[1], a[2], nx, 0, nz, MAT.wall, 1, 0, top, id * 8 + 6);
-    const i1 = b.vert(bb[0], bb[1], bb[2], nx, 0, nz, MAT.wall, 1, d, top, id * 8 + 6);
-    const i2 = b.vert(cpt[0], cpt[1], cpt[2], nx, 0, nz, MAT.wall, 1, d / 2, ridge, id * 8 + 6);
+    const i0 = b.vert(a[0], a[1], a[2], nx, 0, nz, MAT.wall, 1, -hd, 0, id * 32 + 4);
+    const i1 = b.vert(bb[0], bb[1], bb[2], nx, 0, nz, MAT.wall, 1, hd, 0, id * 32 + 4);
+    const i2 = b.vert(cpt[0], cpt[1], cpt[2], nx, 0, nz, MAT.wall, 1, 0, ridge - top, id * 32 + 4);
     b.tri(i0, i1, i2);
   }
   // the roof: two slopes with a little overhang
@@ -838,7 +867,7 @@ export type StaticMesh = { vertices: Float32Array; indices: Uint32Array };
 export function buildStatic(mode: "tile" | "stage"): StaticMesh {
   const b = new Builder();
   const tile = mode === "tile";
-  addTerrain(b, tile ? 150 : 230, tile ? 130 : 210);
+  addTerrain(b, tile ? 124 : 214, tile ? 108 : 196, tile ? 3 : 2);
   addRidges(b, tile ? 110 : 200);
   addViaduct(b);
   addPortal(b, 0);
@@ -955,17 +984,19 @@ export function buildTrees(mode: "tile" | "stage"): { data: Float32Array; count:
       // forest on the valley sides, thinning near the bank and toward the tops
       const off = Math.abs(px - riverX(pz)) - riverHalf(pz);
       const n = fbm(px * 0.045, pz * 0.045, 3, 101);
-      let p = smooth(4, 16, off) * (0.35 + 0.9 * smooth(0.38, 0.62, n));
+      let p = smooth(4, 16, off) * (0.3 + 0.85 * smooth(0.38, 0.62, n));
       p *= 1 - 0.75 * smooth(30, 52, h);
+      // thinner near the camera, so the near slopes frame rather than wall in
+      p *= 0.35 + 0.65 * smooth(28, 70, pz);
       if (random() > p) continue;
-      const scale = (0.62 + random() * 0.55) * (0.9 + 0.25 * smooth(0, 30, off));
+      const scale = (0.5 + random() * 0.42) * (0.9 + 0.2 * smooth(0, 30, off));
       out.push(px, h - 0.25, pz, scale, random() * Math.PI * 2, random(), (random() - 0.5) * 0.08, random());
     }
   }
   // a few big ones framing the near corners
   const framers: Array<[number, number, number]> = [
-    [-29, 30, 1.25], [-33.5, 36, 1.4], [-26.5, 39, 1.05], [-38.5, 31, 1.3],
-    [30.5, 33, 1.3], [35, 40, 1.45], [27.5, 41.5, 1.0], [39.5, 35, 1.2],
+    [-36, 47, 1.1], [-31, 52, 0.8],
+    [37.5, 50, 1.15], [32.5, 55, 0.78],
   ];
   for (const [fx, fz, sc] of framers) {
     const h = terrainHeight(fx, fz);
@@ -1025,10 +1056,18 @@ function loftCar(sections: Section[], v: number[], idx: number[], nose: boolean)
     return pts;
   };
   const rings: number[][] = [];
-  for (const sec of sections) {
+  for (let k = 0; k < sections.length; k++) {
+    const sec = sections[k];
+    const prev = sections[Math.max(0, k - 1)];
+    const next = sections[Math.min(sections.length - 1, k + 1)];
+    // where the top drops toward a nose, the upper surfaces lean forward
+    const slope = next.x !== prev.x ? (next.top - prev.top) / (next.x - prev.x) : 0;
     const pts = profile(sec);
     const ring: number[] = [];
-    for (const [y, z, ny, nz, part] of pts) ring.push(push(sec.x, y, z, 0, ny, nz, part, sec.x, y));
+    for (const [y, z, ny, nz, part] of pts) {
+      const up = Math.max(0, (y - 1.0) / (sec.top - 1.0));
+      ring.push(push(sec.x, y, z, -slope * up * 1.2, ny, nz, part, sec.x, y));
+    }
     rings.push(ring);
   }
   for (let k = 0; k < rings.length - 1; k++) {
@@ -1085,6 +1124,7 @@ export function buildCars(): StaticMesh & { coach: [number, number]; engine: [nu
   const body = (x: number): Section => ({ x, top: 2.12, half: 0.75, sill: 0.95 });
   loftCar([body(-H), body(-H * 0.5), body(0), body(H * 0.5), body(H)], v, idx, false);
   const coachEnd = idx.length;
+  const coachVerts = v.length;
   // the engine: the same body with a raked nose at +x
   loftCar(
     [
@@ -1102,11 +1142,11 @@ export function buildCars(): StaticMesh & { coach: [number, number]; engine: [nu
   );
   // the windscreen: the sloped part of the engine's top, marked by height
   // (parts are per vertex; mark the nose sections' upper vertices)
-  for (let i = 0; i < v.length; i += CAR_STRIDE) {
+  for (let i = coachVerts; i < v.length; i += CAR_STRIDE) {
     const x = v[i];
     const y = v[i + 1];
     const part = v[i + 6];
-    if (i / CAR_STRIDE >= 0 && x > H - 1.15 && x < H - 0.1 && y > 1.25 && (part === PART.roof || part === PART.side)) {
+    if (x > H - 1.15 && x < H - 0.1 && y > 1.25 && (part === PART.roof || part === PART.side)) {
       v[i + 6] = PART.screen;
     }
   }
