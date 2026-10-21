@@ -9,6 +9,9 @@
 // To show it on the home page, put its slug in FEATURED below.
 
 import { meta as agentRun } from "./pieces/agent-run/meta";
+import { meta as bubbles } from "./pieces/bubbles/meta";
+import { meta as eventHorizon } from "./pieces/event-horizon/meta";
+import { meta as ink } from "./pieces/ink/meta";
 import { meta as commitCity } from "./pieces/commit-city/meta";
 import { meta as disintegrate } from "./pieces/disintegrate/meta";
 import { meta as dusk } from "./pieces/dusk/meta";
@@ -32,6 +35,9 @@ import { meta as rainWindow } from "./pieces/rain-window/meta";
 import { CATEGORY_LABELS, type Category, type PieceMeta } from "./types";
 
 const published: readonly PieceMeta[] = [
+  eventHorizon,
+  ink,
+  bubbles,
   snowGlobe,
   tinyPlanet,
   dusk,

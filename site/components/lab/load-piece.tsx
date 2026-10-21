@@ -37,6 +37,9 @@ function arrive(Piece: ComponentType<PieceProps>): ComponentType<PieceProps> {
 
 // One literal import per piece, so the bundler gives each its own chunk.
 const PIECES: Record<string, ComponentType<PieceProps>> = {
+  "event-horizon": dynamic(() => import("./pieces/event-horizon/piece").then((mod) => arrive(mod.default)), { ssr: false, loading: Loading }),
+  ink: dynamic(() => import("./pieces/ink/piece").then((mod) => arrive(mod.default)), { ssr: false, loading: Loading }),
+  bubbles: dynamic(() => import("./pieces/bubbles/piece").then((mod) => arrive(mod.default)), { ssr: false, loading: Loading }),
   "golden-room": dynamic(() => import("./pieces/golden-room/piece").then((mod) => arrive(mod.default)), { ssr: false, loading: Loading }),
   "holo-cards": dynamic(() => import("./pieces/holo-cards/piece").then((mod) => arrive(mod.default)), { ssr: false, loading: Loading }),
   "pull-cord": dynamic(() => import("./pieces/pull-cord/piece").then((mod) => arrive(mod.default)), { ssr: false, loading: Loading }),
