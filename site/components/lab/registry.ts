@@ -25,9 +25,13 @@ import { meta as splitFlap } from "./pieces/split-flap/meta";
 import { meta as textMorph } from "./pieces/text-morph/meta";
 import { meta as turntable } from "./pieces/turntable/meta";
 import { meta as yearRings } from "./pieces/year-rings/meta";
+import { meta as snowGlobe } from "./pieces/snow-globe/meta";
+import { meta as tinyPlanet } from "./pieces/tiny-planet/meta";
+import { meta as nightTrain } from "./pieces/night-train/meta";
+import { meta as rainWindow } from "./pieces/rain-window/meta";
 import { CATEGORY_LABELS, type Category, type PieceMeta } from "./types";
 
-export const pieces: readonly PieceMeta[] = [
+const published: readonly PieceMeta[] = [
   goldenRoom,
   commitCity,
   macropad,
@@ -44,6 +48,10 @@ export const pieces: readonly PieceMeta[] = [
  * until they are finished: move one into `pieces` to publish it.
  */
 export const drafts: readonly PieceMeta[] = [
+  snowGlobe,
+  tinyPlanet,
+  nightTrain,
+  rainWindow,
   holoCards,
   pullCord,
   yearRings,
@@ -54,6 +62,14 @@ export const drafts: readonly PieceMeta[] = [
   disintegrate,
   elasticScrubber,
 ];
+
+/**
+ * The pieces the site shows. Production builds (the deployed site) show
+ * only finished pieces; the dev server also shows drafts so they can be
+ * built and checked at /lab/<slug>/.
+ */
+export const pieces: readonly PieceMeta[] =
+  process.env.NODE_ENV === "production" ? published : [...published, ...drafts];
 
 export type PieceSlug = (typeof pieces)[number]["slug"];
 
