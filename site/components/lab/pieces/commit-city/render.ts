@@ -862,6 +862,8 @@ export class CityRenderer {
       sctx.beginPath();
       const hullOut = HULL_STACK_OUT;
       for (const lot of order) {
+        // A building still on its way up from an empty lot casts nothing yet.
+        if (lot.height <= 0) continue;
         for (const tier of lot.tiers) {
           let m = 0;
           for (let level = 0; level < 2; level++) {

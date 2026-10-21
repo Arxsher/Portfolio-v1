@@ -6,9 +6,15 @@
 // keys, or an idle figure-eight that dips in and out of the dock). Its
 // squash is a 2D vector on a looser spring that chases the droplet's
 // velocity, so a fast drag stretches it along the motion and, when it
-// stops, the overshoot wobbles it like jelly. Merging and pinching off are
-// read from the gap between the two shapes and kick off a ripple through
-// the glass and a little extra wobble.
+// stops, the overshoot wobbles it like jelly. Let go mid-flick and the
+// target is thrown ahead along the release velocity, so the droplet coasts
+// on and settles; let go overlapping the bar and it is drawn all the way
+// in. Merging and pinching off are read from the gap between the two
+// shapes and kick off a ripple through the glass and a little extra wobble.
+//
+// The room behind (scene.ts) runs on two clocks: `ambient` (the drift of
+// the bokeh, the bulbs breathing, the rain) and `ignite` (seconds since the
+// fairy lights were switched on, which plays their one-by-one start).
 //
 // The frame loop allocates nothing: the GlassFrame, the palette and the
 // targets are written in place.
@@ -16,15 +22,13 @@
 import { clamp, damp, lerp, Spring } from "../../hooks";
 import type { PieceMode } from "../../types";
 import { createFrame, type GlassFrame } from "./renderer";
-import type { WordMask } from "./type";
+import { computeScene, mixLook, writePalette, type SceneLayout } from "./scene";
 
 type Vec3 = readonly [number, number, number];
 
 /* ---------------------------------------------------------------------- */
 /* layout                                                                  */
 /* ---------------------------------------------------------------------- */
-
-type Band = { x: number; y: number; hw: number; hh: number; angle: number };
 
 export type Layout = {
   width: number;
@@ -40,48 +44,21 @@ export type Layout = {
   k: number;
   bevelDock: number;
   bevelDrop: number;
-  fontPx: number;
-  /** Centre x and baseline of the word. */
-  word: { cx: number; baseline: number };
-  disc: { x: number; y: number; r: number };
-  band: Band;
-  /** A thin echo of the band, parallel to it. */
-  band2: Band;
-  grid: number;
-  fade: readonly [number, number, number, number];
-  shadow: { x: number; y: number; blur: number };
+  /** The room behind the glass. */
+  scene: SceneLayout;
   /** Idle figure-eight: half width, rise above the dock, dip below it. */
   path: { ax: number; up: number; down: number; period: number };
   /** The still frame's droplet. */
   rest: { x: number; y: number };
-  /** Size of a drift (CSS px) for the backdrop's slow motion. */
-  drift: number;
 };
 
-/** Geist's x-height as a share of the font size. */
-const X_HEIGHT = 0.53;
 /** Room the top tray takes on the stage (12px inset + 48px tray) plus a 24px gap. */
 const TOP_TRAY = 84;
 /**
  * Room the bottom controls take on a phone stage: 12px inset, the 48px
- * tray, the hint line above it and a little air. The poster keeps clear.
+ * tray, the hint line above it and a little air.
  */
 const BOTTOM_CONTROLS = 96;
-/** The word's ink width as a share of its font size (Geist 600, tracked in). */
-const WORD_WIDTH = 2.75;
-
-/** A thin band parallel to `b`, `off` along its normal and `along` its axis. */
-function echo(b: Band, along: number, off: number, length: number, thickness: number): Band {
-  const c = Math.cos(b.angle);
-  const s = Math.sin(b.angle);
-  return {
-    x: b.x + c * along - s * off,
-    y: b.y + s * along + c * off,
-    hw: b.hw * length,
-    hh: thickness,
-    angle: b.angle,
-  };
-}
 
 export function computeLayout(width: number, height: number, mode: PieceMode, count: number): Layout {
   const tile = mode === "tile";
@@ -94,10 +71,6 @@ export function computeLayout(width: number, height: number, mode: PieceMode, co
   let cy: number;
   let dropR: number;
   let iconSize: number;
-  let fontPx: number;
-  let grid: number;
-  /** Share of the x-height the dock covers. */
-  let cover: number;
   if (tile) {
     dockH = Math.round(width * 0.2);
     pitch = Math.round(width * 0.148);
@@ -105,24 +78,14 @@ export function computeLayout(width: number, height: number, mode: PieceMode, co
     cy = height * 0.6;
     dropR = width * 0.074;
     iconSize = Math.round(width * 0.068);
-    fontPx = width * 0.245;
-    grid = width > 190 ? 10 : 9;
-    cover = 0.5;
   } else if (compact) {
     dockH = 58;
     pitch = Math.min(52, Math.floor((width - 56) / count));
     padX = 8;
-    // The band under the dock (and its drift) stays above the bottom
-    // controls and their hint: on short stages the poster moves up.
-    const drift = width * 1.35 * 0.03;
-    const reach = width * 0.25 * Math.sin(0.2) + width * 0.06 * Math.cos(0.2) + drift;
-    cy = Math.max(TOP_TRAY + dockH, Math.min(height * 0.56, height - BOTTOM_CONTROLS - reach - height * 0.17));
+    // clear of the top tray and of the bottom controls with their hint
+    cy = Math.max(TOP_TRAY + dockH, Math.min(height * 0.56, height - BOTTOM_CONTROLS - dockH * 1.6));
     dropR = 27;
     iconSize = 21;
-    // and the word, drifting, keeps a margin from the stage's sides
-    fontPx = Math.min(width * 0.272, height * 0.27, (width - 48 - drift * 2.8) / WORD_WIDTH);
-    grid = 14;
-    cover = 0.44;
   } else {
     dockH = 78;
     pitch = 70;
@@ -130,36 +93,11 @@ export function computeLayout(width: number, height: number, mode: PieceMode, co
     cy = height * 0.585;
     dropR = 39;
     iconSize = 24;
-    fontPx = Math.min(width * 0.2, height * 0.46, 270);
-    grid = 16;
-    cover = 0.5;
   }
   const hw = (count * pitch) / 2 + padX;
   const hh = dockH / 2;
   const left = cx - hw + padX;
   const icons = Array.from({ length: count }, (_, i) => ({ x: left + pitch * (i + 0.5), y: cy }));
-  const unit = tile ? width : compact ? width * 1.35 : Math.min(width, height * 2.1);
-
-  let disc: Layout["disc"];
-  let band: Band;
-  let band2: Band;
-  if (tile) {
-    disc = { x: cx + width * 0.2, y: cy - height * 0.33, r: width * 0.17 };
-    band = { x: cx - width * 0.16, y: cy + height * 0.15, hw: width * 0.2, hh: width * 0.052, angle: -0.21 };
-    band2 = echo(band, width * 0.05, band.hh * 2.4, 0.62, width * 0.011);
-  } else if (compact) {
-    const r = width * 0.17;
-    disc = { x: cx + width * 0.2, y: Math.max(cy - height * 0.2, TOP_TRAY + r), r };
-    band = { x: cx - width * 0.15, y: cy + height * 0.17, hw: width * 0.25, hh: width * 0.06, angle: -0.2 };
-    // no echo on phones: the controls need that ground
-    band2 = { x: -1e4, y: -1e4, hw: 0, hh: 0, angle: band.angle };
-  } else {
-    // small enough that the droplet's upper loop always passes over it
-    const r = Math.min(height * 0.16, dockH * 1.3);
-    disc = { x: cx + hw * 0.8, y: Math.max(cy - dockH * 1.6, TOP_TRAY * 0.6 + r), r };
-    band = { x: cx - unit * 0.22, y: cy + height * 0.03, hw: unit * 0.17, hh: height * 0.05, angle: -0.2 };
-    band2 = echo(band, -unit * 0.035, band.hh * 2.5, 0.62, 4.5);
-  }
 
   return {
     width,
@@ -177,88 +115,14 @@ export function computeLayout(width: number, height: number, mode: PieceMode, co
     bevelDock: dockH * (tile || compact ? 0.22 : 0.3),
     // the droplet's middle is flat enough to see through cleanly
     bevelDrop: dropR * 0.6,
-    fontPx,
-    word: { cx, baseline: cy - hh + fontPx * X_HEIGHT * cover },
-    disc,
-    band,
-    band2,
-    grid,
-    fade: tile ? [6, 6, width * 0.16, 1] : compact ? [0, 0, 56, 0.85] : [0, 0, 90, 0.85],
-    shadow: tile ? { x: 0, y: 4.5, blur: 10 } : compact ? { x: 0, y: 9, blur: 20 } : { x: 0, y: 12, blur: 26 },
+    scene: computeScene(width, height, mode, compact),
     path: tile
       ? { ax: hw * 0.8, up: dockH * 1.6, down: dockH * 1.25, period: 10 }
       : compact
         ? { ax: hw * 0.8, up: dockH * 1.85, down: dockH * 1.05, period: 12 }
         : { ax: hw * 0.8, up: dockH * 1.95, down: dockH * 1.15, period: 12 },
     rest: { x: cx + hw * 0.88 + dropR * 0.25, y: cy - hh - dropR * 0.55 },
-    drift: unit * 0.03,
   };
-}
-
-/* ---------------------------------------------------------------------- */
-/* colour                                                                  */
-/* ---------------------------------------------------------------------- */
-
-type Palette = {
-  base: Vec3;
-  baseHi: Vec3;
-  ink: Vec3;
-  inkAlpha: number;
-  c1: Vec3;
-  c1b: Vec3;
-  c2: Vec3;
-  c2b: Vec3;
-  gridAlpha: number;
-  shadow: number;
-  caustic: number;
-};
-
-const hex = (value: string): Vec3 => {
-  const n = parseInt(value.slice(1), 16);
-  return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
-};
-
-const luma = (r: number, g: number, b: number) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
-
-/** Moves a colour `amount` of the way to its own grey. */
-const desaturate = (c: Vec3, amount: number): Vec3 => {
-  const y = luma(c[0], c[1], c[2]);
-  return [lerp(c[0], y, amount), lerp(c[1], y, amount), lerp(c[2], y, amount)];
-};
-
-const LIGHT: Palette = {
-  base: hex("#f2f2f2"),
-  baseHi: hex("#f6f6f6"),
-  ink: hex("#161616"),
-  inkAlpha: 1,
-  // a little quieter than the pure hues, so the glass stays the subject
-  c1: desaturate(hex("#ff8443"), 0.1),
-  c1b: desaturate(hex("#f24a1d"), 0.1),
-  c2: desaturate(hex("#2a55f5"), 0.1),
-  c2b: desaturate(hex("#6a8bff"), 0.1),
-  gridAlpha: 0.062,
-  shadow: 0.13,
-  caustic: 0.2,
-};
-
-const DARK: Palette = {
-  base: hex("#232323"),
-  baseHi: hex("#292929"),
-  ink: hex("#ededed"),
-  inkAlpha: 0.95,
-  c1: hex("#ff8048"),
-  c1b: hex("#dc4119"),
-  c2: hex("#3a5fff"),
-  c2b: hex("#7e98ff"),
-  gridAlpha: 0.06,
-  shadow: 0.42,
-  caustic: 0.1,
-};
-
-function mix3Into(out: Float32Array, a: Vec3, b: Vec3, t: number) {
-  out[0] = lerp(a[0], b[0], t);
-  out[1] = lerp(a[1], b[1], t);
-  out[2] = lerp(a[2], b[2], t);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -338,7 +202,6 @@ const PLATE = [0.36, 0.44] as const;
 export class GlassWorld {
   readonly mode: PieceMode;
   layout: Layout | null = null;
-  word: WordMask | null = null;
 
   // droplet
   readonly dx = new Spring(0, { stiffness: 150, damping: 16 });
@@ -373,13 +236,18 @@ export class GlassWorld {
   refraction = 0.6;
   frost = 0.18;
   readonly tint = new Float32Array([1, 1, 1, 0]);
-  backdropTime = 0;
+  /** Seconds of ambient motion in the room (frozen under reduced motion). */
+  ambient = 0;
+  /** Seconds since the fairy lights were switched on. */
+  ignite = 0;
+  /** A new grain pattern each frame (fixed under reduced motion). */
+  private grainSeed = 0;
 
-  /** 0: ink icons, 1: white icons. One tone for the whole bar, so they switch together. */
+  /**
+   * 0: ink icons, 1: white icons. One tone for the whole bar, so they
+   * switch together: ink over the daylit room, white over the night one.
+   */
   tone = 0;
-  private toneTarget = 0;
-  private toneReady = false;
-  private lastDt = 1 / 60;
 
   private readonly out: GlassFrame = createFrame();
   private readonly contactPoint = { x: 0, y: 0 };
@@ -482,8 +350,35 @@ export class GlassWorld {
     this.setTarget(t.x, t.y);
   }
 
-  endDrag() {
-    if (this.driver === "drag") this.driver = "rest";
+  /**
+   * Let go. A droplet still moving is thrown on along its velocity (as far
+   * as it would coast in about a seventh of a second) and settles there on
+   * its own springs; one let go overlapping the bar is drawn all the way in.
+   */
+  endDrag(reducedMotion = false) {
+    if (this.driver !== "drag") return;
+    this.driver = "rest";
+    const l = this.layout;
+    if (!l) return;
+    let x = this.target.x;
+    let y = this.target.y;
+    if (!reducedMotion) {
+      const vx = this.dx.velocity;
+      const vy = this.dy.velocity;
+      const speed = Math.hypot(vx, vy);
+      if (speed > 260) {
+        const reach = Math.min(speed * 0.14, l.dropR * 6);
+        x += (vx / speed) * reach;
+        y += (vy / speed) * reach;
+      }
+    }
+    const { cx, cy, hw, hh } = l.dock;
+    if (this.gap(x, y) < l.k * 0.32) {
+      x = clamp(x, cx - hw + l.dropR * 0.9, cx + hw - l.dropR * 0.9);
+      y = lerp(y, cy, Math.abs(y - cy) < hh * 1.4 ? 1 : 0.6);
+    }
+    const t = this.clampTarget(x, y);
+    this.setTarget(t.x, t.y);
   }
 
   addRipple(x: number, y: number, amp: number) {
@@ -562,7 +457,7 @@ export class GlassWorld {
       !this.glowX.settled ||
       !this.pointerLight.settled ||
       this.rippling ||
-      Math.abs(this.tone - this.toneTarget) > 0.002
+      Math.abs(this.tone - (this.dark > 0.5 ? 1 : 0)) > 0.002
     ) {
       return true;
     }
@@ -587,6 +482,9 @@ export class GlassWorld {
       this.merged = this.gap() < l.k * 0.5;
       this.placed = true;
       this.dark = s.dark ? 1 : 0;
+      this.tone = this.dark;
+      // a still frame starts with the lights long on
+      if (!motion) this.ignite = 60;
       this.refraction = s.refraction;
       this.frost = s.frost;
       const t = tintById(s.tint);
@@ -596,8 +494,13 @@ export class GlassWorld {
       this.tint[3] = t.amount;
     }
 
-    if (motion) this.backdropTime += dt;
-    this.lastDt = motion ? dt : 1;
+    if (motion) {
+      this.ambient += dt;
+      this.ignite += dt;
+      this.grainSeed = (this.grainSeed + 97.31) % 4096;
+    } else {
+      this.ignite = Math.max(this.ignite, 60);
+    }
 
     // where the droplet wants to be
     if (this.driver === "path") {
@@ -699,8 +602,13 @@ export class GlassWorld {
     if (motion) this.pointerLight.step(dt);
     else this.pointerLight.set(this.pointerLight.target);
     const darkTarget = s.dark ? 1 : 0;
-    this.dark = motion ? damp(this.dark, darkTarget, 7, dt) : darkTarget;
+    // the room's light changes over about half a second
+    this.dark = motion ? damp(this.dark, darkTarget, 5, dt) : darkTarget;
     if (Math.abs(this.dark - darkTarget) < 0.002) this.dark = darkTarget;
+    // the icons turn over together a little after the room passes halfway
+    const toneTarget = this.dark > 0.5 ? 1 : 0;
+    this.tone = motion ? damp(this.tone, toneTarget, 9, dt) : toneTarget;
+    if (Math.abs(this.tone - toneTarget) < 0.002) this.tone = toneTarget;
     this.refraction = damp(this.refraction, s.refraction, 14, dt);
     this.frost = damp(this.frost, s.frost, 14, dt);
     const t = tintById(s.tint);
@@ -724,69 +632,6 @@ export class GlassWorld {
     );
   }
 
-  /**
-   * How light the ground under the icons is, as the frosted, tinted glass
-   * shows it, read from the same shapes the shader draws (the word from its
-   * mask). One decision for the whole bar, from the mean of every icon's
-   * samples, with hysteresis: all icons go white over dark ground and back
-   * to ink over light, together.
-   */
-  private updateTone(f: GlassFrame) {
-    const l = this.layout;
-    if (!l) return;
-    const base = luma(f.base[0], f.base[1], f.base[2]);
-    const ink = luma(f.ink[0], f.ink[1], f.ink[2]);
-    const orange = luma(f.c1[0], f.c1[1], f.c1[2]);
-    const blue = luma(f.c2[0], f.c2[1], f.c2[2]);
-    const milk = lerp(0.985, 0.26, this.dark);
-    const body = 0.16 + 0.7 * this.frost;
-    const cos = Math.cos(f.bandAngle);
-    const sin = Math.sin(f.bandAngle);
-    const w = this.word;
-    const tr = f.typeRect;
-    const disc = f.disc;
-    const radius = l.iconSize * 0.9;
-    let sum = 0;
-    let n = 0;
-    for (let i = 0; i < this.count; i++) {
-      const icon = l.icons[i];
-      for (let oy = -1; oy <= 1; oy++) {
-        for (let ox = -1; ox <= 1; ox++) {
-          const x = icon.x + ox * radius * 0.7;
-          const y = icon.y + oy * radius * 0.7;
-          let c = base;
-          if (Math.hypot(x - disc[0], y - disc[1]) < disc[2]) c = orange;
-          for (let b = 0; b < 2; b++) {
-            const band = b === 0 ? f.band : f.band2;
-            const bx = x - band[0];
-            const by = y - band[1];
-            const u = Math.abs(cos * bx + sin * by);
-            const v = Math.abs(-sin * bx + cos * by);
-            if (u < band[2] + band[3] * 0.4 && v < band[3]) c = blue;
-          }
-          if (w?.coverage && tr[2] > 0) {
-            const tx = Math.floor(((x - tr[0]) / tr[2]) * w.pw);
-            const ty = Math.floor(((y - tr[1]) / tr[3]) * w.ph);
-            if (tx >= 0 && ty >= 0 && tx < w.pw && ty < w.ph) {
-              c = lerp(c, ink, (w.coverage[ty * w.pw + tx] / 255) * f.inkAlpha);
-            }
-          }
-          sum += c;
-          n++;
-        }
-      }
-    }
-    const tl = luma(this.tint[0], this.tint[1], this.tint[2]);
-    let seen = lerp(sum / n, milk, body);
-    seen = lerp(seen, seen * tl * 1.08 + tl * 0.05, this.tint[3] * 0.8);
-    const light = this.toneTarget > 0.5 ? seen < 0.56 : seen < 0.46;
-    this.toneTarget = light ? 1 : 0;
-    const k = 1 - Math.exp(-9 * this.lastDt);
-    this.tone = this.toneReady ? lerp(this.tone, this.toneTarget, k) : this.toneTarget;
-    if (Math.abs(this.tone - this.toneTarget) < 0.002) this.tone = this.toneTarget;
-    this.toneReady = true;
-  }
-
   /** Icon i's scale. */
   iconScale(i: number): number {
     return 1 + 0.13 * this.hover[i].value + this.press[i].value * 0.9;
@@ -807,58 +652,62 @@ export class GlassWorld {
     f.height = l.height;
     f.dpr = dpr;
 
-    // palette
-    mix3Into(f.base, LIGHT.base, DARK.base, dk);
-    mix3Into(f.baseHi, LIGHT.baseHi, DARK.baseHi, dk);
-    mix3Into(f.ink, LIGHT.ink, DARK.ink, dk);
-    f.inkAlpha = lerp(LIGHT.inkAlpha, DARK.inkAlpha, dk);
-    mix3Into(f.c1, LIGHT.c1, DARK.c1, dk);
-    mix3Into(f.c1b, LIGHT.c1b, DARK.c1b, dk);
-    mix3Into(f.c2, LIGHT.c2, DARK.c2, dk);
-    mix3Into(f.c2b, LIGHT.c2b, DARK.c2b, dk);
-
-    // the backdrop's slow drift
-    const bt = this.backdropTime;
-    const D = l.drift;
-    const wordX = l.word.cx + Math.sin(bt * 0.11) * D * 1.4;
-    f.disc[0] = l.disc.x + Math.cos(bt * 0.13) * D;
-    f.disc[1] = l.disc.y + Math.sin(bt * 0.17) * D * 0.9;
-    f.disc[2] = l.disc.r * (1 + Math.sin(bt * 0.21) * 0.025);
-    f.disc[3] = 0;
-    const bdx = Math.sin(bt * 0.09 + 1.1) * D * 1.1;
-    const bdy = Math.cos(bt * 0.12) * D * 0.7;
-    f.band[0] = l.band.x + bdx;
-    f.band[1] = l.band.y + bdy;
-    f.band[2] = l.band.hw;
-    f.band[3] = l.band.hh;
-    // the echo trails the band a little
-    f.band2[0] = l.band2.x + bdx * 1.25;
-    f.band2[1] = l.band2.y + bdy * 1.25;
-    f.band2[2] = l.band2.hw;
-    f.band2[3] = l.band2.hh;
-    f.bandAngle = l.band.angle + Math.sin(bt * 0.08) * 0.05;
-
-    const w = this.word;
-    if (w) {
-      f.typeRect[0] = wordX - w.inkWidth / 2 - w.inkLeft;
-      f.typeRect[1] = l.word.baseline - w.baseline;
-      f.typeRect[2] = w.width;
-      f.typeRect[3] = w.height;
-    } else {
-      f.typeRect.fill(0);
+    // the room
+    const sc = l.scene;
+    f.time = this.ambient;
+    f.ignite = this.ignite;
+    writePalette(f.pal, dk);
+    f.lamp[0] = sc.lamp.x;
+    f.lamp[1] = sc.lamp.y;
+    f.lamp[2] = sc.lamp.r;
+    f.win[0] = sc.win.x;
+    f.win[1] = sc.win.y;
+    f.win[2] = sc.win.w;
+    f.win[3] = sc.win.h;
+    f.winBars[0] = sc.win.slope;
+    f.winBars[1] = sc.win.mullion;
+    f.winBars[2] = sc.win.transom;
+    f.winBars[3] = sc.win.bar;
+    f.winSoft[0] = sc.win.softNear;
+    f.winSoft[1] = sc.win.softFar;
+    f.sun[0] = sc.sun.x;
+    f.sun[1] = sc.sun.y;
+    f.rain = sc.rain;
+    f.plant[0] = sc.plant.x;
+    f.plant[1] = sc.plant.y;
+    f.plant[2] = sc.plant.size;
+    for (let i = 0; i < 2; i++) {
+      const w = sc.swags[i];
+      f.swag[i * 4] = w.x0;
+      f.swag[i * 4 + 1] = w.y0;
+      f.swag[i * 4 + 2] = w.x1;
+      f.swag[i * 4 + 3] = w.y1;
+      f.swagB[i * 4] = w.sag;
+      f.swagB[i * 4 + 1] = w.spacing;
+      f.swagB[i * 4 + 2] = w.phase;
+      f.swagB[i * 4 + 3] = w.sway;
     }
-
-    f.grid[0] = l.grid;
-    f.grid[1] = lerp(LIGHT.gridAlpha, DARK.gridAlpha, dk);
-    f.grid[2] = l.width / 2;
-    f.grid[3] = l.height / 2;
-    f.fade.set(l.fade);
-    f.shadow[0] = l.shadow.x;
-    f.shadow[1] = l.shadow.y;
-    f.shadow[2] = l.shadow.blur;
-    f.shadow[3] = lerp(LIGHT.shadow, DARK.shadow, dk);
-    f.caustic = lerp(LIGHT.caustic, DARK.caustic, dk);
-    f.grain = 1.4 / 255;
+    f.bulb[0] = sc.bulb.r;
+    f.bulb[1] = sc.bulb.hang;
+    f.bulb[2] = sc.bulb.halo;
+    f.bulb[3] = sc.bulb.wire;
+    f.bokeh.set(sc.bokeh);
+    f.look[0] = mixLook("bokehAmount", dk);
+    f.look[1] = mixLook("bokehBlend", dk);
+    f.look[2] = mixLook("vignette", dk);
+    f.look[3] = mixLook("wireAlpha", dk);
+    f.shadow[0] = sc.shadow.x;
+    f.shadow[1] = sc.shadow.y;
+    f.shadow[2] = sc.shadow.blur;
+    f.shadow[3] = mixLook("shadow", dk);
+    f.caustic = mixLook("causticAmount", dk);
+    f.grain = mixLook("grain", dk);
+    f.grainSeed = this.grainSeed;
+    // the window in reflections: up and to the left, where the light comes from
+    f.envWin[0] = -0.48;
+    f.envWin[1] = -0.6;
+    f.envWin[2] = 0.3;
+    f.envWin[3] = 0.32;
 
     // shapes
     f.dock[0] = l.dock.cx;
@@ -917,7 +766,6 @@ export class GlassWorld {
     f.pointer[2] = this.pointerLight.value;
 
     // the icons and the plate that calms the ground under them
-    this.updateTone(f);
     f.icons[0] = l.icons[0].x;
     f.icons[1] = l.dock.cy;
     f.icons[2] = l.pitch;

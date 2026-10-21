@@ -66,7 +66,7 @@ type Look = Record<PaletteKey, Vec3> & {
   vignette: number;
   wireAlpha: number;
   shadow: number;
-  caustic: number;
+  causticAmount: number;
   /** Grain amplitude (display units). */
   grain: number;
 };
@@ -78,76 +78,76 @@ const hex = (value: string): Vec3 => {
 const scale = (c: Vec3, k: number): Vec3 => [c[0] * k, c[1] * k, c[2] * k];
 
 /** The plaster, the same in both themes. */
-const PAINT_TOP = hex("#efe5d8");
-const PAINT_BOTTOM = hex("#e8dac9");
+const PAINT_TOP = hex("#f1e2d3");
+const PAINT_BOTTOM = hex("#ead6c3");
 
 export const LIGHT: Look = {
   albedoTop: PAINT_TOP,
   albedoBottom: PAINT_BOTTOM,
-  ambient: [0.955, 0.93, 0.905],
-  lamp: [0.1, 0.06, 0.025],
+  ambient: [0.965, 0.92, 0.87],
+  lamp: [0.12, 0.065, 0.025],
   // low sun: gold near the window, deeper toward the far end of the patch
-  window: [0.34, 0.255, 0.13],
-  windowFar: [0.36, 0.21, 0.085],
+  window: [0.38, 0.29, 0.15],
+  windowFar: [0.4, 0.25, 0.1],
   wire: hex("#4a3a2f"),
   bulb: [1.55, 1.24, 0.82],
   bulbOff: hex("#f3e7d6"),
   halo: [0.15, 0.085, 0.03],
   // the bokeh lay soft light over the wall
-  bokehA: hex("#fff1d8"),
-  bokehB: hex("#ffe2b8"),
-  bokehC: hex("#ffd9c6"),
+  bokehA: hex("#fff6e6"),
+  bokehB: hex("#ffe8c4"),
+  bokehC: hex("#ffe1d2"),
   shadowTint: hex("#8a6f5c"),
   caustic: [0.34, 0.25, 0.11],
   milk: hex("#fbf6ef"),
   envLow: hex("#a08a78"),
   envHigh: hex("#fffaf2"),
-  envWindow: [1.05, 0.96, 0.8],
+  envWindow: [0.7, 0.64, 0.52],
   envLamp: [0.16, 0.1, 0.04],
   rim: [1, 0.97, 0.92],
   plateInk: hex("#fcf8f2"),
   plateWhite: hex("#2a221d"),
-  bokehAmount: 0.42,
+  bokehAmount: 0.55,
   bokehBlend: 1,
-  vignette: 0.13,
+  vignette: 0.2,
   wireAlpha: 0.7,
-  shadow: 0.2,
-  caustic: 1,
+  shadow: 0.24,
+  causticAmount: 1,
   grain: 3.4 / 255,
 };
 
 export const DARK: Look = {
   albedoTop: PAINT_TOP,
   albedoBottom: PAINT_BOTTOM,
-  ambient: [0.072, 0.06, 0.056],
+  ambient: [0.088, 0.072, 0.064],
   // a lamp out of frame on the right
   lamp: [1.05, 0.52, 0.2],
   // cool street light through the wet glass
-  window: [0.11, 0.15, 0.24],
-  windowFar: [0.09, 0.12, 0.21],
+  window: [0.088, 0.112, 0.168],
+  windowFar: [0.072, 0.092, 0.142],
   wire: hex("#0b0806"),
   bulb: scale([1.25, 0.86, 0.44], 2.6),
   bulbOff: hex("#3a2f27"),
   halo: [0.5, 0.25, 0.07],
-  bokehA: [0.95, 0.52, 0.17],
-  bokehB: [1, 0.7, 0.32],
-  bokehC: [0.95, 0.42, 0.26],
+  bokehA: [1, 0.66, 0.3],
+  bokehB: [1, 0.82, 0.55],
+  bokehC: [0.95, 0.48, 0.22],
   shadowTint: hex("#3b2a20"),
   caustic: [0.22, 0.16, 0.12],
   milk: hex("#2a211c"),
   envLow: hex("#0c0908"),
   envHigh: hex("#4a382c"),
-  envWindow: [0.42, 0.52, 0.72],
+  envWindow: [0.26, 0.31, 0.42],
   envLamp: [1.1, 0.6, 0.24],
   rim: [0.95, 0.8, 0.64],
   plateInk: hex("#f4ede4"),
   plateWhite: hex("#1c1613"),
-  bokehAmount: 0.62,
+  bokehAmount: 0.6,
   bokehBlend: 0,
   vignette: 0.34,
   wireAlpha: 0.85,
   shadow: 0.5,
-  caustic: 1,
+  causticAmount: 1,
   grain: 3 / 255,
 };
 
@@ -162,7 +162,9 @@ export function writePalette(out: Float32Array, dark: number) {
   }
 }
 
-export function mixLook(key: "bokehAmount" | "bokehBlend" | "vignette" | "wireAlpha" | "shadow" | "caustic" | "grain", dark: number) {
+type LookScalar = "bokehAmount" | "bokehBlend" | "vignette" | "wireAlpha" | "shadow" | "causticAmount" | "grain";
+
+export function mixLook(key: LookScalar, dark: number) {
   return lerp(LIGHT[key], DARK[key], dark);
 }
 
@@ -211,6 +213,8 @@ export type SceneLayout = {
   sun: { x: number; y: number };
   /** Raindrop cell on the window glass (CSS px). */
   rain: number;
+  /** The plant on the sill whose shadow falls in the window light (window space: base, height). */
+  plant: { x: number; y: number; size: number };
   swags: readonly [Swag, Swag];
   bulb: { r: number; hang: number; halo: number; wire: number };
   /** x, y, radius, seed for each disc (unused slots have radius 0). */
@@ -284,6 +288,7 @@ export function computeScene(width: number, height: number, mode: PieceMode, com
       },
       sun: { x: u * 0.03, y: u * 0.03 * 0.36 + u * 0.006 },
       rain: u * 0.023,
+      plant: { x: W * 0.4 * 0.26, y: H * 0.84, size: u * 0.42 },
       swags: [
         { x0: -W * 0.04, y0: H * 0.085, x1: W * 0.55, y1: H * 0.05, sag: H * 0.215, spacing: u * 0.068, phase: 0.3, sway: u * 0.01 },
         { x0: W * 0.47, y0: H * 0.06, x1: W * 1.04, y1: H * 0.15, sag: H * 0.165, spacing: u * 0.068, phase: 0.7, sway: u * 0.012 },
@@ -315,6 +320,7 @@ export function computeScene(width: number, height: number, mode: PieceMode, com
     },
     sun: { x: u * 0.045, y: u * 0.045 * 0.38 + u * 0.008 },
     rain: u * (tile ? 0.05 : 0.036),
+    plant: { x: W * 0.78 * 0.3, y: H * 0.68, size: u * 0.36 },
     swags: [
       { x0: -W * 0.06, y0: H * 0.1, x1: W * 0.62, y1: H * 0.05, sag: H * 0.1, spacing: u * (tile ? 0.1 : 0.085), phase: 0.3, sway: u * 0.012 },
       { x0: W * 0.52, y0: H * 0.05, x1: W * 1.06, y1: H * 0.11, sag: H * 0.085, spacing: u * (tile ? 0.1 : 0.085), phase: 0.6, sway: u * 0.014 },

@@ -1,10 +1,12 @@
-// WebGL2 plumbing for liquid glass: the scene pass renders the backdrop
-// into a small mipmapped texture (the mips are the frost), the glass pass
-// draws the screen: the backdrop again at full resolution outside the
-// glass, the glass reading the texture inside it. Nothing here knows about
-// React.
+// WebGL2 plumbing for liquid glass: the scene pass renders the room into a
+// mipmapped texture at the canvas's own resolution (half float where the
+// browser can render to it, so the bulbs keep their extra light through
+// the frost; 8-bit otherwise), and the glass pass draws the screen from it:
+// texel for texel outside the glass, refracted and frosted (the mips)
+// inside it. Nothing here knows about React.
 
 import { createProgram, uniformLocations } from "../../gl";
+import { BOKEH_SLOTS, PALETTE_KEYS } from "./scene";
 import { GLASS, SCENE, VERTEX } from "./shaders";
 
 /**
@@ -22,25 +24,24 @@ export type GlassFrame = {
   squash: Float32Array;
   bevelDock: number;
   bevelDrop: number;
-  // backdrop
-  typeRect: Float32Array;
-  base: Float32Array;
-  baseHi: Float32Array;
-  ink: Float32Array;
-  inkAlpha: number;
-  c1: Float32Array;
-  c1b: Float32Array;
-  c2: Float32Array;
-  c2b: Float32Array;
-  disc: Float32Array;
-  band: Float32Array;
-  band2: Float32Array;
-  bandAngle: number;
-  grid: Float32Array;
-  fade: Float32Array;
+  // the room
+  time: number;
+  ignite: number;
+  pal: Float32Array;
+  lamp: Float32Array;
+  win: Float32Array;
+  winBars: Float32Array;
+  winSoft: Float32Array;
+  sun: Float32Array;
+  rain: number;
+  plant: Float32Array;
+  swag: Float32Array;
+  swagB: Float32Array;
+  bulb: Float32Array;
+  bokeh: Float32Array;
+  look: Float32Array;
   shadow: Float32Array;
   caustic: number;
-  grain: number;
   // material
   refract: number;
   frost: number;
@@ -53,9 +54,13 @@ export type GlassFrame = {
   dark: number;
   icons: Float32Array;
   plate: Float32Array;
+  envWin: Float32Array;
+  grain: number;
+  grainSeed: number;
 };
 
 export function createFrame(): GlassFrame {
+  const v2 = () => new Float32Array(2);
   const v3 = () => new Float32Array(3);
   const v4 = () => new Float32Array(4);
   return {
@@ -68,24 +73,23 @@ export function createFrame(): GlassFrame {
     squash: v3(),
     bevelDock: 1,
     bevelDrop: 1,
-    typeRect: v4(),
-    base: v3(),
-    baseHi: v3(),
-    ink: v3(),
-    inkAlpha: 1,
-    c1: v3(),
-    c1b: v3(),
-    c2: v3(),
-    c2b: v3(),
-    disc: v4(),
-    band: v4(),
-    band2: v4(),
-    bandAngle: 0,
-    grid: v4(),
-    fade: v4(),
+    time: 0,
+    ignite: 0,
+    pal: new Float32Array(PALETTE_KEYS.length * 3),
+    lamp: v4(),
+    win: v4(),
+    winBars: v4(),
+    winSoft: v2(),
+    sun: v2(),
+    rain: 10,
+    plant: v4(),
+    swag: new Float32Array(8),
+    swagB: new Float32Array(8),
+    bulb: v4(),
+    bokeh: new Float32Array(BOKEH_SLOTS * 4),
+    look: v4(),
     shadow: v4(),
     caustic: 0,
-    grain: 0,
     refract: 0,
     frost: 0,
     tint: v4(),
@@ -97,12 +101,18 @@ export function createFrame(): GlassFrame {
     dark: 0,
     icons: v4(),
     plate: v4(),
+    envWin: v4(),
+    grain: 0,
+    grainSeed: 0,
   };
 }
 
-/** Device px per CSS px for the backdrop texture, and its pixel budget. */
-const TEXTURE_DPR = 1.25;
-const TEXTURE_MAX_PIXELS = 2.5e6;
+/**
+ * Pixel budget for the scene texture. Up to it the texture matches the
+ * canvas exactly (the stage at DPR 2 is about 2.7 million); past it (a big
+ * screen in full screen) it scales down and is filtered up.
+ */
+const TEXTURE_MAX_PIXELS = 3.6e6;
 
 type Uniforms = (name: string) => WebGLUniformLocation | null;
 
@@ -115,10 +125,11 @@ export class GlassRenderer {
   private vao: WebGLVertexArrayObject;
   private fbo: WebGLFramebuffer;
   private target: WebGLTexture;
-  private type: WebGLTexture;
   private tw = 0;
   private th = 0;
   private levels = 1;
+  /** Half float when the browser can render to it. */
+  private hdr: boolean;
 
   constructor(gl: WebGL2RenderingContext) {
     this.gl = gl;
@@ -129,38 +140,18 @@ export class GlassRenderer {
     const vao = gl.createVertexArray();
     const fbo = gl.createFramebuffer();
     const target = gl.createTexture();
-    const type = gl.createTexture();
-    if (!vao || !fbo || !target || !type) throw new Error("liquid-glass: could not allocate GL objects");
+    if (!vao || !fbo || !target) throw new Error("liquid-glass: could not allocate GL objects");
     this.vao = vao;
     this.fbo = fbo;
     this.target = target;
-    this.type = type;
-
-    gl.bindTexture(gl.TEXTURE_2D, type);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, 1, 1, 0, gl.RED, gl.UNSIGNED_BYTE, new Uint8Array([0]));
+    this.hdr = !!gl.getExtension("EXT_color_buffer_float");
   }
 
-  /** The word mask (white on black; the red channel is read). */
-  setType(source: HTMLCanvasElement) {
+  private allocate(tw: number, th: number) {
     const gl = this.gl;
-    gl.bindTexture(gl.TEXTURE_2D, this.type);
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
-    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, gl.RED, gl.UNSIGNED_BYTE, source);
-  }
-
-  private ensureTarget(tw: number, th: number) {
-    if (tw === this.tw && th === this.th) return;
-    const gl = this.gl;
-    this.tw = tw;
-    this.th = th;
-    this.levels = Math.floor(Math.log2(Math.max(tw, th))) + 1;
     gl.bindTexture(gl.TEXTURE_2D, this.target);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, tw, th, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    if (this.hdr) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, tw, th, 0, gl.RGBA, gl.HALF_FLOAT, null);
+    else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, tw, th, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -168,11 +159,25 @@ export class GlassRenderer {
     gl.generateMipmap(gl.TEXTURE_2D);
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.target, 0);
+    const ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    return ok;
   }
 
-  /** The shapes and the backdrop: both programs draw the scene. */
-  private sceneUniforms(u: Uniforms, f: GlassFrame, dpr: number) {
+  private ensureTarget(tw: number, th: number) {
+    if (tw === this.tw && th === this.th) return;
+    this.tw = tw;
+    this.th = th;
+    this.levels = Math.floor(Math.log2(Math.max(tw, th))) + 1;
+    if (!this.allocate(tw, th) && this.hdr) {
+      // the extension is there but this format isn't renderable here
+      this.hdr = false;
+      this.allocate(tw, th);
+    }
+  }
+
+  /** The shapes: both programs need them. */
+  private shapeUniforms(u: Uniforms, f: GlassFrame, dpr: number) {
     const gl = this.gl;
     gl.uniform2f(u("u_res"), f.width, f.height);
     gl.uniform1f(u("u_dpr"), dpr);
@@ -180,26 +185,10 @@ export class GlassRenderer {
     gl.uniform1f(u("u_dockR"), f.dockR);
     gl.uniform4fv(u("u_drop"), f.drop);
     gl.uniform3fv(u("u_squash"), f.squash);
-    gl.uniform1i(u("u_type"), 1);
-    gl.uniform4fv(u("u_typeRect"), f.typeRect);
-    gl.uniform3fv(u("u_base"), f.base);
-    gl.uniform3fv(u("u_baseHi"), f.baseHi);
-    gl.uniform3fv(u("u_ink"), f.ink);
-    gl.uniform1f(u("u_inkAlpha"), f.inkAlpha);
-    gl.uniform3fv(u("u_c1"), f.c1);
-    gl.uniform3fv(u("u_c1b"), f.c1b);
-    gl.uniform3fv(u("u_c2"), f.c2);
-    gl.uniform3fv(u("u_c2b"), f.c2b);
-    gl.uniform4fv(u("u_disc"), f.disc);
-    gl.uniform4fv(u("u_band"), f.band);
-    gl.uniform4fv(u("u_band2"), f.band2);
-    gl.uniform2f(u("u_bandRot"), Math.cos(f.bandAngle), Math.sin(f.bandAngle));
-    gl.uniform4fv(u("u_grid"), f.grid);
-    // grid lines keep the on-screen width in both passes
-    gl.uniform1f(u("u_lineW"), Math.max(1 / Math.max(f.dpr, 1), 0.5) * 0.5);
-    gl.uniform4fv(u("u_fade"), f.fade);
-    gl.uniform4fv(u("u_shadow"), f.shadow);
-    gl.uniform1f(u("u_caustic"), f.caustic);
+    gl.uniform1f(u("u_bevelDock"), f.bevelDock);
+    gl.uniform1f(u("u_bevelDrop"), f.bevelDrop);
+    gl.uniform1f(u("u_time"), f.time);
+    gl.uniform3fv(u("u_pal"), f.pal);
   }
 
   draw(f: GlassFrame) {
@@ -209,26 +198,37 @@ export class GlassRenderer {
     const ph = canvas.height;
     if (pw < 2 || ph < 2 || f.width < 1 || f.height < 1) return;
 
-    // the backdrop texture is small: the glass frosts it or magnifies it
-    // only a little, and outside the glass the scene is drawn directly
-    let scale = Math.min(f.dpr, TEXTURE_DPR);
-    const area = f.width * f.height * scale * scale;
-    if (area > TEXTURE_MAX_PIXELS) scale *= Math.sqrt(TEXTURE_MAX_PIXELS / area);
-    const tw = Math.max(2, Math.round(f.width * scale));
-    const th = Math.max(2, Math.round(f.height * scale));
+    let scale = 1;
+    if (pw * ph > TEXTURE_MAX_PIXELS) scale = Math.sqrt(TEXTURE_MAX_PIXELS / (pw * ph));
+    const tw = Math.max(2, Math.round(pw * scale));
+    const th = Math.max(2, Math.round(ph * scale));
     this.ensureTarget(tw, th);
 
     gl.disable(gl.BLEND);
     gl.disable(gl.DEPTH_TEST);
     gl.bindVertexArray(this.vao);
-    gl.activeTexture(gl.TEXTURE1);
-    gl.bindTexture(gl.TEXTURE_2D, this.type);
 
-    // 1. the backdrop, into the mipmapped target
+    // 1. the room, into the mipmapped target
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo);
     gl.viewport(0, 0, tw, th);
     gl.useProgram(this.scene);
-    this.sceneUniforms(this.us, f, tw / f.width);
+    const us = this.us;
+    this.shapeUniforms(us, f, tw / f.width);
+    gl.uniform1f(us("u_ignite"), f.ignite);
+    gl.uniform4fv(us("u_lamp"), f.lamp);
+    gl.uniform4fv(us("u_win"), f.win);
+    gl.uniform4fv(us("u_winBars"), f.winBars);
+    gl.uniform2fv(us("u_winSoft"), f.winSoft);
+    gl.uniform2fv(us("u_sun"), f.sun);
+    gl.uniform1f(us("u_rain"), f.rain);
+    gl.uniform4fv(us("u_plant"), f.plant);
+    gl.uniform4fv(us("u_swag"), f.swag);
+    gl.uniform4fv(us("u_swagB"), f.swagB);
+    gl.uniform4fv(us("u_bulb"), f.bulb);
+    gl.uniform4fv(us("u_bokeh"), f.bokeh);
+    gl.uniform4fv(us("u_look"), f.look);
+    gl.uniform4fv(us("u_shadow"), f.shadow);
+    gl.uniform1f(us("u_caustic"), f.caustic);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.activeTexture(gl.TEXTURE0);
@@ -239,10 +239,9 @@ export class GlassRenderer {
     gl.viewport(0, 0, pw, ph);
     gl.useProgram(this.glass);
     const ug = this.ug;
-    this.sceneUniforms(ug, f, pw / f.width);
+    this.shapeUniforms(ug, f, pw / f.width);
     gl.uniform1i(ug("u_scene"), 0);
-    gl.uniform1f(ug("u_bevelDock"), f.bevelDock);
-    gl.uniform1f(ug("u_bevelDrop"), f.bevelDrop);
+    gl.uniform2f(ug("u_px"), pw, ph);
     gl.uniform1f(ug("u_refract"), f.refract);
     gl.uniform1f(ug("u_frost"), f.frost);
     gl.uniform4fv(ug("u_tint"), f.tint);
@@ -255,7 +254,9 @@ export class GlassRenderer {
     gl.uniform1f(ug("u_lod"), this.levels - 1);
     gl.uniform4fv(ug("u_icons"), f.icons);
     gl.uniform4fv(ug("u_plate"), f.plate);
+    gl.uniform4fv(ug("u_envWin"), f.envWin);
     gl.uniform1f(ug("u_grain"), f.grain);
+    gl.uniform1f(ug("u_grainSeed"), f.grainSeed);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     gl.bindVertexArray(null);
   }
@@ -268,7 +269,6 @@ export class GlassRenderer {
     gl.deleteVertexArray(this.vao);
     gl.deleteFramebuffer(this.fbo);
     gl.deleteTexture(this.target);
-    gl.deleteTexture(this.type);
   }
 }
 

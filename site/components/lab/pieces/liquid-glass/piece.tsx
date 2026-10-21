@@ -1,30 +1,57 @@
 "use client";
 
-// Liquid glass: a glass tab bar over a printed backdrop, and a droplet of
-// the same glass you can pull away from it and pour back in.
+// Liquid glass: a glass tab bar floating in front of a warm room on a
+// rainy evening, and a droplet of the same glass you can pull away from it
+// and pour back in.
 //
 // The look (what each part is for)
-// - Backdrop: the tile's own grey, a fine grid, crisp colour fields (an
-//   orange disc lit from above, a cobalt band and a thin echo of it) and
-//   the word "arsher" set huge in Geist. Crisp edges are what make
-//   refraction legible, so nothing behind the glass is blurry; it all
-//   drifts very slowly so the glass always has something passing through.
+// - The room (scene.ts, shaders.ts): one plaster wall at two hours. In the
+//   light theme, low sun after rain comes through a window out of frame on
+//   the left and lands as a golden patch cut by the window's bars and
+//   speckled with the shadows of raindrops on its glass (a few slide down
+//   in fits and starts); fairy lights hang in two swags, already on; soft
+//   cream bokeh from a second string near the lens. In the dark theme the
+//   window brings only cool street light, a lamp out of frame fills the
+//   room with amber, the bulbs light the wall around them and the near
+//   string turns into big warm discs. Film grain over everything. The
+//   details are chosen for the glass: thin wires, bright points and crisp
+//   window bars are what refraction and dispersion make legible.
 // - Material: the dock is frosted glass with a narrow rounded rim that
 //   lenses in a thin sliver of what lies just beyond it. The droplet is the
 //   clearest part: a flat-topped lens that magnifies what is under it,
-//   bends it hard at its rim and gathers a crescent of light on its far
-//   side. They are one field joined by a smooth union, so they bridge like
-//   liquid. A soft sky reflects off faces that tilt up, a key light from
-//   the upper left leaves a highlight and a bright rim, and a hovering
-//   mouse is a second light that glints along the rims.
-// - Icons: one tone for the whole bar (ink, or white over dark ground,
-//   switching together with hysteresis), each sitting on a plate of denser
-//   frost so it reads over anything. The selected tab is a small lifted
-//   lens inside the bar that slides on a spring and stretches as it goes.
-// - Motion: the droplet chases the pointer on a spring and stretches along
-//   its velocity; letting go wobbles it like jelly. Touching the dock
-//   bridges, merges and sends a ripple through the glass; pulling free
-//   pinches the neck off with a pop. Icons lift on hover and dip on press.
+//   bends it hard at its rim (splitting the bulbs into colour) and gathers
+//   a crescent of light on its far side. They are one field joined by a
+//   smooth union, so they bridge like liquid. The room reflects in them:
+//   the window as a small soft box with its bars, the lamp low on the right,
+//   the fairy lights as a row of glints along the top rims. Behind frosted
+//   glass a bulb spreads into a real glow (the scene is kept in half float).
+//   In the window light the glass casts a sun shadow: light still gets
+//   through, the rim darkens its edge, and the droplet focuses its share
+//   into a hot caustic.
+// - Icons: one tone for the whole bar (ink over the daylit room, white
+//   over the night one), each on a plate of denser frost so it reads over
+//   anything. The selected tab is a small lifted lens that slides on a
+//   spring and stretches as it goes.
+//
+// The motion model
+// - The droplet is a point on two springs (slightly under-damped) chasing
+//   a target: the pointer, the keys, or an idle figure-eight that dips in
+//   and out of the bar. Grabbing it mid-flight keeps its velocity, so it
+//   never jumps. Its squash is a looser spring chasing its velocity: a fast
+//   drag stretches it along the motion and the overshoot wobbles it like
+//   jelly. A flick throws it on (the target is pushed ahead along the
+//   release velocity) and it coasts to a stop; let go overlapping the bar
+//   and it is drawn all the way in. Bridging onto the bar or pinching off
+//   sends a ripple through the glass.
+// - The room breathes on its own clock: bokeh drift a few pixels, bulbs
+//   swing on their caps and breathe, the swags sway, rain beads slide.
+//   Switching themes moves the room from evening to night over half a
+//   second, and the icons turn over together on the way.
+// - The "wow" second: the stage opens with the fairy lights switching on
+//   one by one along both strings (each with a little blink) and the bokeh
+//   swelling in after them, while the droplet already loops through the
+//   bar; then drag the droplet over a bulb to see it magnified and split
+//   into a rainbow at the rim.
 // - Sound (stage, after a gesture, lab mute respected): a water plip when
 //   the droplet is picked up, a round blob as it merges, a pop as it
 //   pinches off, a glass tap for the tabs.
@@ -32,17 +59,22 @@
 //   press on it picks it up, also while it sits inside the bar (a press
 //   there that never moves is still a tab press). A finger has to land on
 //   or near the droplet; anywhere else the page scrolls as usual.
-// - Tile: the droplet loops a figure-eight that dips in and out of the
-//   dock while the tabs step along; a mouse over the tile borrows the
-//   droplet. Half frame rate, no sound, nothing focusable.
-// - Reduced motion: one still frame, the droplet caught mid-merge at the
-//   dock's right end, no drift; dragging still works but eases straight
-//   to the pointer without wobble.
-// - Cost: once nothing but the backdrop's slow drift is moving, the stage
-//   draws at 30fps; the backdrop texture is small (see renderer.ts).
+// - Tile: the same room; the lights come on as the tile scrolls in, the
+//   droplet loops a figure-eight through the dock while the tabs step
+//   along; a mouse over the tile borrows the droplet. Half frame rate, no
+//   sound, nothing focusable.
+// - Reduced motion: one still frame, the lights long on, the droplet
+//   caught mid-merge at the dock's right end, no drift, still grain;
+//   dragging still works but eases straight to the pointer without wobble
+//   or throw.
+// - Cost: the room is drawn once per frame at the canvas's resolution (a
+//   pixel budget caps it on big screens), the glass reads it; once only
+//   the room's slow motion is left, the stage draws at 30fps; the loop
+//   allocates nothing; the context is handed back on unmount.
 //
-// Files: engine.ts (layout, springs, colours), shaders.ts + renderer.ts
-// (WebGL2), type.ts (the word), icons.tsx (dock glyphs), sound.ts.
+// Files: engine.ts (layout, springs), scene.ts (the room's layout and
+// colours), shaders.ts + renderer.ts (WebGL2), icons.tsx (dock glyphs),
+// sound.ts.
 
 import {
   useEffect,
@@ -63,7 +95,7 @@ import { computeLayout, GlassWorld, TINTS, tintById, type Settings, type TintId 
 import { TabGlyph, TABS, TILE_TABS } from "./icons";
 import { GlassRenderer, releaseContextLater } from "./renderer";
 import { merge, pinch, plip, tap, wake as wakeAudio } from "./sound";
-import { drawWord, fontFamily, fontReady, WORD } from "./type";
+import { computeScene, DARK, LIGHT } from "./scene";
 
 const SWATCHES = TINTS.map((t) => ({ value: t.id, label: t.label, swatch: t.swatch }));
 
@@ -104,10 +136,6 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
     acc: 0,
     /** Set by input: draw the next frame at once, even at the idle cadence. */
     urgent: true,
-    wordDirty: true,
-    wordPx: 0,
-    wordFont: -1,
-    fontTick: 0,
     nextTab: 3.2,
   });
   /** What was last written to each icon and to the DOM helpers (written only on change). */
@@ -127,7 +155,6 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
   });
   const drag = useRef({ source: "" as DragSource, id: -1, x: 0, y: 0, moved: false, merged: false, suppressUntil: 0 });
   const announceTimer = useRef(0);
-  const wordCanvas = useRef<HTMLCanvasElement | null>(null);
 
   const settings = useLatest<Settings & { theme: PieceTheme }>({
     refraction,
@@ -167,7 +194,7 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
       dt = L.acc;
       L.acc = 0;
     } else {
-      // once only the backdrop's slow drift is moving, 30fps is plenty
+      // once only the room's slow motion is left, 30fps is plenty
       const idle =
         !L.urgent && world.driver !== "path" && world.driver !== "drag" && !world.busy && !world.easing(s);
       if (idle) {
@@ -179,19 +206,8 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
       L.urgent = false;
     }
 
-    if (world.resize(width, height)) L.wordDirty = true;
+    world.resize(width, height);
     const layout = world.layout!;
-
-    // the word, at device pixels
-    const wordPx = Math.round(layout.fontPx * dpr);
-    if (L.wordDirty || wordPx !== L.wordPx || L.fontTick !== L.wordFont) {
-      wordCanvas.current ??= document.createElement("canvas");
-      world.word = drawWord(layout.fontPx, dpr, wordCanvas.current);
-      renderer.setType(world.word.canvas);
-      L.wordPx = wordPx;
-      L.wordFont = L.fontTick;
-      L.wordDirty = false;
-    }
 
     // tiles: the mouse borrows the droplet; tabs step along on their own
     if (!stage) {
@@ -304,7 +320,7 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
       }
     }
 
-    // the backdrop always drifts; a still frame sleeps once it has settled
+    // the room always moves a little; a still frame sleeps once it has settled
     if (s.reducedMotion && !world.busy && !world.easing(s)) return false;
   });
 
@@ -321,7 +337,6 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
         return;
       }
       rendererRef.current = renderer;
-      loop.current.wordDirty = true;
       loop.current.urgent = true;
       wakeLoop();
       return () => {
@@ -340,20 +355,6 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
     const canvas = canvasRef.current;
     return () => releaseContextLater(canvas);
   }, [canvasRef]);
-
-  // redraw the word once Geist has arrived
-  useEffect(() => {
-    let live = true;
-    void fontReady().then(() => {
-      if (!live) return;
-      loop.current.fontTick++;
-      loop.current.urgent = true;
-      wakeLoop();
-    });
-    return () => {
-      live = false;
-    };
-  }, [wakeLoop]);
 
   // settings and theme changes wake a sleeping loop
   useEffect(() => {
@@ -391,7 +392,7 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
 
   const finishDrag = () => {
     if (world.driver !== "drag") return;
-    world.endDrag();
+    world.endDrag(settings.current.reducedMotion);
     // say where it ended up, once, after it has settled
     const before = drag.current.merged;
     window.clearTimeout(announceTimer.current);
@@ -796,31 +797,74 @@ function Fallback({ mode, theme }: { mode: PieceMode; theme: PieceTheme }) {
       canvas.height = Math.round(rect.height * dpr);
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
-      const dark = theme === "dark";
-      const l = computeLayout(rect.width, rect.height, mode, mode === "stage" ? TABS.length : TILE_TABS.length);
+      const look = theme === "dark" ? DARK : LIGHT;
+      const W = rect.width;
+      const H = rect.height;
+      const l = computeLayout(W, H, mode, mode === "stage" ? TABS.length : TILE_TABS.length);
+      const sc = computeScene(W, H, mode, l.compact);
+      const rgb = (c: readonly number[], k = 1, a = 1) =>
+        `rgb(${c.map((v) => Math.round(Math.min(1, Math.max(0, v * k)) * 255)).join(" ")} / ${a})`;
+      const lit = (light: readonly number[]) => look.albedoTop.map((v, i) => v * light[i]);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.fillStyle = dark ? "#232323" : "#f2f2f2";
-      ctx.fillRect(0, 0, rect.width, rect.height);
-      ctx.fillStyle = dark ? "#ff8048" : "#f7874d";
-      ctx.beginPath();
-      ctx.arc(l.disc.x, l.disc.y, l.disc.r, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = dark ? "#3a5fff" : "#3a5ae6";
-      for (const band of [l.band, l.band2]) {
-        ctx.save();
-        ctx.translate(band.x, band.y);
-        ctx.rotate(band.angle);
+      // the wall and the lamp's glow
+      ctx.fillStyle = rgb(lit(look.ambient));
+      ctx.fillRect(0, 0, W, H);
+      const lamp = ctx.createRadialGradient(sc.lamp.x, sc.lamp.y, 0, sc.lamp.x, sc.lamp.y, sc.lamp.r * 1.3);
+      lamp.addColorStop(0, rgb(lit(look.lamp), 1, 0.9));
+      lamp.addColorStop(1, rgb(lit(look.lamp), 1, 0));
+      ctx.globalCompositeOperation = "lighter";
+      ctx.fillStyle = lamp;
+      ctx.fillRect(0, 0, W, H);
+      // the window's light, with its bars
+      const { win } = sc;
+      ctx.fillStyle = rgb(lit(look.window));
+      const pane = (u0: number, u1: number, v0: number, v1: number) => {
+        const x0 = win.x + u0 * win.w;
+        const x1 = win.x + u1 * win.w;
         ctx.beginPath();
-        ctx.roundRect(-band.hw, -band.hh, band.hw * 2, band.hh * 2, band.hh);
+        ctx.moveTo(x0, win.y + win.slope * (x0 - win.x) + v0 * win.h);
+        ctx.lineTo(x1, win.y + win.slope * (x1 - win.x) + v0 * win.h);
+        ctx.lineTo(x1, win.y + win.slope * (x1 - win.x) + v1 * win.h);
+        ctx.lineTo(x0, win.y + win.slope * (x0 - win.x) + v1 * win.h);
         ctx.fill();
-        ctx.restore();
+      };
+      const bu = win.bar / win.w;
+      const bv = win.bar / win.h;
+      pane(0, win.mullion - bu, 0, win.transom - bv);
+      pane(win.mullion + bu, 1, 0, win.transom - bv);
+      pane(0, win.mullion - bu, win.transom + bv, 1);
+      pane(win.mullion + bu, 1, win.transom + bv, 1);
+      // the fairy lights
+      ctx.globalCompositeOperation = "source-over";
+      for (const swag of sc.swags) {
+        const yAt = (x: number) => {
+          const t = (x - swag.x0) / (swag.x1 - swag.x0);
+          return swag.y0 + (swag.y1 - swag.y0) * t + swag.sag * 4 * t * (1 - t);
+        };
+        ctx.strokeStyle = rgb(look.wire, 1, look.wireAlpha);
+        ctx.lineWidth = swag === sc.swags[0] ? 1 : 0.9;
+        ctx.beginPath();
+        for (let x = swag.x0; x <= swag.x1; x += 4) ctx.lineTo(x, yAt(x));
+        ctx.stroke();
+        ctx.fillStyle = rgb(look.bulb);
+        for (let x = swag.x0 + swag.phase * swag.spacing; x < swag.x1; x += swag.spacing) {
+          ctx.beginPath();
+          ctx.ellipse(x, yAt(x) + sc.bulb.hang, sc.bulb.r * 0.8, sc.bulb.r * 1.05, 0, 0, Math.PI * 2);
+          ctx.fill();
+        }
       }
-      ctx.fillStyle = dark ? "#ededed" : "#161616";
-      ctx.font = `600 ${l.fontPx}px ${fontFamily()}`;
-      ctx.textAlign = "center";
-      ctx.fillText(WORD, l.word.cx, l.word.baseline);
-      ctx.fillStyle = dark ? "rgb(255 255 255 / 0.12)" : "rgb(255 255 255 / 0.55)";
-      ctx.strokeStyle = dark ? "rgb(255 255 255 / 0.3)" : "rgb(255 255 255 / 0.95)";
+      // the near string, out of focus
+      for (let i = 0; i < sc.bokeh.length; i += 4) {
+        const r = sc.bokeh[i + 2];
+        if (r <= 0) continue;
+        ctx.fillStyle = rgb(look.bokehA, 1, look.bokehAmount * 0.6);
+        ctx.beginPath();
+        ctx.arc(sc.bokeh[i], sc.bokeh[i + 1], r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // the glass
+      ctx.fillStyle = rgb(look.milk, 1, theme === "dark" ? 0.55 : 0.6);
+      ctx.strokeStyle = rgb(look.rim, 1, theme === "dark" ? 0.35 : 0.9);
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.roundRect(l.dock.cx - l.dock.hw, l.dock.cy - l.dock.hh, l.dock.hw * 2, l.dock.hh * 2, l.dock.r);
@@ -837,7 +881,7 @@ function Fallback({ mode, theme }: { mode: PieceMode; theme: PieceTheme }) {
     <canvas
       ref={ref}
       role={mode === "stage" ? "img" : undefined}
-      aria-label={mode === "stage" ? "A glass dock over the word arsher" : undefined}
+      aria-label={mode === "stage" ? "A glass tab bar in front of a warm room lit by fairy lights" : undefined}
       aria-hidden={mode === "stage" ? undefined : true}
       className="absolute inset-0 block size-full"
     />
