@@ -29,6 +29,29 @@
 // - Reduced motion: a still at the isometric rest, turns land at once.
 // - No sound (the lab's mute control lives on the lab pages).
 //
+// Data: the last 12 months (`data`, from components/home/github.tsx: the
+// build's copy first, then a live one from GitHub), laid out as a rolling
+// window: the weeks run from a Sunday last October to today, so the oldest
+// month (last year's October) stands at the back and this month at the
+// front corner. Dates from last year carry their year ("Oct 20, 2025").
+//
+// Motion (see rise.ts):
+// - The "wow" second: the first time the card is properly in view, the
+//   city builds itself. Every building rises from its empty lot on a
+//   slightly under-damped spring (a few percent of overshoot, settled in
+//   about half a second), in a wave through the year in date order: the
+//   back district first, this month last, the tallest tower's antenna
+//   sliding out at the very end. About a second and a half in all. Drags,
+//   hovers and turns work throughout; nothing waits for it.
+// - Fresher numbers while the card is on screen: each day whose count
+//   changed grows (or settles) from the height it had to its new one, a
+//   new day rises from its empty lot, a few hundredths of a second apart,
+//   newest last; the framing glides to the new fit rather than jumping. If
+//   the window itself has moved on (a new week began since the build), the
+//   old picture crossfades into the new one instead (450 ms). A building
+//   mid-rise is handed over at its current height and speed, never reset.
+// - Off screen or with reduced motion, new numbers simply replace the old.
+//
 // Lifecycle: the parent mounts it once it is near the viewport and passes
 // `active` (on screen and the tab visible); the frame loop only runs while
 // active and sleeps once nothing moves. On unmount every canvas, the
@@ -39,14 +62,29 @@
 // inherits that ancestor's corner radius for its focus ring.
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
-import { clamp, damp, lerp, smoothstep, Spring, useCanvas2D, useFinePointer, useFrame, useLatest } from "../../hooks";
+import {
+  clamp,
+  damp,
+  lerp,
+  smoothstep,
+  Spring,
+  useCanvas2D,
+  useFinePointer,
+  useFrame,
+  useInView,
+  useIsoLayoutEffect,
+  useLatest,
+} from "../../hooks";
 import type { PieceTheme } from "../../types";
-import { buildCity, longDate, plural, shortDate, type Lot } from "./city";
+import { buildCity, dateIn, plural, type City, type CityData, type Lot } from "./city";
 import { lookAt } from "./look";
 import { fitScale, fontFamily, makeStars, nearestRest, NightBlend, paintBeacon, paintSky, type SkyCache, type Star } from "./piece";
-import { axesOnScreen, boundsAt, centreOf, CityRenderer, REST, STEP, type Bounds, type RenderResult, type View } from "./render";
+import { axesOnScreen, boundsAt, centreOf, CityRenderer, plinthRect, REST, STEP, type Bounds, type RenderResult, type View } from "./render";
+import { Rise } from "./rise";
 
 export type CityCardProps = {
+  /** The calendar to build: the last 12 months (a new object whenever the days change). */
+  data: CityData;
   /** False while offscreen or the tab is hidden: the frame loop stops. */
   active: boolean;
   /** prefers-reduced-motion: a still at the rest, no sway, turns land at once. */
@@ -101,7 +139,51 @@ function cardStars(width: number, height: number): Star[] {
   return kept;
 }
 
-const announcement = (lot: Lot) => `${lot.count === 0 ? "No" : lot.count} ${plural(lot.count, "contribution")} on ${longDate(lot.date)}.`;
+const announcement = (city: City, lot: Lot) =>
+  `${lot.count === 0 ? "No" : lot.count} ${plural(lot.count, "contribution")} on ${dateIn(city, lot.date, true)}.`;
+
+/** The intro wave: seconds from the first day's building to the last day's. */
+const WAVE = 1;
+/** Fresher numbers: seconds between one changed day and the next, and at most in all. */
+const UPDATE_STAGGER = 0.07;
+const UPDATE_SPREAD = 0.5;
+/** The crossfade when a fresher window has moved the plan (ms). */
+const FADE_MS = 450;
+/** How quickly the framing glides to a new fit (per second, for damp). */
+const REFRAME = 6;
+/** Share of the card that has to be in view before the city builds itself. */
+const SEEN = 0.4;
+
+/** The city for a calendar, fitted at its built heights before anything rises. */
+function cityFor(data: CityData): City {
+  const city = buildCity({ data, range: "last" });
+  // The fit reads the heights once, now, while every building stands at its full height.
+  plinthRect(city);
+  return city;
+}
+
+/** Does every day the two cities share stand on the same spot? (Then buildings can grow in place.) */
+function samePlan(a: City, b: City): boolean {
+  if (a.bands !== b.bands || a.minX !== b.minX || a.maxX !== b.maxX) return false;
+  const at = new Map<string, Lot>();
+  for (const lot of a.lots) at.set(lot.date, lot);
+  let shared = 0;
+  for (const lot of b.lots) {
+    const old = at.get(lot.date);
+    if (!old) continue;
+    if (old.x !== lot.x || old.z !== lot.z) return false;
+    shared++;
+  }
+  return shared === a.lots.length;
+}
+
+/** Every building down to its empty lot, to rise in a wave through the year once go() is called. */
+function holdForWave(city: City, rise: Rise) {
+  const last = Math.max(1, city.lots.length - 1);
+  // A touch of jitter so a week's seven days don't rise as one slab.
+  for (const lot of city.lots) rise.set(lot, 0, 0, WAVE * (lot.slot / last) + (lot.seed - 0.5) * 0.05);
+  rise.pause();
+}
 
 type Gesture = {
   kind: "none" | "maybe" | "turn";
@@ -114,14 +196,24 @@ type Gesture = {
   velocity: number;
 };
 
-export default function CityCard({ active, reducedMotion, theme, describedBy }: CityCardProps) {
+export default function CityCard({ data, active, reducedMotion, theme, describedBy }: CityCardProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const layerRef = useRef<HTMLCanvasElement | null>(null);
   const wakeRef = useRef<() => void>(() => {});
   const dirty = useRef(true);
-  const city = useMemo(() => buildCity(), []);
+  const city = useMemo(() => cityFor(data), [data]);
   const renderer = useMemo(() => new CityRenderer(city), [city]);
+  const rise = useMemo(() => new Rise(city), [city]);
+  const cityRef = useLatest(city);
+  const activeRef = useLatest(active);
+  /** The city on screen and its rise (to hand over from when fresher numbers come in). */
+  const shown = useRef<{ city: City; rise: Rise } | null>(null);
+  /** The old picture, fading out over the new one, and when that began (-1: none). */
+  const fade = useRef<{ canvas: HTMLCanvasElement | null; start: number }>({ canvas: null, start: -1 });
+  /** The framing, gliding to the new fit after fresher numbers. */
+  const reframe = useRef({ active: false, scale: 0, fx: 0, fz: 0 });
+  const seen = useInView(rootRef, { threshold: SEEN, once: true });
   const fine = useFinePointer();
   const fineRef = useLatest(fine);
   const font = useMemo(() => fontFamily(), []);
@@ -190,7 +282,7 @@ export default function CityCard({ active, reducedMotion, theme, describedBy }: 
         if (reduced.current) spring.set(1);
         else spring.to(1);
       }
-      if (how === "key" && lot) setAnnounce(announcement(lot));
+      if (how === "key" && lot) setAnnounce(announcement(cityRef.current, lot));
       dirty.current = true;
       wakeRef.current();
     },
@@ -264,14 +356,86 @@ export default function CityCard({ active, reducedMotion, theme, describedBy }: 
     wakeRef.current();
   }, [nightTarget, reducedMotion, nightBlend]);
 
-  // Reduced motion switched on: back to the rest, at once.
+  // Reduced motion switched on: back to the rest, at once, every building standing.
   useEffect(() => {
     if (!reducedMotion) return;
     foldSway();
     yaw.set(nearestRest(yaw.target));
+    rise.snap();
+    reframe.current.active = false;
     dirty.current = true;
     wakeRef.current();
-  }, [reducedMotion, foldSway, yaw]);
+  }, [reducedMotion, foldSway, yaw, rise]);
+
+  // A new city (first sight, or fresher numbers): before it is ever drawn,
+  // decide how it arrives.
+  useIsoLayoutEffect(() => {
+    const previous = shown.current;
+    if (previous?.city === city) return;
+    shown.current = { city, rise };
+    const still = reduced.current;
+    if (!previous) {
+      if (!still) holdForWave(city, rise);
+      return;
+    }
+
+    // What was pointed at stays pointed at (the same day in the new plan).
+    const old = selectedRef.current;
+    const kept = old ? (city.lots.find((lot) => lot.date === old.date) ?? null) : null;
+    const lift = old ? lifts.current.get(old.slot) : undefined;
+    lifts.current.clear();
+    if (kept && lift) lifts.current.set(kept.slot, lift);
+    selectedRef.current = kept;
+    setSelected(kept);
+    if (!kept) focus.set(0);
+
+    fit.current.ready = false;
+    dirty.current = true;
+    const waiting = previous.rise.paused;
+    const onScreen = activeRef.current && painted.current && !still;
+    if (waiting) {
+      // The intro hasn't played yet: it plays with the new numbers.
+      holdForWave(city, rise);
+    } else if (onScreen && samePlan(previous.city, city)) {
+      // Grow in place: each day from where its building is now.
+      const before = new Map<string, Lot>();
+      for (const lot of previous.city.lots) before.set(lot.date, lot);
+      let rank = 0;
+      for (const lot of city.lots) {
+        const was = before.get(lot.date);
+        const from = was ? was.height : 0;
+        const velocity = was ? previous.rise.velocityOf(was) : 0;
+        const wait = was ? previous.rise.delayOf(was) : 0;
+        const moving = was ? previous.rise.isMoving(was) : false;
+        if (!moving && Math.abs(from - lot.fullHeight) < 1e-4) continue;
+        // Mid-rise: carries straight on (or keeps its place in the wave); at rest: takes its turn.
+        rise.set(lot, from, velocity, moving ? wait : Math.min(UPDATE_SPREAD, rank++ * UPDATE_STAGGER));
+      }
+      const view = viewRef.current;
+      if (view) reframe.current = { active: true, scale: view.scale, fx: view.fx, fz: view.fz };
+    } else if (onScreen) {
+      // The window moved on: the old picture fades out over the new one.
+      const canvas = canvasRef.current;
+      if (canvas && canvas.width > 1 && canvas.height > 1) {
+        const f = fade.current;
+        if (!f.canvas) f.canvas = document.createElement("canvas");
+        f.canvas.width = canvas.width;
+        f.canvas.height = canvas.height;
+        f.canvas.getContext("2d")?.drawImage(canvas, 0, 0);
+        f.start = performance.now();
+      }
+    }
+    wakeRef.current();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [city, rise]);
+
+  // The city builds itself once it is properly in view.
+  useEffect(() => {
+    if (!seen || !active || !rise.paused) return;
+    rise.go();
+    dirty.current = true;
+    wakeRef.current();
+  }, [seen, active, rise]);
 
   const gesture = useRef<Gesture>({ kind: "none", id: -1, startX: 0, startY: 0, startYaw: REST, lastX: 0, lastT: 0, velocity: 0 });
 
@@ -310,6 +474,17 @@ export default function CityCard({ active, reducedMotion, theme, describedBy }: 
       moving = true;
       dirty.current = true;
     }
+    // Buildings rising.
+    if (rise.step(dt)) {
+      moving = true;
+      dirty.current = true;
+    }
+    if (reframe.current.active) {
+      moving = true;
+      dirty.current = true;
+    }
+    const fading = fade.current.start >= 0;
+    if (fading) moving = true;
     // Day ⇄ night.
     if (nightBlend.step()) {
       moving = true;
@@ -335,7 +510,7 @@ export default function CityCard({ active, reducedMotion, theme, describedBy }: 
     const twinkling = night > 0.02 && !still;
     const swaying = !still && s.pace > 0 && s.amp > 0;
     const alive = moving || swaying || twinkling;
-    if (!dirty.current && !twinkling && painted.current) return alive ? undefined : false;
+    if (!dirty.current && !twinkling && !fading && painted.current) return alive ? undefined : false;
     // Only the sway, the stars or the beacon: a slow cadence is plenty.
     if (!moving && painted.current) {
       acc.current += dt;
@@ -354,6 +529,19 @@ export default function CityCard({ active, reducedMotion, theme, describedBy }: 
       dirty.current = false;
       const view = computeView();
       const lctx = layer.getContext("2d");
+      const r = reframe.current;
+      if (view && r.active) {
+        // Glide from the old fit to the new one.
+        r.scale = damp(r.scale, view.scale, REFRAME, dt);
+        r.fx = damp(r.fx, view.fx, REFRAME, dt);
+        r.fz = damp(r.fz, view.fz, REFRAME, dt);
+        if (Math.abs(r.scale - view.scale) < view.scale * 5e-4 && Math.hypot(r.fx - view.fx, r.fz - view.fz) < 2e-3) r.active = false;
+        else {
+          view.scale = r.scale;
+          view.fx = r.fx;
+          view.fz = r.fz;
+        }
+      }
       if (view && lctx) {
         viewRef.current = view;
         // Month names only once a turn has settled.
@@ -387,7 +575,20 @@ export default function CityCard({ active, reducedMotion, theme, describedBy }: 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.drawImage(layer, 0, 0);
     paintBeacon(ctx, dpr, result.current.beacon, night, time, still, viewRef.current?.scale ?? 14);
-    return alive || dirty.current ? undefined : false;
+    if (fading) {
+      const f = fade.current;
+      const k = clamp((performance.now() - f.start) / FADE_MS);
+      if (k < 1 && f.canvas && f.canvas.width === canvas.width && f.canvas.height === canvas.height) {
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.globalAlpha = 1 - smoothstep(0, 1, k);
+        ctx.drawImage(f.canvas, 0, 0);
+        ctx.globalAlpha = 1;
+      } else {
+        f.start = -1;
+        if (f.canvas) f.canvas.width = f.canvas.height = 1;
+      }
+    }
+    return alive || dirty.current || fade.current.start >= 0 ? undefined : false;
   });
   wakeRef.current = wake;
 
@@ -446,18 +647,23 @@ export default function CityCard({ active, reducedMotion, theme, describedBy }: 
     return () => document.removeEventListener("pointerdown", onDown);
   }, [selected, select]);
 
+  // A city replaced (or the card gone): its renderer's offscreen buffers go now.
+  useEffect(() => () => renderer.dispose(), [renderer]);
+
   // Unmount: let the pixels go now rather than at the next collection.
   useEffect(() => {
     const canvas = canvasRef.current;
     const springs = lifts.current;
+    const fading = fade.current;
     return () => {
-      renderer.dispose();
       const layer = layerRef.current;
       if (layer) layer.width = layer.height = 1;
       if (canvas) canvas.width = canvas.height = 1;
+      if (fading.canvas) fading.canvas.width = fading.canvas.height = 1;
+      fading.start = -1;
       springs.clear();
     };
-  }, [renderer, canvasRef]);
+  }, [canvasRef]);
 
   /* ---------------- pointer ---------------- */
 
@@ -607,7 +813,7 @@ export default function CityCard({ active, reducedMotion, theme, describedBy }: 
       else if (step.axis === "week") next = byCell.get(`${current.col + step.sign}:${current.row}`) ?? current;
       else next = city.lots[current.slot + step.sign] ?? current;
       if (!next) return;
-      if (next === current) setAnnounce(announcement(next));
+      if (next === current) setAnnounce(announcement(city, next));
       else select(next, "key");
       return;
     }
@@ -619,7 +825,7 @@ export default function CityCard({ active, reducedMotion, theme, describedBy }: 
         if (!next) return;
         event.preventDefault();
         setUsed(true);
-        if (next === selectedRef.current) setAnnounce(announcement(next));
+        if (next === selectedRef.current) setAnnounce(announcement(city, next));
         else select(next, "key");
         return;
       }
@@ -644,7 +850,7 @@ export default function CityCard({ active, reducedMotion, theme, describedBy }: 
     }
   };
 
-  const label = `Commit city, GitHub contributions in ${city.year}`;
+  const label = `Commit city, GitHub contributions in ${city.range === "last" ? "the last year" : city.year}`;
   const keys =
     "One lot per day, each building as tall as that day's count. Left and right arrows walk the weeks, up and down arrows the days, Home and End jump to the first and the latest day, Q and E turn the city.";
 
@@ -710,7 +916,7 @@ export default function CityCard({ active, reducedMotion, theme, describedBy }: 
           <>
             <span className="font-medium tabular-nums">{selected.count === 0 ? "No" : selected.count}</span>{" "}
             <span className="text-secondary">
-              {plural(selected.count, "contribution")} on {shortDate(selected.date)}
+              {plural(selected.count, "contribution")} on {dateIn(city, selected.date)}
             </span>
           </>
         ) : null}

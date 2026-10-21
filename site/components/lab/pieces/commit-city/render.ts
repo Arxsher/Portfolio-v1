@@ -934,7 +934,7 @@ export class CityRenderer {
     this.hitCount = 0;
     const hullOut = this.hitPoly;
     // Roof albedo: low roofs, warming a touch towards the tallest.
-    const tallestH = this.city.tallest ? this.city.tallest.height : 1;
+    const tallestH = this.city.tallest ? this.city.peak : 1;
 
     for (const lot of order) {
       if (lot === hovered && lot.height <= 0) {
@@ -1400,7 +1400,7 @@ export class CityRenderer {
     // most of its windows on, the others only the odd one. Taller buildings
     // keep more floors going. Each window has its own moment in the
     // day-to-night blend (so they come on one by one) and its own strength.
-    const busyFloors = 0.18 + 0.34 * Math.min(1, lot.height / 2.4);
+    const busyFloors = 0.18 + 0.34 * Math.min(1, lot.fullHeight / 2.4);
     const lotId = lot.col * 7 + lot.row;
     const needed = floors * cols * 4;
     if (this.windowScratch.length < needed) this.windowScratch = new Float64Array(needed * 2);
@@ -1412,11 +1412,11 @@ export class CityRenderer {
     for (let f = 0; f < floors; f++) {
       const y = bottom + f * floor;
       // A floor is the same floor all the way round the building.
-      const busy = hash2(lotId * 31 + f, Math.round(tier.y0 * 100), 19) < busyFloors;
+      const busy = hash2(lotId * 31 + f, Math.round(tier.key), 19) < busyFloors;
       for (let c = 0; c < cols; c++) {
         const x = gap + c * (winW + gap);
         const id = lotId * 977 + side * 131 + f * 17 + c;
-        const pick = hash2(id, tier.y0 * 100, 3);
+        const pick = hash2(id, tier.key, 3);
         const threshold = 0.18 + 0.72 * hash2(id, 5, 11);
         const on = busy ? pick < 0.82 : pick < 0.07;
         let amount = 0;
