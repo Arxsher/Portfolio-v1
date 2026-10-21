@@ -250,23 +250,27 @@ export function SignaturePad({
           ? "Required. Draw your signature with a mouse, pen or finger, or use the sign button to sign with your name."
           : "Signed."}
       </span>
-      <canvas
-        ref={canvasRef}
-        aria-hidden="true"
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={endStroke}
-        onPointerCancel={endStroke}
-        onLostPointerCapture={endStroke}
-        className={cn(
-          "block aspect-2/1 w-full touch-none rounded-xl bg-float text-primary shadow-lift select-none sm:aspect-4/1",
-          disabled ? "cursor-default" : "cursor-crosshair",
-        )}
-      />
+      {/* The pad is a window pane of the guest house: glass, a sheen, a sill. */}
+      <div className="gh-pane mb-1.5">
+        <span className="gh-pane-sheen" />
+        <canvas
+          ref={canvasRef}
+          aria-hidden="true"
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={endStroke}
+          onPointerCancel={endStroke}
+          onLostPointerCapture={endStroke}
+          className={cn(
+            "relative block aspect-2/1 w-full touch-none rounded-[10px] text-primary select-none sm:aspect-4/1",
+            disabled ? "cursor-default" : "cursor-crosshair",
+          )}
+        />
+      </div>
       <span
         aria-hidden="true"
         className={cn(
-          "pointer-events-none absolute inset-0 flex items-center justify-center text-[14px] text-tertiary transition-opacity duration-200 ease-out",
+          "pointer-events-none absolute inset-x-0 top-0 bottom-1.5 flex items-center justify-center text-[14px] text-tertiary transition-opacity duration-200 ease-out",
           empty ? "opacity-100" : "opacity-0",
         )}
       >
@@ -279,7 +283,7 @@ export function SignaturePad({
           ref={typedRef}
           type="button"
           onClick={signWithName}
-          className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-xl bg-float px-4 text-center text-[14px] text-primary opacity-0 focus-visible:opacity-100 focus-ring"
+          className="pointer-events-none absolute inset-x-0 top-0 bottom-1.5 flex items-center justify-center rounded-[10px] bg-float px-4 text-center text-[14px] text-primary opacity-0 focus-visible:opacity-100 focus-ring"
         >
           {typedLabel}
         </button>
@@ -290,7 +294,7 @@ export function SignaturePad({
           type="button"
           onClick={clearByButton}
           aria-label="Clear signature"
-          className="absolute end-1.5 bottom-1.5 cursor-pointer rounded-lg px-2 py-0.5 text-[13px] text-secondary outline-none transition-[color,background-color] duration-150 ease-out animate-fade-in hover:bg-wash hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
+          className="absolute end-1.5 bottom-3 cursor-pointer rounded-lg px-2 py-0.5 text-[13px] text-secondary outline-none transition-[color,background-color] duration-150 ease-out animate-fade-in hover:bg-wash hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
         >
           Clear
         </button>

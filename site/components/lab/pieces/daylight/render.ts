@@ -58,7 +58,7 @@ export const CLOUD_PUFFS = [
 ] as const;
 export const CLOUD_BASE = 0.05;
 
-export const COMPACT_CLOUD: Cloud = { x: 0.86, y: 0.33, s: 1, speed: 0.0035 };
+export const COMPACT_CLOUD: Cloud = { x: 0.885, y: 0.25, s: 0.85, speed: 0.0035 };
 
 const CLOUDS: Record<Lod, Cloud[]> = {
   compact: [COMPACT_CLOUD],
@@ -147,6 +147,8 @@ export class SwitchView {
   track: Track = trackFor(2, 1, "compact");
   pill: Path2D | null = null;
   hills: Record<HillLayer, Path2D> | null = null;
+  /** Just the crest line of each ridge (open), for the light along it. */
+  crests: Record<HillLayer, Path2D> | null = null;
   extras: Extras | null = null;
   /** Freeze time-driven detail (reduced motion): twinkle, drift. */
   still = false;
@@ -181,25 +183,34 @@ export class SwitchView {
     stadium(pill, w / 2, h / 2, w, h);
     this.pill = pill;
     this.hills = {
-      far: this.ridge("far"),
-      mid: this.ridge("mid"),
-      near: this.ridge("near"),
+      far: this.ridge("far", true),
+      mid: this.ridge("mid", true),
+      near: this.ridge("near", true),
+    };
+    this.crests = {
+      far: this.ridge("far", false),
+      mid: this.ridge("mid", false),
+      near: this.ridge("near", false),
     };
     this.bake();
     this.extras?.resize?.(this);
   }
 
-  /** A ridge as a closed path (before parallax), sampled from its curve. */
-  private ridge(layer: HillLayer): Path2D {
+  /** A ridge (before parallax), sampled from its curve: the closed shape, or just its crest line. */
+  private ridge(layer: HillLayer, closed: boolean): Path2D {
     const { w, h } = this;
     const path = new Path2D();
     const samples = this.lod === "compact" ? 36 : this.lod === "tile" ? 64 : 120;
     const x0 = -0.08;
     const x1 = 1.08;
-    path.moveTo(x0 * w, h + 2);
     let px = x0 * w;
     let py = hillY(layer, x0) * h;
-    path.lineTo(px, py);
+    if (closed) {
+      path.moveTo(px, h + 2);
+      path.lineTo(px, py);
+    } else {
+      path.moveTo(px, py);
+    }
     for (let i = 1; i <= samples; i++) {
       const x = x0 + ((x1 - x0) * i) / samples;
       const nx = x * w;
@@ -209,8 +220,10 @@ export class SwitchView {
       py = ny;
     }
     path.lineTo(px, py);
-    path.lineTo(x1 * w, h + 2);
-    path.closePath();
+    if (closed) {
+      path.lineTo(x1 * w, h + 2);
+      path.closePath();
+    }
     return path;
   }
 
@@ -562,19 +575,20 @@ export class SwitchView {
 
     // light caught along the crest, strongest under the light
     const strength =
-      layer === "far"
+      (layer === "far"
         ? 0.35 * s.golden
-        : Math.max(0.85 * s.golden + 0.25 * s.sunLight * (1 - s.golden), 0.4 * s.moonLight);
+        : Math.max(0.85 * s.golden + 0.25 * s.sunLight * (1 - s.golden), 0.4 * s.moonLight)) *
+      (this.lod === "compact" ? 0.5 : 1);
     if (strength > 0.02) {
       const lx = s.lightX * w - dx;
       const rim = ctx.createLinearGradient(lx - w * 0.55, 0, lx + w * 0.55, 0);
       rim.addColorStop(0, rgba("rim", t, 0));
       rim.addColorStop(0.5, rgba("rim", t, strength));
       rim.addColorStop(1, rgba("rim", t, 0));
-      ctx.clip(path);
       ctx.strokeStyle = rim;
-      ctx.lineWidth = this.lod === "compact" ? 1.4 : Math.max(1.6, h * 0.008);
-      ctx.stroke(path);
+      ctx.lineWidth = this.lod === "compact" ? 0.6 : Math.max(0.9, h * 0.0045);
+      const crest = this.crests?.[layer];
+      if (crest) ctx.stroke(crest);
     }
     ctx.restore();
   }
@@ -601,7 +615,7 @@ export class SwitchView {
       ctx.globalAlpha = 0.16 + 0.2 * s.light;
       ctx.drawImage(soft, k.cx + ox - k.w / 2 - b, k.cy + oy - k.h / 2 - b, k.w + b * 2, k.h + b * 2);
     }
-    if (tight) {
+    if (tight && this.lod !== "stage") {
       const b = this.tightBlur;
       ctx.globalAlpha = 0.22;
       ctx.drawImage(tight, k.cx - k.w / 2 - b, k.cy + d * 0.025 - k.h / 2 - b, k.w + b * 2, k.h + b * 2);
@@ -635,49 +649,54 @@ export class SwitchView {
     if (!compact) {
       // the world reflected faintly in the knob: sky above, land below
       const env = ctx.createLinearGradient(0, k.cy - k.h / 2, 0, k.cy + k.h / 2);
-      env.addColorStop(0, rgba("upper", t, 0.14));
-      env.addColorStop(0.45, rgba("upper", t, 0));
-      env.addColorStop(0.62, rgba("near", t, 0));
-      env.addColorStop(1, rgba("near", t, 0.16));
+      env.addColorStop(0, rgba("upper", t, 0.13));
+      env.addColorStop(0.3, rgba("upper", t, 0.05));
+      env.addColorStop(0.5, rgba("upper", t, 0));
+      env.addColorStop(0.5, rgba("near", t, 0));
+      env.addColorStop(0.78, rgba("near", t, 0.06));
+      env.addColorStop(1, rgba("near", t, 0.17));
       ctx.fillStyle = env;
       ctx.fill();
-      // warm light on the side facing a low sun
+      // warm light on the side facing a low sun (a linear wash along the light)
       if (s.golden > 0.02) {
-        const warm = ctx.createRadialGradient(k.cx + lx * r, k.cy + ly * r * 0.5, 0, k.cx + lx * r, k.cy, r * 1.3);
-        warm.addColorStop(0, rgba("sunGlow", t, 0.38 * s.golden));
-        warm.addColorStop(1, rgba("sunGlow", t, 0));
+        const warm = ctx.createLinearGradient(k.cx - lx * r, k.cy - ly * r, k.cx + lx * r, k.cy + ly * r);
+        warm.addColorStop(0.35, rgba("sunGlow", t, 0));
+        warm.addColorStop(1, rgba("sunGlow", t, 0.34 * s.golden));
         ctx.fillStyle = warm;
         ctx.fill();
       }
-      // specular highlight toward the light
+      // specular highlight toward the light: a soft bloom with a crisp core,
+      // painted over its own small square only (it sits well inside the knob)
       const sx = k.cx + lx * k.w * 0.2;
-      const sy = k.cy - k.h * 0.26;
-      const spec = ctx.createRadialGradient(sx, sy, 0, sx, sy, r * 0.42);
-      spec.addColorStop(0, `rgba(255,255,255,${(0.75 * s.light + 0.15).toFixed(3)})`);
+      const sy = k.cy - k.h * 0.27;
+      const shine = 0.7 * s.light + 0.2;
+      const reach = r * 0.36;
+      const spec = ctx.createRadialGradient(sx, sy, 0, sx, sy, reach);
+      spec.addColorStop(0, `rgba(255,255,255,${shine.toFixed(3)})`);
+      spec.addColorStop(0.22, `rgba(255,255,255,${(shine * 0.75).toFixed(3)})`);
       spec.addColorStop(1, "rgba(255,255,255,0)");
       ctx.fillStyle = spec;
-      ctx.fill();
+      ctx.fillRect(sx - reach, sy - reach, reach * 2, reach * 2);
     }
 
-    // rim: a hairline edge plus a bright lip along the top
+    // rim: a hairline edge
     ctx.lineWidth = compact ? 0.6 : Math.max(0.8, h * 0.004);
     ctx.strokeStyle = `rgba(0,0,0,${(0.08 + 0.12 * s.night).toFixed(3)})`;
     ctx.stroke();
     if (!compact) {
-      ctx.save();
+      // one stroke just inside the edge: a bright lip along the top, nothing
+      // at the sides, and the sky caught along the bottom (a fresnel lip)
+      const lw = Math.max(1.2, k.h * 0.013);
       ctx.beginPath();
-      ctx.rect(k.cx - k.w, k.cy - k.h, k.w * 2, k.h * 0.8);
-      ctx.clip();
-      ctx.beginPath();
-      const inset = Math.max(1, h * 0.006);
-      stadium(ctx, k.cx, k.cy, k.w - inset * 2, k.h - inset * 2);
-      const lip = ctx.createLinearGradient(0, k.cy - k.h / 2, 0, k.cy);
+      stadium(ctx, k.cx, k.cy, k.w - lw, k.h - lw);
+      const lip = ctx.createLinearGradient(0, k.cy - k.h / 2, 0, k.cy + k.h / 2);
       lip.addColorStop(0, "rgba(255,255,255,0.9)");
-      lip.addColorStop(1, "rgba(255,255,255,0)");
+      lip.addColorStop(0.28, "rgba(255,255,255,0)");
+      lip.addColorStop(0.66, rgba("horizon", t, 0));
+      lip.addColorStop(1, rgba("horizon", t, 0.5));
       ctx.strokeStyle = lip;
-      ctx.lineWidth = Math.max(1, h * 0.006);
+      ctx.lineWidth = lw;
       ctx.stroke();
-      ctx.restore();
     }
   }
 

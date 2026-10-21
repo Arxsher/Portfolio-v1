@@ -47,10 +47,24 @@ function Ends({ side, w, h, id }: { side: 0 | 1; w: number; h: number; id: strin
   if (side === 1) {
     for (let i = 0; i < stars.length / STAR_FIELDS; i++) {
       const o = i * STAR_FIELDS;
-      const opacity = (0.7 + 0.3 * Math.sin(stars[o + 5])) * (stars[o + 6] > 0.5 ? 1 : 0.82);
-      starDots.push(
-        <circle key={i} cx={stars[o] * w} cy={stars[o + 1] * h} r={stars[o + 2] * h} fill="#fff" opacity={opacity} />,
-      );
+      const twinkle = 0.7 + 0.3 * Math.sin(stars[o + 5]);
+      const bright = stars[o + 6] > 0.5;
+      const x = stars[o] * w;
+      const y = stars[o + 1] * h;
+      const r = stars[o + 2] * h;
+      starDots.push(<circle key={i} cx={x} cy={y} r={r} fill="#fff" opacity={twinkle * (bright ? 1 : 0.82)} />);
+      if (bright) {
+        const g = r * 2.4 * twinkle;
+        starDots.push(
+          <path
+            key={`g${i}`}
+            d={`M${x - g} ${y}H${x + g}M${x} ${y - g}V${y + g}`}
+            stroke="#fff"
+            strokeWidth="0.5"
+            opacity={twinkle * 0.45}
+          />,
+        );
+      }
     }
   }
   const clip = `${id}-clip-${side}`;
@@ -92,6 +106,10 @@ function Ends({ side, w, h, id }: { side: 0 | 1; w: number; h: number; id: strin
           <stop offset="0" stopColor={keyColor("cloud", stop)} />
           <stop offset="1" stopColor={keyColor("cloudShade", stop)} />
         </linearGradient>
+        <radialGradient id={`${id}-halo`}>
+          <stop offset="0.25" stopColor="rgb(205,215,245)" stopOpacity="0.3" />
+          <stop offset="1" stopColor="rgb(205,215,245)" stopOpacity="0" />
+        </radialGradient>
         <radialGradient id={shade}>
           <stop offset="0.6" stopColor="#000" stopOpacity="0.3" />
           <stop offset="1" stopColor="#000" stopOpacity="0" />
@@ -113,6 +131,7 @@ function Ends({ side, w, h, id }: { side: 0 | 1; w: number; h: number; id: strin
           </>
         ) : (
           <g transform={`translate(${mx * w} ${my * h}) rotate(${angle})`}>
+            <circle r={moonR * 3.2} fill={`url(#${id}-halo)`} />
             <circle r={moonR} fill="#c9cfdf" opacity="0.16" />
             <path
               d={`M0 ${-moonR}A${moonR} ${moonR} 0 0 1 0 ${moonR}A${moonR * 0.3} ${moonR} 0 0 0 0 ${-moonR}Z`}

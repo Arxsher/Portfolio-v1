@@ -19,7 +19,8 @@ export function land(speed: number) {
   if (!audioReady()) return;
   const kit = getAudio();
   if (!kit) return;
-  const level = Math.min(1, Math.max(0, (speed - 0.25) / 4));
+  // a tap lands at about 0.9 travels per second, a hard flick at 3 or more
+  const level = Math.min(1, Math.max(0, (speed - 0.15) / 2.4));
   if (level <= 0.02) return;
   const { ctx, output } = kit;
   const now = ctx.currentTime;

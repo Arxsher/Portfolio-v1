@@ -1,31 +1,41 @@
 "use client";
 
 // The "sign the guestbook" form that the command bar shows in its guestbook
-// panel: name and message side by side, the signature pad, then the live
-// counter and the Sign button. After a successful signature the fields
-// fade out, the signature traces itself in with a short thank-you, the
-// counter ticks up, and onDone runs a moment later.
+// panel: name and message side by side, the signature pad (drawn as a
+// window pane of the guest house), then the live counter of lit windows and
+// the Sign button. After a successful signature the fields blur away, a
+// window pane takes their place, your signature writes itself onto it and
+// the pane's light comes on. A moment later the signature lifts off the
+// pane and flies into your window on the guest house (flight.ts), if one
+// is on screen, as the panel closes (onDone). Without a house in view the
+// thank-you just stays a little longer.
 //
 // The panel chrome around it (icon tile, title, close button) belongs to
 // the command bar; GUESTBOOK_PANEL has the title and description to use.
 
 import { useEffect, useId, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import { GUESTBOOK_LIMITS, GuestbookError, cleanEntry } from "@/lib/guestbook";
+import { GUESTBOOK_LIMITS, GuestbookError, cleanEntry, type GuestbookEntry } from "@/lib/guestbook";
 import { cn } from "@/lib/cn";
 import { useGuestbookClient, useGuestbookCount } from "./data";
+import { flySignature } from "./flight";
+import { windowNumber } from "./format";
+import { HOUSE_CSS } from "./house/styles";
 import { Odometer } from "./odometer";
 import { Signature } from "./signature";
 import { SignaturePad, type SignaturePadHandle } from "./signature-pad";
+import { primeSound } from "./sound";
 
 /** Copy for the panel header the command bar renders above the form. */
 export const GUESTBOOK_PANEL = {
   title: "Sign the guestbook",
-  description: "Write a short note, then sign it by hand.",
+  description: "Leave a short note and sign it. Your signature gets a window of its own.",
 } as const;
 
-/** How long the "signed" state shows before onDone. */
-const DONE_DELAY = 1800;
+/** The lit pane shows this long before the signature flies off. */
+const HOLD_MS = 1500;
+/** Extra time for the thank-you when there is no window to fly to. */
+const STAY_MS = 900;
 
 const fieldClass =
   "w-full rounded-pill bg-float px-4 py-2 text-[16px] text-primary shadow-lift outline-none transition-[box-shadow] duration-150 ease-out placeholder:text-tertiary hover:shadow-lift-hover focus:shadow-[0_0_0_1px_color-mix(in_oklab,var(--foreground)_45%,transparent),0_0_0_4px_color-mix(in_oklab,var(--foreground)_9%,transparent)] disabled:cursor-default disabled:opacity-60 sm:text-[15px]";
@@ -50,7 +60,9 @@ export function GuestbookSignForm({
   const [signature, setSignature] = useState("");
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
-  const [signed, setSigned] = useState<string>("");
+  const [signed, setSigned] = useState<{ entry: GuestbookEntry; number: number | null } | null>(null);
+  const [lit, setLit] = useState(false);
+  const signedInk = useRef<SVGSVGElement>(null);
   const pad = useRef<SignaturePadHandle>(null);
   const nameInput = useRef<HTMLInputElement>(null);
   const messageInput = useRef<HTMLInputElement>(null);
@@ -60,20 +72,38 @@ export function GuestbookSignForm({
     onDoneRef.current = onDone;
   }, [onDone]);
 
-  // After the thank-you: hand back to the panel, and start fresh in case
-  // the form stays on screen.
+  // The thank-you: the pane lights, then the signature flies to its window
+  // and the panel hands back (onDone); start fresh in case the form stays.
   useEffect(() => {
-    if (phase !== "done") return;
-    const timer = setTimeout(() => {
-      onDoneRef.current?.();
+    if (phase !== "done" || !signed) return;
+    const timers: number[] = [];
+    const reset = () => {
       setName("");
       setMessage("");
       setSignature("");
+      setSigned(null);
+      setLit(false);
       pad.current?.clear();
       setPhase("idle");
-    }, DONE_DELAY);
-    return () => clearTimeout(timer);
-  }, [phase]);
+    };
+    // Hand back first; start fresh once the panel has had time to close
+    // (or at once, if nothing closes it).
+    const finish = () => {
+      const close = onDoneRef.current;
+      if (!close) return reset();
+      close();
+      timers.push(window.setTimeout(reset, 600));
+    };
+    timers.push(window.setTimeout(() => setLit(true), 220));
+    timers.push(
+      window.setTimeout(() => {
+        const flew = flySignature(signed.entry, signedInk.current);
+        if (flew) finish();
+        else timers.push(window.setTimeout(finish, STAY_MS));
+      }, HOLD_MS),
+    );
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [phase, signed]);
 
   const enabled = client.enabled;
   const sending = phase === "sending";
@@ -95,10 +125,12 @@ export function GuestbookSignForm({
       return;
     }
 
+    primeSound();
     setPhase("sending");
     try {
+      const before = count;
       const saved = await client.create(entry);
-      setSigned(saved.signature);
+      setSigned({ entry: saved, number: before === null ? null : before + 1 });
       setPhase("done");
     } catch (problem) {
       setError(problem instanceof GuestbookError ? problem.message : "Couldn't sign the guestbook. Please try again.");
@@ -111,7 +143,10 @@ export function GuestbookSignForm({
     : error;
 
   return (
-    <form onSubmit={submit} aria-describedby={status ? ids.status : undefined}>
+    <form onSubmit={submit} aria-describedby={status ? ids.status : undefined} className="gh">
+      <style href="guest-house" precedence="default">
+        {HOUSE_CSS}
+      </style>
       <div className="grid">
         {/* the fields */}
         <div
@@ -197,25 +232,36 @@ export function GuestbookSignForm({
           </div>
         </div>
 
-        {/* the thank-you, stacked in the same cell */}
+        {/* the thank-you, stacked in the same cell: your window, lit */}
         <div
           aria-hidden={!done}
           className={cn(
-            "col-start-1 row-start-1 flex flex-col items-center justify-center gap-5 transition-[opacity,translate] duration-300 ease-out motion-reduce:transition-opacity",
-            done ? "delay-100" : "pointer-events-none translate-y-2 opacity-0 motion-reduce:translate-y-0",
+            "col-start-1 row-start-1 flex flex-col items-center justify-end gap-4 pb-1.5 transition-[opacity,translate,filter] duration-300 ease-out motion-reduce:transition-opacity",
+            done ? "delay-100" : "pointer-events-none translate-y-2 opacity-0 blur-[3px] motion-reduce:translate-y-0 motion-reduce:blur-none",
           )}
         >
-          {done && signed ? (
-            <Signature path={signed} align="center" draw className="h-[70px] w-full max-w-[260px] text-primary" />
-          ) : null}
           <p
             className={cn(
               "text-[15px] transition-[opacity,translate] duration-300 ease-out motion-reduce:transition-opacity",
-              done ? "delay-200" : "translate-y-1 opacity-0 motion-reduce:translate-y-0",
+              done ? "delay-300" : "translate-y-1 opacity-0 motion-reduce:translate-y-0",
             )}
           >
-            <span className="font-medium text-primary">Signed.</span> You&apos;re on the wall now.
+            <span className="font-medium text-primary">Signed.</span>{" "}
+            {signed?.number ? <>Window {windowNumber(signed.number - 1)} is yours.</> : <>Your window is lit.</>}
           </p>
+          <div className="gh-pane aspect-2/1 w-full sm:aspect-4/1" data-lit={lit ? "" : undefined}>
+            <span className="gh-pane-sheen" />
+            {done && signed ? (
+              <Signature
+                ref={signedInk}
+                path={signed.entry.signature}
+                name={signed.entry.name}
+                align="center"
+                draw
+                className="gh-pane-ink absolute top-[16%] left-[10%] h-[68%] w-[80%] text-primary transition-colors duration-500"
+              />
+            ) : null}
+          </div>
         </div>
       </div>
 
@@ -230,7 +276,7 @@ export function GuestbookSignForm({
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
         <p className="-ms-1.5">
-          <Odometer value={enabled ? count : 0} className="mx-1.5" /> notes on the wall.
+          <Odometer value={enabled ? count : 0} className="mx-1.5" /> {count === 1 ? "window" : "windows"} lit.
         </p>
         <button
           type="submit"

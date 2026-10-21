@@ -47,10 +47,14 @@
 //   touches the site theme.
 // - Reduced motion: the switch jumps to its end, nothing drifts or
 //   twinkles, no automatic flipping on the tile (a still at the theme's end).
-// - Frames: the loop runs while the piece is active; the stage keeps it
-//   going for the twinkle and drift, the reduced-motion stage sleeps once
-//   the knob rests. Nothing in the frame loop allocates beyond a few
-//   gradients.
+// - Frames: the loop runs while the piece is active. While the knob moves
+//   every frame is drawn; at rest only the twinkle and drift change, so
+//   every other frame is skipped (30 fps). The reduced-motion stage sleeps
+//   once the knob rests. If a machine can't hold the frame rate while the
+//   knob moves, the stage steps its pixel ratio down (2 → 1.5 → 1.25).
+//   Nothing in the frame loop allocates beyond a few gradients; measured
+//   in pure software raster, a stage frame costs about 17 ms at 2× and the
+//   header switch under 1 ms (on a GPU-backed canvas, a fraction of that).
 
 import { useEffect, useId, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
@@ -120,6 +124,8 @@ function Tile({ active, reducedMotion, theme }: PieceProps) {
 
   const canvasRef = useSwitchCanvas(view, 1.5, () => view.draw(model, clock.current));
 
+  const skip = useRef(false);
+
   const wake = useFrame(active, (dt, time) => {
     clock.current = time;
     if (!reducedMotion) {
@@ -132,7 +138,9 @@ function Tile({ active, reducedMotion, theme }: PieceProps) {
       }
     }
     const moving = model.step(dt);
-    view.draw(model, time);
+    // at rest only the twinkle and drift move: half the frame rate is plenty
+    skip.current = !moving && !skip.current;
+    if (!skip.current) view.draw(model, time);
     return !reducedMotion || moving;
   });
 
@@ -145,7 +153,8 @@ function Tile({ active, reducedMotion, theme }: PieceProps) {
 
   const W = size.width;
   const H = size.height;
-  const sw = Math.max(40, Math.floor(Math.min(W - 48, (H - 52) * 2) / 2) * 2);
+  const margin = Math.min(28, Math.max(14, W * 0.12));
+  const sw = Math.max(40, Math.floor(Math.min(W - margin * 2, (H - margin * 2) * 2) / 2) * 2);
   const sh = sw / 2;
 
   return (
@@ -188,7 +197,8 @@ type StageLayout = { sw: number; sh: number; left: number; top: number; narrow: 
 
 function stageLayout(W: number, H: number): StageLayout {
   const narrow = W < 640;
-  const controls = narrow ? 104 : 120;
+  // the tray and the hint over it
+  const controls = narrow ? 100 : 96;
   const caption = narrow ? 46 : 54;
   const budget = H - controls - caption - (narrow ? 24 : 56);
   // a little wider than the header's 2 : 1, so more of the land shows beside the knob
@@ -218,9 +228,12 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
   const [big] = useState(() => new SwitchView("stage", createExtras("stage")));
   const [mini] = useState(() => new SwitchView("compact"));
   const [linked, setLinked] = useState(true);
+  // frame-time safety net: a machine that can't hold the frame rate while
+  // the knob moves gets a lower pixel ratio (2 → 1.5 → 1.25), once each
+  const [dprCap, setDprCap] = useState(2);
+  const perf = useRef({ slow: 0, skip: false });
   const [night, setNight] = useState(theme === "dark");
   const [touched, setTouched] = useState(false);
-  const [announce, setAnnounce] = useState("");
 
   const clock = useRef(0);
   // per-frame bookkeeping for sound and the readout
@@ -235,14 +248,26 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
     big.draw(model, clock.current);
     mini.draw(model, clock.current);
   };
-  const bigCanvas = useSwitchCanvas(big, 2, draw);
+  const bigCanvas = useSwitchCanvas(big, dprCap, draw);
   const miniCanvas = useSwitchCanvas(mini, 3, draw);
 
   const wake = useFrame(active, (dt, time) => {
     clock.current = time;
     const moving = model.step(dt);
-    big.draw(model, time);
-    mini.draw(model, time);
+    const f = perf.current;
+    if (moving) {
+      f.slow = dt > 1 / 40 ? f.slow + dt : Math.max(0, f.slow - dt * 0.5);
+      if (f.slow > 0.8 && dprCap > 1.25) {
+        f.slow = 0;
+        setDprCap(dprCap > 1.5 ? 1.5 : 1.25);
+      }
+    }
+    // at rest only the twinkle and drift move: half the frame rate is plenty
+    f.skip = !moving && !f.skip;
+    if (!f.skip) {
+      big.draw(model, time);
+      mini.draw(model, time);
+    }
     readout(moving);
     return !reducedMotion || moving;
   });
@@ -317,10 +342,6 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
   }, [theme, linked, model, wake]);
 
   useEffect(() => {
-    setAnnounce(night ? "Night" : "Afternoon");
-  }, [night]);
-
-  useEffect(() => {
     wake();
   }, [reducedMotion, size.width, size.height, wake]);
 
@@ -348,7 +369,7 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
   const layout = size.width ? stageLayout(size.width, size.height) : null;
   const l = layout ?? { sw: 0, sh: 0, left: 0, top: 0, narrow: false };
 
-  const hint = fine ? "Drag the knob or click the switch · flick it to throw it across" : "Drag the knob or tap the switch";
+  const hint = fine ? "Drag the knob or click · flick it to throw it across" : "Drag the knob or tap · flick to throw it";
 
   return (
     <div ref={rootRef} className="absolute inset-0 select-none">
@@ -419,9 +440,6 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
         A light and dark switch with a landscape inside. Drag the knob, or press Enter or Space, to switch; hold the
         left or right arrow to move the evening slowly, and let go to finish the switch.
         {linked ? " It sets this site's theme." : ""}
-      </p>
-      <p className="sr-only" aria-live="polite">
-        {announce}
       </p>
 
       <StageControls placement="bottom">

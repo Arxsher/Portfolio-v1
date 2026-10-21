@@ -30,8 +30,8 @@ const CHANNELS = {
   lake: ["#b4cfe2", "#e9c59c", "#da9478", "#5b5882", "#18203c"],
   lakeDeep: ["#8db0cb", "#ab9ba1", "#8b6f87", "#2d3257", "#0e1427"],
   // the knob: white in daylight, warm at golden hour, moonlit at night
-  knob: ["#ffffff", "#fffaf3", "#fff3ec", "#e4e6ef", "#d3d8e3"],
-  knobShade: ["#e3e7eb", "#eee1d5", "#ecd8d1", "#b5bacb", "#959eb3"],
+  knob: ["#ffffff", "#fffaf3", "#fff3ec", "#dfe2ec", "#c9cfdc"],
+  knobShade: ["#e3e7eb", "#eee1d5", "#ecd8d1", "#aab0c2", "#8a93a9"],
 } as const;
 
 export type Channel = keyof typeof CHANNELS;

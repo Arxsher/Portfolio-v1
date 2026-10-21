@@ -13,8 +13,8 @@ export const meta: PieceMeta = {
   uses: ["Signed distance fields", "Springs", "Pointer events"],
   category: "interactions",
   inspiredBy: "Segmented controls and drops of water",
-  // 204 × 132 at the 204px home tile
-  tile: { aspect: 204 / 132 },
+  // 204 × 112 at the 204px home tile
+  tile: { aspect: 204 / 112 },
   stage: { aspect: 1 },
   controlsHint: "Click or tap a tab · Drag across the bar to scrub · ← → and Home / End on the keyboard",
 };

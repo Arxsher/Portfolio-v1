@@ -3,6 +3,7 @@
 // dark mode. The view box is cropped to the ink, so every signature sits
 // flush left (or centred) at the same height whatever size it was drawn.
 
+import type { Ref } from "react";
 import { SIGNATURE_PATTERN } from "@/lib/guestbook";
 import { cn } from "@/lib/cn";
 
@@ -34,19 +35,27 @@ export function signatureBounds(path: string): Box | null {
 }
 
 export function Signature({
+  ref,
   path,
   name,
   align = "start",
   draw = false,
+  drawMs = DRAW_MS,
+  strokeWidth = 2,
   className,
 }: {
+  ref?: Ref<SVGSVGElement>;
   path: string;
   /** Whose signature it is; becomes the accessible name. */
   name?: string;
-  /** Flush left (cards) or centred (the "signed" confirmation). */
+  /** Flush left or centred in its box. */
   align?: "start" | "center";
   /** Trace the stroke in once when it mounts. */
   draw?: boolean;
+  /** How long the trace takes in total. */
+  drawMs?: number;
+  /** Stroke width in screen px (the stroke doesn't scale with the box). */
+  strokeWidth?: number;
   className?: string;
 }) {
   const box = SIGNATURE_PATTERN.test(path) ? signatureBounds(path) : null;
@@ -54,6 +63,7 @@ export function Signature({
   const label = name ? `Signature of ${name}` : undefined;
   return (
     <svg
+      ref={ref}
       viewBox={`${round(box.x)} ${round(box.y)} ${round(box.width)} ${round(box.height)}`}
       preserveAspectRatio={align === "center" ? "xMidYMid meet" : "xMinYMid meet"}
       className={cn("block shrink-0 overflow-visible", className)}
@@ -64,9 +74,9 @@ export function Signature({
     >
       {label ? <title>{label}</title> : null}
       {draw ? (
-        <DrawnStrokes path={path} />
+        <DrawnStrokes path={path} total={drawMs} strokeWidth={strokeWidth} />
       ) : (
-        <path d={path} {...STROKE_PROPS} />
+        <path d={path} {...STROKE_PROPS} strokeWidth={strokeWidth} />
       )}
     </svg>
   );
@@ -86,7 +96,7 @@ const STROKE_PROPS = {
 const DRAW_MS = 900;
 const DRAW_DELAY_MS = 120;
 
-function DrawnStrokes({ path }: { path: string }) {
+function DrawnStrokes({ path, total: drawMs, strokeWidth }: { path: string; total: number; strokeWidth: number }) {
   const strokes = path.split(/(?=M)/).filter(Boolean);
   const lengths = strokes.map(strokeLength);
   const total = lengths.reduce((sum, n) => sum + n, 0) || 1;
@@ -94,7 +104,7 @@ function DrawnStrokes({ path }: { path: string }) {
   return (
     <>
       {strokes.map((d, index) => {
-        const duration = Math.max(40, (lengths[index] / total) * DRAW_MS);
+        const duration = Math.max(30, (lengths[index] / total) * drawMs);
         const delay = DRAW_DELAY_MS + elapsed;
         elapsed += duration;
         return (
@@ -102,6 +112,7 @@ function DrawnStrokes({ path }: { path: string }) {
             key={index}
             d={d}
             {...STROKE_PROPS}
+            strokeWidth={strokeWidth}
             pathLength={1}
             className="signature-draw"
             style={{ animationDuration: `${Math.round(duration)}ms`, animationDelay: `${Math.round(delay)}ms` }}

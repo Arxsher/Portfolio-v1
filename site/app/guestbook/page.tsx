@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { GuestbookWall, SignItButton } from "@/components/guestbook/wall";
 import { site } from "@/content/site";
 
-const intro = "Notes from people who passed through, each one signed by hand.";
+const intro = "Everyone who signs gets a window in this little building, with their signature on the pane and their note behind it. Sign yours and watch it light up.";
 
 export const metadata: Metadata = {
   title: "Guestbook",

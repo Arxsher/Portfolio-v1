@@ -3,19 +3,19 @@ import type { PieceMeta } from "../../types";
 export const meta: PieceMeta = {
   slug: "pull-cord",
   title: "Pull cord",
-  summary: "A hanging lamp on a cord that behaves like rope: pull it down until it clicks and the lights go out, or come on.",
+  summary: "A pendant lamp you switch with its cord: draw the pull down until it clicks and the room, and the site, go dark or light.",
   description:
-    "A pendant lamp hanging on a cord. Grab the pull and draw it down: the cord stretches, the switch clicks, and the lamp comes on with a warm bloom while the stage goes dark around it, or turns off again. Let go and the cord swings back and settles.",
+    "A graphite pendant lamp with a braided cord and a porcelain pull. Draw the pull down: the cord slides out of the switch, the lamp tips toward your hand and clicks. The light goes out through an orange afterglow and the pull starts to glow in the dark; pull again and the light blooms back out of the bulb across the wall. Let go and the cord snaps home, bounces and swings, and the lamp sways with it.",
   about: [
-    "The cord is a Verlet rope: a chain of points that remember where they were a moment ago and are pulled back to their neighbours' distance several times a frame, so it hangs, sways and whips like the real thing. Its top is fixed in the lamp; the pull at the bottom follows your finger while you hold it and is handed back to the physics when you let go, with the speed you gave it.",
-    "The switch reads how far past its rest the pull has been drawn. Past the click point it toggles once, with a short synthesised click, and the lamp's light blooms in or fades away as the stage swaps between light and dark.",
+    "The cord is a rope of twenty particles solved with XPBD (position-based dynamics with compliance) six hundred times a second, with weak bending so it hangs like braided cotton. Its top runs into a spring-loaded switch behind the grommet: the cord's tension draws it out against a preload and a cam that resists up to the click and gives past it, and the lamp it is mounted in hangs from the ceiling as a heavy pendulum with a little give in its cable, so pulling to the side swings the shade and a hard pull dips it. Your hand holds the cord with a strong spring whose force is capped, so the cord follows exactly until the switch is fully out, and keeps the speed of a flick when you let go.",
+    "Everything is drawn in one WebGL2 pass. The shade is half an ellipsoid ray-cast from a little below, so the lit enamel inside shows through the rim; the bulb is clear glass with a coiled filament whose colour follows its temperature as it heats and cools. The lamp throws a scallop of light down the wall, cut off by the rim, with the cord's and the pull's shadows in it. Switching on, the room fills with light outward from the lamp; switching off, the phosphorescent glaze on the pull, charged by the light, glows and slowly settles. With Site theme on, the switch sets this site's light or dark theme, and changing the theme anywhere else tugs the cord by itself.",
   ],
-  uses: ["Verlet physics", "Canvas 2D", "Web Audio"],
+  uses: ["WebGL2", "XPBD rope physics", "Ray casting", "Springs", "Pointer events", "Web Audio"],
   category: "interactions",
-  inspiredBy: "Pull-cord light switches",
+  inspiredBy: "Ceiling pull-cord switches and enamel pendant lamps",
   // 204 × 280 at the 204px home tile
   tile: { aspect: 204 / 280 },
   stage: { aspect: 4 / 5 },
-  controlsHint: "Grab the pull and drag it down until it clicks · Flick it to set it swinging · Space or Enter pulls it",
+  controlsHint: "Draw the pull down until it clicks · flick it to swing · tap the shade · Space or Enter pulls, ← → swing it",
   sound: true,
 };

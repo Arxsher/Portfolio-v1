@@ -7,9 +7,9 @@
 //   Everything in the scene is worked out from p alone, so the landscape is
 //   exactly as far into the evening as the knob is.
 // - Free: a damped spring (slightly under-damped, ζ ≈ 0.75) carries p to the
-//   chosen end. Its small overshoot is not drawn as travel: the renderer
-//   squashes the knob against the end of the track instead, so a throw lands
-//   with a soft bump.
+//   chosen end (ζ ≈ 0.62 on the header switch, 0.68 on the big ones). Its
+//   overshoot is not drawn as travel: the renderer squashes the knob against
+//   the end of the track instead, so every landing is a small soft bump.
 // - Held (pointer): p follows the finger 1:1 from wherever the knob was when
 //   it was grabbed (also mid-flight: grabbing takes the spring's current
 //   value, so nothing jumps). Past the ends it is rubber-banded. On release
@@ -36,19 +36,24 @@ import { clamp, damp, Spring, type SpringConfig } from "../../hooks";
 
 export type Side = 0 | 1;
 
-/** Spring feels: the header switch is quick; the big one takes its time so the evening shows. */
+/**
+ * Spring feels: the header switch is quick (about a quarter of a second); the
+ * big ones take their time so the evening shows. `peek` is how far the knob
+ * leans under a resting mouse (a tiny switch needs a bigger share of its
+ * travel to show it).
+ */
 export const FEEL = {
-  compact: { stiffness: 330, damping: 27.5 },
-  tile: { stiffness: 150, damping: 19.5 },
-  stage: { stiffness: 165, damping: 19.5 },
-} as const satisfies Record<string, SpringConfig>;
+  // ω ≈ 11.8 rad/s, ζ ≈ 0.62: end to end in about 0.24 s
+  compact: { stiffness: 140, damping: 14.6, peek: 0.1 },
+  // ω ≈ 8.4 rad/s, ζ ≈ 0.68: about 0.38 s, long enough to watch the evening
+  tile: { stiffness: 70, damping: 11.4, peek: 0.065 },
+  stage: { stiffness: 70, damping: 11.4, peek: 0.06 },
+} as const satisfies Record<string, SpringConfig & { peek: number }>;
 
 /** Travels per second while an arrow key is held. */
 const KEY_RATE = 0.55;
 /** Distance from the new end at which a change counts. */
 const COMMIT_AT = 0.25;
-/** How far the knob leans toward the other end under a resting mouse. */
-const PEEK = 0.065;
 /** Seconds of throw projected forward on release. */
 const PROJECT = 0.16;
 
@@ -98,9 +103,11 @@ export class SwitchModel {
   private moved = false;
   private keyDir = 0;
   private landed = true;
+  private lean: number;
 
-  constructor(feel: SpringConfig = FEEL.compact, side: Side = 0) {
-    this.pos = new Spring(side, { ...feel, precision: 0.0003 });
+  constructor(feel: SpringConfig & { peek?: number } = FEEL.compact, side: Side = 0) {
+    this.pos = new Spring(side, { stiffness: feel.stiffness, damping: feel.damping, precision: 0.0003 });
+    this.lean = feel.peek ?? 0.065;
     this.target = side;
     this.committed = side;
   }
@@ -288,7 +295,7 @@ export class SwitchModel {
     }
 
     const resting = !this.dragging && this.pending < 0 && Math.abs(this.pos.value - this.target) < 0.02;
-    const lean = this.hovering && resting && !this.reduced ? (this.target === 0 ? PEEK : -PEEK) : 0;
+    const lean = this.hovering && resting && !this.reduced ? (this.target === 0 ? this.lean : -this.lean) : 0;
     this.peek.to(lean);
 
     if (!this.dragging) this.pos.step(dt);
