@@ -10,7 +10,9 @@
 //   edges back the other (a Hill's-vortex-like roll that stays tangent to
 //   the glass), dying away in about a second.
 // - churn: turbulence fed by how hard the globe is shaken, an Arnold-
-//   Beltrami-Childress flow whose phases drift, so the eddies wander.
+//   Beltrami-Childress flow whose phases drift, so the eddies wander, with
+//   a little random tumbling under it that spreads the snow through the
+//   whole globe.
 // Each flake follows the water with a little lag, sinks at its own speed
 // along the globe's "down" (which tilts with it), flutters as it falls,
 // and, being denser than water, is flung a little against each push.
@@ -34,15 +36,17 @@ const ROLL_GAIN = 0.016;
 const ROLL_TAU = 0.95;
 const ROLL_MAX = 1.1;
 /** Churn: fed by acceleration and by angular acceleration; its life and strength. */
-const CHURN_A = 0.0042;
+const CHURN_A = 0.0055;
 const CHURN_W = 0.012;
 const CHURN_TAU = 1.8;
 const CHURN_MAX = 1.5;
-const CHURN_SPEED = 0.5;
-const CHURN_K = 3.0;
+const CHURN_SPEED = 0.78;
+const CHURN_K = 4.6;
+/** Small-scale tumbling on top of the eddies (units/s per √s, at full churn): spreads the cloud through the water. */
+const TUMBLE = 1.2;
 /** A flake's lag behind the water (s), and how hard a push flings it. */
-const LAG = 0.14;
-const HEAVY = 0.011;
+const LAG = 0.2;
+const HEAVY = 0.015;
 const FLUTTER = 0.03;
 
 export class Snow {
@@ -269,6 +273,7 @@ export class Snow {
     const k = 1 - Math.exp(-dt / LAG);
     const t = this.time;
     const random = this.random;
+    const tumble = this.churn > 0.05 ? TUMBLE * this.churn * Math.sqrt(dt) * 3.4 : 0;
     let free = 0;
     for (let i = 0; i < this.count; i++) {
       const o = i * 4;
@@ -284,10 +289,12 @@ export class Snow {
         this.flow(x, y, z);
         const speed = Math.hypot(u[0], u[1], u[2]) + push * 0.12;
         if (speed > this.lift[i]) {
+          // kicked up off the snow, harder the harder the water pulls
+          const kick = Math.min(2.2, speed / this.lift[i]);
           pos[o + 3] = radius;
-          vel[v] = u[0] * 0.5;
-          vel[v + 1] = 0.05 + random() * 0.08 + Math.max(0, u[1]) * 0.5;
-          vel[v + 2] = u[2] * 0.5;
+          vel[v] = u[0] * 0.6 + (random() - 0.5) * 0.12 * kick;
+          vel[v + 1] = (0.15 + random() * 0.4) * kick + Math.max(0, u[1]) * 0.6;
+          vel[v + 2] = u[2] * 0.6 + (random() - 0.5) * 0.12 * kick;
           free++;
         }
         continue;
@@ -305,6 +312,11 @@ export class Snow {
       vx += (u[0] + down[0] * fall + fx - vx) * k - acc[0] * HEAVY * dt;
       vy += (u[1] + down[1] * fall - vy) * k - acc[1] * HEAVY * dt;
       vz += (u[2] + down[2] * fall + fz - vz) * k - acc[2] * HEAVY * dt;
+      if (tumble > 0) {
+        vx += (random() - 0.5) * tumble;
+        vy += (random() - 0.5) * tumble;
+        vz += (random() - 0.5) * tumble;
+      }
       const px = x;
       const py = y;
       const pz = z;

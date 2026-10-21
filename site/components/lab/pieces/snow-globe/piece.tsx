@@ -37,10 +37,14 @@
 //   three damped pendulums driven by the hand's acceleration: the top
 //   trails, it twists, it nods, and the wobble rings out after you stop.
 //   Grab it mid-wobble or mid-fall and it is caught where it is.
-// - Let go: the hand's velocity over the last 80 ms is handed to a softer
-//   spring that sets it back down in the middle of the table. It lands
-//   with a small bounce and a wooden thunk (louder for a harder landing)
-//   and, on the table, rocks on the rim of its foot.
+// - Let go: the hand's velocity over the last 80 ms carries on while a
+//   softer spring brings it back over the middle of the table and it falls
+//   the last of the way, landing with a small bounce and a wooden thunk
+//   (louder for a harder landing). On the table it rocks on the rim of its
+//   foot and stays on it. A quick tap on the glass rocks it away from the
+//   finger and turns the water, with a glassy tink.
+// - How far it can be carried is fitted to the stage, so it never leaves
+//   the card, and past that it rubber-bands.
 // - The water is simulated (snow.ts): it keeps its spin while the glass
 //   turns under it, rolls through the middle on a push, and churns in
 //   proportion to the shake; the flakes lag behind the water, sink along
@@ -52,12 +56,14 @@
 // - Keyboard: the globe is a button. Space or Enter shakes it, ← → tip it
 //   on the table, ↑ lifts it and lets it drop, L switches the cabin light.
 // - Sound (stage, after a gesture, lab mute respected): the water swishes
-//   with the churn, the base thunks on the table, the light switch clicks.
+//   with the churn, the base thunks on the table, the glass tinks under a
+//   tap, the light switch clicks.
 // - Tile: a gentle shake every ten seconds or so (and one on hover), the
 //   snow falling in between. 30 fps, no sound, no controls.
 // - Lifetime: the expensive pass (the globe, the base, the floor) is drawn
 //   only when the globe or the light changed; a still globe redraws only
-//   its snow. The stage steps its internal resolution down if a machine
+//   its snow. Where the scene is drawn at one sample per pixel the
+//   composite smooths edges (FXAA). The stage steps its internal resolution down if a machine
 //   can't keep up, runs at 30 fps when idle and sleeps once everything has
 //   settled. Nothing allocates per frame; the WebGL context is handed back
 //   on unmount (useWebGL2).
@@ -87,7 +93,7 @@ import { ShakeIcon, WindowIcon } from "./icons";
 import { GlobeRenderer, newFrame, type Frame } from "./renderer";
 import { BASE, FLOOR_Y, KEY, PIVOT, layoutFor, newLayout, project, toLinear, untone, type Layout, type Vec3 } from "./scene";
 import { Snow } from "./snow";
-import { click, thunk, Water } from "./sound";
+import { click, tap, thunk, Water } from "./sound";
 
 /* ---------------------------------------------------------------------- */
 /* tuning                                                                  */
@@ -131,6 +137,9 @@ type Drag = {
   id: number;
   x0: number;
   y0: number;
+  /** When it started (ms, event time) and whether it has moved yet: a quick still press is a tap on the glass. */
+  t0: number;
+  moved: boolean;
   gx: number;
   gy: number;
   /** Recent (time, hand x, hand y) for the release velocity. */
@@ -183,9 +192,10 @@ function makeLive(theme: PieceTheme, reduced: boolean, stage: boolean): Live {
   const snow = new Snow(stage ? FLAKES.stage : FLAKES.tile, stage ? 0x5a0b : 0x71e);
   if (reduced) snow.scatter(0.42, 0.82);
   else {
-    // open on snow already falling, still turning from the last shake
-    snow.scatter(0.22, 0.92);
-    snow.stir(stage ? 0.9 : 0.6, 0.3);
+    // open on the last of a snowfall, the water barely turning: most of the
+    // snow is already down, so the first shake lifts it all
+    snow.scatter(0.55, 0.9);
+    snow.stir(0.12, 0.06);
   }
   const dark = theme === "dark";
   const frame = newFrame();
@@ -259,6 +269,14 @@ function SnowGlobe({ mode, active, reducedMotion, theme }: PieceProps) {
     L.k = renderer.width / width;
     layoutFor(width, height, stage, bottomFor(width), L.layout);
     L.sceneDirty = true;
+    // how far a hand can carry it before it leaves the stage
+    {
+      const lay = L.layout;
+      const top = { x: 0, y: 0 };
+      project([0, 1, -0.17], lay, top);
+      L.globe.reachUp = clamp((top.y - 4) / lay.ppu, 0.1, 0.6);
+      L.globe.reachX = clamp((width / 2 - lay.ppu * 0.96) / lay.ppu, 0.12, 1.05);
+    }
     if (stage) {
       // the grip: the globe and its base at rest (touch drags here never scroll the page)
       const c = { x: 0, y: 0 };
@@ -348,6 +366,7 @@ function SnowGlobe({ mode, active, reducedMotion, theme }: PieceProps) {
     f.dof = (stage ? 0.024 : 0.012) * lay.ppu * k;
     f.minPx = (stage ? 0.8 : 0.75) * k;
     f.flakes = L.snow.count;
+    f.aa = k < 1.2 ? 1 : 0;
   };
 
   /** True when the globe, the light or the size changed since the scene pass last ran. */
@@ -379,14 +398,10 @@ function SnowGlobe({ mode, active, reducedMotion, theme }: PieceProps) {
     const { width, height } = sizeRef.current;
     if (!renderer || !canvas || width < 2 || height < 2) return false;
     fillFrame();
-    if (sceneChanged()) {
-      renderer.drawScene(L.frame);
-      // DEBUG-SG
-      (window as unknown as { __sg?: number }).__sg = ((window as unknown as { __sg?: number }).__sg ?? 0) + 1;
-    }
+    if (sceneChanged()) renderer.drawScene(L.frame);
     if (L.flakesDirty) {
       renderer.setFlakes(L.snow.pos, L.snow.count);
-      L.flakesDirty = !!L.reduced ? false : true;
+      L.flakesDirty = false;
     }
     renderer.drawFrame(L.frame, canvas.width, canvas.height);
     return true;
@@ -396,7 +411,7 @@ function SnowGlobe({ mode, active, reducedMotion, theme }: PieceProps) {
   /* frame                                                                 */
   /* -------------------------------------------------------------------- */
 
-  const wake = useFrame(active, (dt) => {
+  const onFrame = (dt: number): void | boolean => {
     const renderer = rendererRef.current;
     const { width } = sizeRef.current;
     if (!renderer || width < 2) return false;
@@ -445,7 +460,7 @@ function SnowGlobe({ mode, active, reducedMotion, theme }: PieceProps) {
 
     // the globe and the water
     if (!reduced) {
-      if (stage && !L.drag && fine) g.lean = clamp(-L.leanX * 0.012, -0.016, 0.016);
+      if (stage && !L.drag && fine) g.lean = clamp(-L.leanX * 0.008, -0.01, 0.01);
       else g.lean = 0;
       g.step(dt);
       const m = g.rot;
@@ -500,7 +515,8 @@ function SnowGlobe({ mode, active, reducedMotion, theme }: PieceProps) {
     // sleep once everything has come to rest
     if (reduced && !L.drag && L.hover % 1 === 0 && Math.abs(L.night - nightTarget) < 1e-3 && L.winLevel % 1 === 0) return false;
     if (stage && idle && snow.free === 0 && !(L.winOn && L.winLevel > 0)) return false;
-  });
+  };
+  const wake = useFrame(active, onFrame);
 
   const { canvasRef, sizeRef, supported } = useWebGL2({
     mode,
@@ -578,7 +594,8 @@ function SnowGlobe({ mode, active, reducedMotion, theme }: PieceProps) {
     L.flakesDirty = true;
     if (reducedMotion) {
       L.snow.scatter(0.42, 0.82);
-      L.globe.release(0, 0);
+      L.globe.reset();
+      L.drag = null;
     }
     wake();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -671,6 +688,8 @@ function SnowGlobe({ mode, active, reducedMotion, theme }: PieceProps) {
       id: event.pointerId,
       x0: x,
       y0: y,
+      t0: event.timeStamp,
+      moved: false,
       gx: g.x,
       gy: g.y,
       ts: new Float64Array(10),
@@ -697,6 +716,7 @@ function SnowGlobe({ mode, active, reducedMotion, theme }: PieceProps) {
       return;
     }
     if (event.pointerId !== drag.id) return;
+    if (!drag.moved && Math.hypot(x - drag.x0, y - drag.y0) > 6) drag.moved = true;
     const [hx, hy] = handAt(drag, x, y);
     L.globe.setHand(hx, hy);
     record(drag, hx, hy, event.timeStamp);
@@ -718,6 +738,14 @@ function SnowGlobe({ mode, active, reducedMotion, theme }: PieceProps) {
     if (surfaceRef.current) surfaceRef.current.style.cursor = fine ? "grab" : "";
     const [vx, vy] = cancelled ? [0, 0] : releaseVelocity(drag, event.timeStamp);
     L.globe.release(vx, vy);
+    if (!cancelled && !drag.moved && event.timeStamp - drag.t0 < 300) {
+      // a tap on the glass: it rocks away from the finger and the water turns
+      const { x } = local(event);
+      const dir = x < L.layout.cx ? 1 : -1;
+      L.globe.nudge(dir * 0.45);
+      L.snow.stir(dir * 0.12, 0.05);
+      tap((x - L.layout.cx) / Math.max(1, sizeRef.current.width) * 2);
+    }
     noteInput();
   };
 
@@ -800,11 +828,15 @@ function SnowGlobe({ mode, active, reducedMotion, theme }: PieceProps) {
     return <canvas ref={canvasRef} aria-hidden="true" className="absolute inset-0 block size-full" />;
   }
 
-  const hint = keyFocus
-    ? "Space shakes it · ← → tip it · ↑ lifts it · L for the light"
-    : fine
-      ? "Pick up the globe and shake it · Space shakes it"
-      : "Drag the globe to shake it";
+  const hint = reducedMotion
+    ? keyFocus
+      ? "Space shakes it · L for the light"
+      : "Press the globe or Space to shake up the snow"
+    : keyFocus
+      ? "Space shakes it · ← → tip it · ↑ lifts it · L for the light"
+      : fine
+        ? "Pick up the globe and shake it · Space shakes it"
+        : "Drag the globe to shake it · tap the glass";
 
   return (
     <div className="absolute inset-0 select-none">

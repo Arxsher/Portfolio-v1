@@ -8,6 +8,7 @@
 // - thunk: the walnut base set down on the table. A dull wooden knock (a
 //   falling sine and a hollow mid), a soft click of the felt, and the glass
 //   above it ringing faintly. Louder for a harder landing.
+// - tap: a fingertip on the glass, a short high ring.
 // - click: the cabin's light switched by hand.
 
 import { audioReady, getAudio, noiseBuffer, type AudioKit } from "../../audio";
@@ -79,6 +80,27 @@ export function thunk(speed: number, pan: number) {
   // the glass and the water above it
   tone(ctx, out, now + 0.004, { freq: 2630 * j, level: 0.012 * level, decay: 0.5 });
   tone(ctx, out, now + 0.004, { freq: 4170 * j, level: 0.006 * level, decay: 0.32 });
+}
+
+/** A fingertip on the glass: a small, high, short ring over a soft knock. */
+export function tap(pan: number) {
+  const audio = kit();
+  if (!audio) return;
+  const { ctx, output } = audio;
+  let out: AudioNode = output;
+  if (typeof ctx.createStereoPanner === "function") {
+    const p = ctx.createStereoPanner();
+    p.pan.value = Math.max(-0.6, Math.min(0.6, pan));
+    p.connect(output);
+    out = p;
+  }
+  const now = ctx.currentTime;
+  const j = 1 + (Math.random() - 0.5) * 0.04;
+  tone(ctx, out, now, { freq: 2480 * j, level: 0.03, decay: 0.42 });
+  tone(ctx, out, now, { freq: 3910 * j, level: 0.014, decay: 0.26 });
+  tone(ctx, out, now, { freq: 6020 * j, level: 0.006, decay: 0.12 });
+  noise(ctx, out, now, { type: "bandpass", freq: 2200, q: 0.9, level: 0.05, decay: 0.012 });
+  tone(ctx, out, now, { freq: 220, to: 160, level: 0.05, decay: 0.06 });
 }
 
 /** The cabin's light switched by hand. */

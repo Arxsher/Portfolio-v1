@@ -25,23 +25,22 @@ const H = 1 / 240;
 
 const HOLD = { k: 1100, c: 63 };
 const HOME_X = { k: 58, c: 11.6 };
-const HOME_Y = { k: 90, c: 15 };
-const TILT_HELD = { k: 300, c: 10.5 };
+/** Let go in the air, it falls (units/s²) and lands with a little bounce. */
+const GRAVITY = 26;
+const RESTITUTION = 0.22;
+const TILT_HELD = { k: 230, c: 8.4 };
 const TILT_FREE = { k: 185, c: 3.9 };
-const YAW = { k: 70, c: 4.2 };
+const YAW = { k: 55, c: 3.3 };
 
 /** How hard the hand's acceleration swings the globe (rad/s² per unit/s²). */
-const G_ROLL = 0.3;
-const G_PITCH = 0.1;
-const G_YAW = 0.16;
+const G_ROLL = 0.42;
+const G_PITCH = 0.14;
+const G_YAW = 0.34;
 
 const MAX_ROLL = 0.62;
 const MAX_PITCH = 0.36;
 const MAX_YAW = 0.7;
 
-/** The hand's reach, in world units, before it rubber-bands. */
-const REACH_X = 1.05;
-const REACH_UP = 0.85;
 
 const FOOT_DEPTH = PIVOT[1] - FLOOR_Y;
 const FOOT_R = BASE.footR;
@@ -64,11 +63,11 @@ export type ShakeScript = {
 
 export const SHAKES = {
   /** Space or the Shake button: a proper shake. */
-  hand: { lift: 0.3, amp: 0.3, freq: 3.6, cycles: 3, rise: 0.16, settle: 0.22 },
+  hand: { lift: 0.22, amp: 0.42, freq: 3.1, cycles: 3, rise: 0.14, settle: 0.2 },
   /** The tile's own, every few seconds: gentle. */
-  tile: { lift: 0.14, amp: 0.15, freq: 2.8, cycles: 2, rise: 0.18, settle: 0.26 },
+  tile: { lift: 0.12, amp: 0.24, freq: 2.7, cycles: 2, rise: 0.16, settle: 0.24 },
   /** ↑: lift it and let it drop. */
-  hop: { lift: 0.36, amp: 0, freq: 1, cycles: 0, rise: 0.17, settle: 0, hop: true },
+  hop: { lift: 0.3, amp: 0, freq: 1, cycles: 0, rise: 0.16, settle: 0, hop: true },
 } as const satisfies Record<string, ShakeScript>;
 
 export class Globe {
@@ -89,6 +88,9 @@ export class Globe {
   ty = 0;
   /** A gentle lean toward a hovering pointer (radians of roll). */
   lean = 0;
+  /** How far a hand can carry it (world units) before it rubber-bands; the piece fits these to the stage. */
+  reachX = 1.05;
+  reachUp = 0.6;
 
   private script: ShakeScript | null = null;
   private scriptT = 0;
@@ -96,6 +98,9 @@ export class Globe {
   private scriptY0 = 0;
   /** 1 while sitting on the table (it rocks on its rim), 0 in the hand. */
   private grounded = 1;
+  /** Touching the table. */
+  private contact = true;
+  private prevNeed = 0;
 
   /* outputs, refreshed by step() */
   /** Object → world rotation, column-major. */
@@ -127,9 +132,11 @@ export class Globe {
   /** Where the hand wants it (offsets from rest, world units), rubber-banded past its reach. */
   setHand(x: number, y: number) {
     const ax = Math.abs(x);
-    this.tx = ax > REACH_X ? Math.sign(x) * (REACH_X + rubber(ax - REACH_X, 0.35)) : x;
-    if (y > REACH_UP) this.ty = REACH_UP + rubber(y - REACH_UP, 0.3);
-    else if (y < 0) this.ty = -rubber(-y, 0.08);
+    const rx = this.reachX;
+    const ru = this.reachUp;
+    this.tx = ax > rx ? Math.sign(x) * (rx + rubber(ax - rx, Math.min(0.3, rx * 0.5))) : x;
+    if (y > ru) this.ty = ru + rubber(y - ru, Math.min(0.2, ru * 0.6));
+    else if (y < 0) this.ty = -rubber(-y, 0.06);
     else this.ty = y;
   }
 
@@ -138,7 +145,23 @@ export class Globe {
     this.held = false;
     this.script = null;
     this.vx = Math.max(-7, Math.min(7, vx));
-    this.vy = Math.max(-7, Math.min(7, vy));
+    // a flick upward can't throw it out of the stage
+    this.vy = Math.max(-7, Math.min(Math.sqrt(2 * GRAVITY * Math.max(0, this.reachUp - this.y)), vy));
+  }
+
+  /** Back to rest at once: on the table, upright, still (reduced motion). */
+  reset() {
+    this.script = null;
+    this.held = false;
+    this.x = this.y = this.vx = this.vy = 0;
+    this.roll = this.rollV = this.pitch = this.pitchV = this.yaw = this.yawV = 0;
+    this.rollOut = this.pitchOut = this.yawOut = 0;
+    this.contact = true;
+    this.prevNeed = 0;
+    this.grounded = 1;
+    this.impact = 0;
+    this.ax = this.ay = 0;
+    this.compose();
   }
 
   /** Tip it on the table (←/→): a push on one side. */
@@ -190,7 +213,7 @@ export class Globe {
     if (t < s.rise) {
       const k = ease(t / s.rise);
       this.tx = this.scriptX0 * (1 - k);
-      this.ty = this.scriptY0 + (s.lift - this.scriptY0) * k;
+      this.ty = this.scriptY0 + (Math.min(s.lift, this.reachUp) - this.scriptY0) * k;
       return;
     }
     if (s.hop) {
@@ -201,15 +224,16 @@ export class Globe {
     const u = t - s.rise;
     if (u < shakeT) {
       const env = Math.sin(Math.PI * Math.min(1, u / shakeT)) ** 0.6;
-      this.tx = s.amp * Math.sin(2 * Math.PI * s.freq * u) * env;
-      this.ty = s.lift + 0.05 * Math.sin(4 * Math.PI * s.freq * u) * env;
+      const amp = Math.min(s.amp, this.reachX * 0.9);
+      this.tx = amp * Math.sin(2 * Math.PI * s.freq * u) * env;
+      this.ty = Math.min(s.lift, this.reachUp) + 0.04 * Math.sin(4 * Math.PI * s.freq * u) * env;
       return;
     }
     const w = u - shakeT;
     if (w < s.settle) {
       const k = ease(w / s.settle);
       this.tx = 0;
-      this.ty = s.lift * (1 - k) + 0.04 * k;
+      this.ty = Math.min(s.lift, this.reachUp) * (1 - k) + 0.03 * k;
       return;
     }
     this.release(this.vx, this.vy);
@@ -240,14 +264,52 @@ export class Globe {
         ay = HOLD.k * (this.ty - this.y) - HOLD.c * this.vy;
       } else {
         ax = -HOME_X.k * this.x - HOME_X.c * this.vx;
-        ay = -HOME_Y.k * this.y - HOME_Y.c * this.vy;
+        ay = -GRAVITY - 0.6 * this.vy;
       }
       this.vx += ax * h;
       this.vy += ay * h;
       this.x += this.vx * h;
       this.y += this.vy * h;
 
-      // tilt: pendulums swung by the acceleration
+      // the table: resting, it rocks on its rim and stays on it; in the air
+      // it falls and lands (the landing is the thunk)
+      const need = this.need();
+      const dNeed = (need - this.prevNeed) / h;
+      this.prevNeed = need;
+      const before = this.vy;
+      if (this.held) {
+        if (this.y < need) {
+          const speed = dNeed - this.vy;
+          if (!this.contact && speed > this.impact) this.impact = speed;
+          this.y = need;
+          this.vy = dNeed;
+          this.contact = true;
+        } else if (this.y > need + 0.004) {
+          this.contact = false;
+        }
+      } else if (this.contact) {
+        this.y = need;
+        this.vy = dNeed;
+      } else if (this.y <= need) {
+        const speed = Math.max(0, -this.vy);
+        if (speed > this.impact) this.impact = speed;
+        this.y = need;
+        if (speed > 0.6) {
+          this.vy = speed * RESTITUTION;
+        } else {
+          this.vy = Math.max(0, dNeed);
+          this.contact = true;
+        }
+        // the table takes some of the swing out of it
+        const keep = speed > 0.3 ? 0.55 : 0.85;
+        this.rollV *= keep;
+        this.pitchV *= keep;
+        this.yawV *= 0.8;
+      }
+      ay += (this.vy - before) / h;
+
+      // tilt: pendulums swung by the acceleration (the table's push included,
+      // so a landing nods it, and resting on it is no push at all)
       const tilt = this.held ? TILT_HELD : TILT_FREE;
       const rollA = -tilt.k * (this.roll - (this.held ? 0 : this.lean)) - tilt.c * this.rollV + G_ROLL * ax;
       const pitchA = -tilt.k * this.pitch - tilt.c * this.pitchV - G_PITCH * ay;
@@ -262,18 +324,6 @@ export class Globe {
       this.pitchOut = softClamp(this.pitch, MAX_PITCH);
       this.yawOut = softClamp(this.yaw, MAX_YAW);
 
-      // the table
-      const need = this.need();
-      if (this.y < need) {
-        const before = this.vy;
-        if (this.vy < 0) {
-          const speed = -this.vy;
-          if (speed > this.impact) this.impact = speed;
-          this.vy = speed > 0.7 ? speed * 0.2 : 0;
-        }
-        this.y = need;
-        ay += (this.vy - before) / h;
-      }
       sumAx += ax * h;
       sumAy += ay * h;
     }

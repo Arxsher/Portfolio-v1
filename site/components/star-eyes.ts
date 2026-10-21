@@ -27,7 +27,10 @@
 // reads every star's position first, then writes (no read/write
 // interleaving). The loop sleeps as soon as every spring has settled and
 // no blink is running; a timer, a pointer move, a scroll or a resize wakes
-// it again.
+// it again. While something else already runs a frame loop that moves a
+// star (the first-load intro), it can drive the engine from inside its own
+// frame instead (`driveEyes`), so there is still one loop and one read
+// phase per frame.
 
 export type Gaze = { x: number; y: number; open: number };
 type Point = { x: number; y: number };
@@ -94,6 +97,8 @@ let raf = 0;
 let timer = 0;
 let lastTick = 0;
 let listening = false;
+/** How many drivers currently own the clock (see driveEyes). */
+let driven = 0;
 let motionQuery: MediaQueryList | null = null;
 
 const now = () => performance.now();
@@ -175,7 +180,7 @@ function listen(on: boolean) {
 /* ---------------------------------------------------------------------- */
 
 function wake() {
-  if (raf || stars.size === 0 || typeof window === "undefined") return;
+  if (driven > 0 || raf || stars.size === 0 || typeof window === "undefined") return;
   if (timer) {
     window.clearTimeout(timer);
     timer = 0;
@@ -232,6 +237,24 @@ function startBlink(star: Star, t: number, twice = false) {
 
 function tick(t: number) {
   raf = 0;
+  const { busy, wakeAt } = advance(t);
+  if (busy) {
+    raf = window.requestAnimationFrame(tick);
+  } else if (wakeAt < Infinity) {
+    timer = window.setTimeout(
+      () => {
+        timer = 0;
+        wake();
+      },
+      Math.max(16, wakeAt - now()),
+    );
+  }
+}
+
+/** One frame for every star: reads all of their boxes, then simulates and
+    renders. Returns whether anything is still moving, and when the next
+    timed event (a blink, the pointer going idle) is due. */
+function advance(t: number): { busy: boolean; wakeAt: number } {
   const dt = Math.min(0.05, Math.max(0, (t - lastTick) / 1000));
   lastTick = t;
 
@@ -294,17 +317,7 @@ function tick(t: number) {
     }
   });
 
-  if (busy) {
-    raf = window.requestAnimationFrame(tick);
-  } else if (wakeAt < Infinity) {
-    timer = window.setTimeout(
-      () => {
-        timer = 0;
-        wake();
-      },
-      Math.max(16, wakeAt - now()),
-    );
-  }
+  return { busy, wakeAt };
 }
 
 /* ---------------------------------------------------------------------- */
@@ -379,6 +392,45 @@ export function attachEyes(el: Element, render: (gaze: Gaze) => void, options: E
   byElement.set(el, handle);
   wake();
   return handle;
+}
+
+export type EyeDriver = {
+  /** Runs one engine frame now (call it once per animation frame, at the
+      point where reading layout is still cheap: it reads every star's box
+      and then writes their eyes). `t` is the frame's timestamp. */
+  step(t: number): void;
+  /** Gives the clock back to the engine's own loop. */
+  release(): void;
+};
+
+/**
+ * Takes over the engine's clock: until `release()`, the engine runs no
+ * animation frame or timer of its own and every star advances only when
+ * the driver calls `step(t)`. The first-load intro uses this so its frame
+ * reads the scene, steps the eyes and writes the star in one pass, rather
+ * than two loops writing and reading layout in turn.
+ */
+export function driveEyes(): EyeDriver {
+  if (typeof window === "undefined") return { step() {}, release() {} };
+  driven += 1;
+  if (raf) window.cancelAnimationFrame(raf);
+  if (timer) window.clearTimeout(timer);
+  raf = 0;
+  timer = 0;
+  lastTick = now();
+  let released = false;
+  return {
+    step(t) {
+      if (!released && stars.size > 0) advance(t);
+    },
+    release() {
+      if (released) return;
+      released = true;
+      driven -= 1;
+      lastTick = now();
+      wake();
+    },
+  };
 }
 
 /** The eyes attached to an element, so another component (the intro) can

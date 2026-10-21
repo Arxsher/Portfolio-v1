@@ -274,9 +274,15 @@ void main() {
   float h = dot(sn, uSun);
   float day = smoothstep(-0.2, 0.16, h);
   float diff = clamp(dot(n, uSun) * 0.6 + 0.4, 0.0, 1.0) * day * moonShadow(vW);
-  vec3 nightLight = mix(vec3(0.075, 0.085, 0.125), vec3(0.008, 0.009, 0.017), uDark);
+  vec3 nightLight = mix(vec3(0.1, 0.11, 0.16), vec3(0.008, 0.009, 0.017), uDark);
   vec3 amb = mix(nightLight, vec3(0.3, 0.33, 0.39), smoothstep(-0.22, 0.3, h)) * (0.75 + 0.25 * max(dot(n, sn), 0.0));
-  vec3 c = vec3(0.92) * vShade * (sunColour(h) * diff * 1.45 + amb * 1.25);
+  // undersides (facing the ground) a touch darker, so the puffs read as volumes
+  float under = mix(0.8, 1.0, smoothstep(-0.35, 0.55, dot(n, sn)));
+  vec3 c = vec3(0.92) * vShade * under * (sunColour(h) * diff * 1.45 + amb * 1.25);
+  // a silver lining where the sun sits behind a cloud's edge
+  vec3 v = normalize(uCam - vW);
+  float rim = pow(1.0 - max(dot(n, v), 0.0), 2.0) * pow(max(dot(-v, uSun), 0.0), 3.0) * smoothstep(-0.25, 0.1, h);
+  c += sunColour(h) * rim * 0.9;
   o = vec4(finish(c), 1.0);
 }
 `;
@@ -294,9 +300,11 @@ out vec3 vS;
 out float vD;
 void main() {
   vec3 p = aPos;
-  float w = sin(dot(p, vec3(13.1, 7.3, -9.7)) * 1.6 + uTime * 1.25)
-          + sin(dot(p, vec3(-8.4, 12.7, 6.1)) * 1.9 - uTime * 1.05)
-          + 0.6 * sin(dot(p, vec3(5.2, -9.9, 14.3)) * 2.6 + uTime * 1.7);
+  // long swells, plus every vertex bobbing on its own so the facets catch the sun in sparkles
+  float k = fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453);
+  float w = 0.55 * sin(dot(p, vec3(13.1, 7.3, -9.7)) * 1.6 + uTime * 1.25)
+          + 0.45 * sin(dot(p, vec3(-8.4, 12.7, 6.1)) * 1.9 - uTime * 1.05)
+          + 1.1 * sin(uTime * (0.9 + k * 1.4) + k * 40.0);
   vec3 m = p * (1.0 + w * uWave) * uBulge;
   vW = uRot * m;
   vS = uRot * p;
@@ -314,7 +322,7 @@ void main() {
   vec3 sn = normalize(vS);
   vec3 fn = normalize(cross(dFdx(vW), dFdy(vW)));
   if (dot(fn, sn) < 0.0) fn = -fn;
-  vec3 n = normalize(mix(sn, fn, 0.75));
+  vec3 n = normalize(mix(sn, fn, 0.9));
   vec3 v = normalize(uCam - vW);
   float deep = smoothstep(0.0, 0.05, vD);
   vec3 water = mix(vec3(0.14, 0.56, 0.6), vec3(0.028, 0.15, 0.3), deep);
@@ -329,9 +337,9 @@ void main() {
   c = mix(c, sky, fres * 0.55);
   // the sun's glint, broken up by the facets
   vec3 hv = normalize(uSun + v);
-  float spec = pow(max(dot(n, hv), 0.0), 320.0) * day * shade;
-  float sheen = pow(max(dot(sn, hv), 0.0), 90.0) * day * shade;
-  c += sunColour(h) * (spec * 1.5 + sheen * 0.06);
+  float spec = pow(max(dot(n, hv), 0.0), 1100.0) * day * shade;
+  float sheen = pow(max(dot(sn, hv), 0.0), 40.0) * day * shade;
+  c += sunColour(h) * (spec * 1.2 + sheen * 0.05);
   alpha = clamp(max(alpha, spec * 1.5 + fres * 0.4), 0.0, 1.0);
   o = vec4(finish(c) * alpha, alpha);
 }
@@ -410,9 +418,9 @@ void main() {
   vec2 c = gl_PointCoord * 2.0 - 1.0;
   float r2 = dot(c, c);
   if (r2 > 1.0) discard;
-  float core = exp(-r2 * 16.0);
-  float halo = exp(-r2 * 3.6) * (1.0 - r2);
-  vec3 col = vec3(1.0, 0.86, 0.56) * core * 1.25 + vec3(1.0, 0.6, 0.26) * halo * 0.38;
+  float core = exp(-r2 * 14.0);
+  float halo = exp(-r2 * 3.2) * (1.0 - r2);
+  vec3 col = vec3(1.0, 0.88, 0.6) * core * 1.6 + vec3(1.0, 0.62, 0.28) * halo * 0.5;
   o = vec4(col * vI, 0.0);
 }
 `;
@@ -428,12 +436,15 @@ uniform vec3 uU;        // orbit axes × radius
 uniform vec3 uV;
 uniform vec4 uMoon;
 uniform float uDot;     // device px
+uniform float uPlanetR;
 out float vA;
 void main() {
   vec3 w = uU * cos(aAngle) + uV * sin(aAngle);
   float gap = distance(w, uMoon.xyz);
   // the dots step aside around the moon, and thin out toward the back
   vA = smoothstep(uMoon.w * 1.5, uMoon.w * 2.9, gap) * mix(0.55, 1.0, smoothstep(-1.0, 0.6, w.z / length(uV)));
+  // where the orbit passes in front of the planet it is only a whisper
+  vA *= mix(1.0, 0.3, smoothstep(uPlanetR * 1.16, uPlanetR * 0.96, length(w.xy)) * step(0.0, w.z));
   gl_PointSize = uDot;
   gl_Position = uViewProj * vec4(w, 1.0);
 }

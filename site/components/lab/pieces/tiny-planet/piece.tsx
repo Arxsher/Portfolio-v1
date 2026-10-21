@@ -45,8 +45,9 @@
 // - The moon can be held and dragged along its orbit, or thrown round; it
 //   drifts back to its own pace. A tap sends it on a little faster.
 // - The "wow" second: the stage opens with the planet arriving in a spin,
-//   tipped, with its towns dark; it spins down, rights itself with a
-//   wobble and the night side lights up town by town.
+//   tipped, with its towns dark, while the moon sweeps across its face;
+//   it spins down, rights itself with a wobble and the night side lights
+//   up town by town.
 // - Keyboard (the planet is focusable): ← → turn it an hour (Shift: six),
 //   ↑ ↓ nudge the moon, Space or Enter give it a spin, Home stops it.
 // - Readout: the days that go by as it turns (one per turn about its axis,
@@ -82,8 +83,8 @@ import { clamp, damp, lerp, Spring, useFinePointer, useFrame, useLatest, useWebG
 import type { PieceProps, PieceTheme } from "../../types";
 import { IconButton, MuteButton, StageControls, StageHint, Tray, TrayDivider } from "../../ui";
 import { SpinIcon } from "./icons";
-import { arcQ, axisAngleQ, len3, mat3FromQ, mulQ, qToRotVec, quat, rotate3, rotVecQ, v3, viewProjection } from "./math";
-import { MAX_SPIN, MOON_RADIUS, ORBIT_N, ORBIT_U, ORBIT_V, Planet } from "./motion";
+import { arcQ, axisAngleQ, len3, mat3FromQ, mulQ, qToRotVec, quat, rotVecQ, v3, viewProjection } from "./math";
+import { MOON_RADIUS, ORBIT_N, ORBIT_U, ORBIT_V, Planet } from "./motion";
 import { newFrame, PlanetRenderer, type Frame } from "./renderer";
 import { caught, tick, tink, Whirr } from "./sound";
 import { buildWorld, DETAIL, type World } from "./world";
@@ -101,14 +102,14 @@ const unit = (x: number, y: number, z: number) => {
   return [x / l, y / l, z / l] as const;
 };
 /** Toward the sun: in front and to the left by day, behind and to the left after dark. */
-const SUN_LIGHT = unit(-0.8, 0.24, 0.55);
+const SUN_LIGHT = unit(-0.84, 0.28, 0.44);
 const SUN_DARK = unit(-0.74, 0.3, -0.6);
 
 /** Which side faces you at rest (turn about the axis, radians). */
 const START_SPIN = 2.4;
 const IDLE = { stage: 0.16, tile: 0.42, hover: 1.35 };
 const MOON_PACE = { stage: 0.24, tile: 0.46 };
-const ORBIT = { stage: 1.78, tile: 1.5 };
+const ORBIT = { stage: 1.78, narrow: 1.6, tile: 1.5 };
 /** The stage's opening spin (rad/s) and tip (rad). */
 const INTRO_SPIN = 5.2;
 const INTRO_TIP = 0.62;
@@ -198,7 +199,6 @@ type Drag = {
   y: number;
   x0: number;
   y0: number;
-  t0: number;
   moved: boolean;
   /** Last point on the sphere under the finger (world, unit). */
   last: Float64Array;
@@ -228,7 +228,8 @@ type Live = {
   dayOffset: number;
   day: number;
   shownRate: number;
-  rateText: string;
+  rateKey: number;
+  announced: number;
   whirr: Whirr;
   audio: boolean;
   bg: Rgb;
@@ -247,11 +248,12 @@ type Live = {
 function makeLive(mode: "tile" | "stage", theme: PieceTheme, reduced: boolean): Live {
   const stage = mode === "stage";
   const planet = new Planet(START_SPIN);
-  planet.orbit = ORBIT[mode];
+  planet.orbit = stage ? ORBIT.stage : ORBIT.tile;
   planet.idle = reduced ? 0 : IDLE[mode];
   planet.moonPace = reduced ? 0 : MOON_PACE[mode];
   planet.moonW = planet.moonPace;
-  planet.moon = stage ? 2.25 : 2.6;
+  // the stage's moon starts just behind the planet's right edge; the opening sends it across the face
+  planet.moon = stage ? (reduced ? 2.25 : -0.12) : 2.6;
   const intro = stage && !reduced;
   if (intro) {
     // arrive tipped toward you and spinning; the physics brings it home
@@ -262,7 +264,7 @@ function makeLive(mode: "tile" | "stage", theme: PieceTheme, reduced: boolean): 
     planet.o.set(o);
     planet.target.set(o);
     planet.kick(INTRO_SPIN);
-    planet.moonW = planet.moonPace + 1.1;
+    planet.moonW = planet.moonPace + 1.6;
   } else if (!reduced) {
     planet.kick(planet.idle);
   }
@@ -290,7 +292,8 @@ function makeLive(mode: "tile" | "stage", theme: PieceTheme, reduced: boolean): 
     dayOffset: 1,
     day: 1,
     shownRate: planet.idle,
-    rateText: "",
+    rateKey: NaN,
+    announced: 1,
     whirr: new Whirr(),
     audio: false,
     bg: dark ? [0.055, 0.02, 0.024] : [0.949, 0.949, 0.949],
@@ -306,15 +309,29 @@ function makeLive(mode: "tile" | "stage", theme: PieceTheme, reduced: boolean): 
   };
 }
 
-/** "1 day = 39 s", "standing still", "rewinding". */
-function rateLabel(rate: number): string {
+/**
+ * The readout for a spin rate, as a number that only changes when the
+ * text would (so the frame loop compares numbers, not strings):
+ * −1 standing still, −2 rewinding, otherwise the length of a day in tenths
+ * of a second (rounded to whole seconds past ten, to minutes past 100).
+ */
+function rateKey(rate: number): number {
   const a = Math.abs(rate);
-  if (a < 0.02) return "standing still";
-  if (rate < -0.05) return "rewinding";
+  if (a < 0.02) return -1;
+  if (rate < -0.05) return -2;
   const t = TAU / a;
-  if (t < 10) return `1 day = ${t.toFixed(1)} s`;
-  if (t < 100) return `1 day = ${Math.round(t)} s`;
-  return `1 day = ${Math.round(t / 60)} min`;
+  if (t < 10) return Math.round(t * 10);
+  if (t < 100) return Math.round(t) * 10;
+  return Math.round(t / 60) * 600;
+}
+
+/** "1 day = 39 s", "standing still", "rewinding". */
+function rateLabel(key: number): string {
+  if (key === -1) return "standing still";
+  if (key === -2) return "rewinding";
+  if (key < 100) return `1 day = ${(key / 10).toFixed(1)} s`;
+  if (key < 1000) return `1 day = ${key / 10} s`;
+  return `1 day = ${key / 600} min`;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -329,9 +346,6 @@ function TinyPlanet({ mode, active, reducedMotion, theme }: PieceProps) {
   const stage = mode === "stage";
   const [live] = useState(() => makeLive(mode, theme, reducedMotion));
   const L = live;
-  useEffect(() => {
-    (window as unknown as { __tp?: Live }).__tp = L; // DEBUG-TP
-  }); // DEBUG-TP
   const rendererRef = useRef<PlanetRenderer | null>(null);
   const surfaceRef = useRef<HTMLDivElement>(null);
   const rateRef = useRef<HTMLSpanElement>(null);
@@ -353,6 +367,8 @@ function TinyPlanet({ mode, active, reducedMotion, theme }: PieceProps) {
   const applySize = useCallback(() => {
     const { width, height } = sizeRef.current;
     if (width < 2 || height < 2) return;
+    // on a phone the moon keeps a tighter orbit so the planet can be bigger
+    if (stage) L.planet.orbit = width < 480 ? ORBIT.narrow : ORBIT.stage;
     const layout = layoutFor(width, height, stage, L.planet.orbit, L.layout);
     if (stage) {
       setDisc((prev) =>
@@ -411,7 +427,7 @@ function TinyPlanet({ mode, active, reducedMotion, theme }: PieceProps) {
     f.bulge[1] = 1 - b * 0.85;
     f.bulge[2] = 1 + b;
     const stir = Math.min(1, len3(planet.air) * 2.5);
-    f.wave = L.reduced ? 0.0012 : 0.0015 + 0.0016 * stir;
+    f.wave = L.reduced ? 0.0022 : 0.0026 + 0.002 * stir;
     f.sway = L.reduced ? 0 : stage ? 0.07 : 0.05;
 
     // the moon
@@ -469,7 +485,7 @@ function TinyPlanet({ mode, active, reducedMotion, theme }: PieceProps) {
     f.dotColour[2] = L.fg[2];
     f.dotColour[3] = lerp(stage ? 0.3 : 0.2, stage ? 0.42 : 0.3, mix);
     f.dotPx = (stage ? 1.9 : 1.35) * dpr;
-    f.lightPx = clamp(layout.r * 0.03, 2.3, 6.4) * dpr;
+    f.lightPx = clamp(layout.r * 0.032, 2.9, 6.4) * dpr;
     renderer.draw(f, canvas.width, canvas.height);
     return true;
   };
@@ -490,10 +506,10 @@ function TinyPlanet({ mode, active, reducedMotion, theme }: PieceProps) {
       setDay({ value, dir });
       if (L.audio) tick(Math.abs(planet.spinRate));
     }
-    const text = rateLabel(L.shownRate);
-    if (text !== L.rateText) {
-      L.rateText = text;
-      if (rateRef.current) rateRef.current.textContent = text;
+    const key = rateKey(L.shownRate);
+    if (key !== L.rateKey) {
+      L.rateKey = key;
+      if (rateRef.current) rateRef.current.textContent = rateLabel(key);
     }
   };
 
@@ -569,12 +585,16 @@ function TinyPlanet({ mode, active, reducedMotion, theme }: PieceProps) {
 
     const rate = planet.spinRate;
     L.shownRate = reduced ? rate : damp(L.shownRate, rate, 6, dt);
-    if (stage && L.audio) L.whirr.set(len3(planet.w));
+    if (stage && L.audio) {
+      // (re)started here too, after the piece was paused offscreen
+      L.whirr.start();
+      L.whirr.set(len3(planet.w));
+    }
 
     // announce the day once the planet has calmed down
-    if (stage && Math.abs(rate) < 1 && !L.drag) {
-      const text = `Day ${L.day}`;
-      if (text !== announce) setAnnounce(text);
+    if (stage && Math.abs(rate) < 1 && !L.drag && L.day !== L.announced) {
+      L.announced = L.day;
+      setAnnounce(`Day ${L.day}`);
     }
 
     paint();
@@ -596,7 +616,6 @@ function TinyPlanet({ mode, active, reducedMotion, theme }: PieceProps) {
         return;
       }
       rendererRef.current = renderer;
-      (window as unknown as { __tpr?: unknown }).__tpr = { renderer, gl }; // DEBUG-TP
       applySize();
       paint();
       wake();
@@ -856,7 +875,6 @@ function TinyPlanet({ mode, active, reducedMotion, theme }: PieceProps) {
       y,
       x0: x,
       y0: y,
-      t0: event.timeStamp,
       moved: false,
       last: v3(),
       ts: new Float64Array(12),
@@ -947,7 +965,7 @@ function TinyPlanet({ mode, active, reducedMotion, theme }: PieceProps) {
         else planet.moon += 0.5;
         tink(planet.moonW, 0);
       } else if (thrown) {
-        planet.moonW = clamp(v[0], -12, 12);
+        planet.moonW = clamp(v[0], -8, 8);
       }
     }
     noteInput();
@@ -968,6 +986,9 @@ function TinyPlanet({ mode, active, reducedMotion, theme }: PieceProps) {
 
   const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     const planet = L.planet;
+    const keys = ["ArrowRight", "ArrowLeft", "ArrowUp", "ArrowDown", " ", "Enter", "Home"];
+    if (!keys.includes(event.key)) return;
+    startSound();
     let handled = true;
     switch (event.key) {
       case "ArrowRight":
@@ -999,7 +1020,6 @@ function TinyPlanet({ mode, active, reducedMotion, theme }: PieceProps) {
     }
     if (!handled) return;
     event.preventDefault();
-    startSound();
     noteInput();
   };
 
@@ -1158,6 +1178,7 @@ function Fallback({ theme }: { theme: PieceTheme }) {
         ctx.ellipse(cx + dx * r, cy + dy * r, s * r, s * r * 0.7, dx, 0, Math.PI * 2);
         ctx.fill();
       }
+      // night falls from the right (most of the face after dark), with a soft roundness
       const shade = ctx.createLinearGradient(cx - r, cy, cx + r, cy);
       const sideLit = dark ? 0.05 : 0.55;
       shade.addColorStop(0, "rgba(8, 12, 30, 0)");
@@ -1166,7 +1187,19 @@ function Fallback({ theme }: { theme: PieceTheme }) {
       shade.addColorStop(1, "rgba(8, 12, 30, 0.88)");
       ctx.fillStyle = shade;
       ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+      const round = ctx.createRadialGradient(cx - r * 0.35, cy - r * 0.35, r * 0.1, cx, cy, r);
+      round.addColorStop(0, "rgba(255, 255, 255, 0.12)");
+      round.addColorStop(0.7, "rgba(255, 255, 255, 0)");
+      round.addColorStop(1, "rgba(0, 10, 30, 0.25)");
+      ctx.fillStyle = round;
+      ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
       ctx.restore();
+      // a thin rim of air on the lit side
+      ctx.strokeStyle = "rgba(120, 175, 255, 0.45)";
+      ctx.lineWidth = Math.max(1, r * 0.025);
+      ctx.beginPath();
+      ctx.arc(cx, cy, r + ctx.lineWidth / 2, Math.PI * 0.6, Math.PI * 1.45);
+      ctx.stroke();
       ctx.fillStyle = dark ? "#9c9a94" : "#d5d1c8";
       ctx.beginPath();
       ctx.arc(cx + r * 1.6, cy + r * 0.35, r * 0.16, 0, Math.PI * 2);

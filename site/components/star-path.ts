@@ -1,53 +1,58 @@
-// The first-load star's choreography (components/star-intro.tsx), as a pure
-// function of time: no DOM, so it can be sampled anywhere.
+// The first-load star's choreography (components/star-intro.tsx): pure
+// functions of time, no DOM, so every beat can be sampled and tested.
 //
-// Beats (seconds, after the 0.36s CSS pop-in that shows the star before
-// hydration; about 2.1s in all):
-//   hold  0.4   big in the middle, looking at the visitor; one blink
-//   wind  0.16  anticipation: crouches (squash), leans back, glances up
-//   fly   0.95  the flight home
-//   land  0.30  a small overshoot bounce, then the header mark takes over
+// Beats (seconds since the star became visible; about 2.6s in all):
+//   pop    0.36  CSS: the star pops in, big, in the middle of the screen
+//   look         CSS keeps it alive before hydration: it breathes, and
+//                blinks once at BLINK_AT. The flight launches once the blink
+//                is over (and the page has hydrated and runs smoothly)
+//   wind   0.16  anticipation: crouches (squash), leans back, glances up
+//   fly   ~1.15  the flight home (its length depends on the screen)
+//   land   0.40  touch-down: squash, two small hops, the size settles
 //
-// Flight curve
-// ------------
-// A spiral around a centre that slides home. With S the start (viewport
-// centre) and T the target (the header mark's centre):
+// Flight path
+// -----------
+// Planned once at launch (`planFlight`) from the screen, the start (the
+// viewport centre) and the target (the header mark), in three pieces:
 //
-//   P(u) = C(u) + (1 - u)^1.1 · (rx cos θ(u), ry sin θ(u) · f(u))   u ∈ [0, 1]
+//   loop   an ellipse beside the start, on the target's side, entered at
+//          its near edge heading straight up and travelled once (rolling
+//          towards the target over the top). Its centre drifts up and
+//          towards the target meanwhile, so the end of the loop crosses its
+//          start: a real loop with daylight in the middle. Radii: a fifth
+//          of the viewport height (70-175px), narrower when that side is
+//          short of room (phones), and never more than 1.8:1.
+//   swoop  a cubic Bézier from the end of the loop (heading up) to a point
+//          three mark-sizes up and to the right of the mark, arriving
+//          already pointed at it.
+//   dive   a short straight run onto the mark, so it lands with speed.
 //
-//   C(u)  slides from C0 to T, arriving early (smoothstep over u ∈ [0, .7])
-//         so the last stretch is a spiral around the target itself;
-//   the radii shrink as (1 - u)^1.1, so the loops tighten onto the target;
-//   θ(u)  sweeps two full turns, faster at first (1 - (1 - u)^1.15);
-//   f(u)  flattens a loop vertically when it would leave the top edge
-//         (the header sits right under it), never below 0.35.
+// A soft clamp keeps the whole star (its size included) inside the screen.
 //
-// C0 is chosen so the star sets off straight up and the first loop rolls
-// over the top towards the target (counter-clockwise when the target is
-// to the left, like a wheel rolling that way). ry is a fifth of the
-// viewport height (56–160px, at most half the distance); rx is the same
-// unless the side the loop rolls towards is short of room (phones), which
-// makes the loop tall and narrow instead of running off the edge.
-// The result: launch up, one big loop-de-loop in the open middle of the
-// page, a swoop up towards the header and a tightening curl that lands on
-// the mark.
+// Size: eases on a log scale through fixed beats: 66% of the start size at
+// the top of the loop, 40% at its end, 1.75× the mark's size where the
+// dive starts and the mark's size on contact (a monotone cubic in between,
+// so the shrink starts with the launch and never stalls).
 //
-// Time runs through an ease (see warp()): a smooth launch out of the
-// crouch, the loop at speed, a braking curl. The size eases from the big
-// start size to the mark's size on a log scale (shrinking feels even),
-// mostly during the loop and the swoop.
+// Timing: the path is retimed by arc length. The speed ramps up out of the
+// crouch to a cruise speed proportional to the start size, softly capped
+// at SPEED_CAP body lengths per second: the star never moves more than
+// about 0.45 of its own size per 60Hz frame, so it reads as one star
+// flying, not a strobe. As the star shrinks the cap brakes it, down to
+// ~8px a frame on contact.
 //
-// Cartoon physics, all derived from the analytic path (central
-// differences, so they are smooth and frame-rate independent):
-//   stretch  along the velocity, by speed in body lengths per second,
-//            with the cross axis thinned to roughly keep the area;
-//   bank     the star tilts into the horizontal pull of the turn (and a
-//            little towards where it is heading), up to ~30°;
+// Cartoon physics, from the retimed path (central differences on a 240Hz
+// table, then smoothed over ~20ms so no term can snap between frames):
+//   spin     through the loop the star turns once, evenly (like a car on a
+//            roller-coaster loop), then hands over to a bank;
+//   bank     leans into its horizontal speed and pull, scaled by the start
+//            size (not the current one, which would saturate);
+//   stretch  along the velocity by body lengths per second (up to ~1.45×),
+//            the cross axis thinned to keep the area: a cartoon smear;
 //   gaze     the eyes look where it is flying.
-// Landing: the size overshoots and settles (a damped sine) with a matching
-// squash, the position hops a couple of pixels and settles, and every
-// term is back to exactly zero at the end, so the swap to the real mark
-// can't pop.
+// Landing: a 30% squash on contact, a hop of half its size and a smaller
+// one, a 20% size overshoot that settles, and every term back to exactly
+// zero at the end, so the swap to the real mark can't pop.
 
 export type Scene = {
   /** Overlay size (the viewport). */
@@ -70,7 +75,7 @@ export type Pose = {
   y: number;
   /** Size before squash and stretch (px). */
   size: number;
-  /** The star's own tilt (rad, clockwise). */
+  /** The star's own tilt (rad, clockwise; whole turns are allowed). */
   angle: number;
   /** Squash and stretch, as a symmetric 2×2 matrix [xx, xy, yy] (identity
       at rest). Built by `squash()`; blending two of them stays smooth. */
@@ -78,219 +83,571 @@ export type Pose = {
   /** Gaze override (-1…1, in the star's own frame), or null to follow the
       pointer. */
   look: { x: number; y: number } | null;
+  /** 1 unless fading out. */
+  opacity: number;
 };
+
+/** The CSS breathing the star does before the flight takes over (read back
+    at take-over and eased out during the wind-up). */
+export type Breath = { scale: number; dy: number };
+export const NO_BREATH: Breath = { scale: 1, dy: 0 };
 
 /** sessionStorage key: set once the intro has played in this tab. */
 export const INTRO_KEY = "star-intro";
 /** Attribute on <html> while the intro runs ("" before hydration, then
     "live"). The header mark is hidden while it is there. */
 export const INTRO_ATTR = "data-star-intro";
+/** Fired on window once the intro is over (window.__starIntro.done is then
+    true; window.__starIntro is undefined when no intro plays at all).
+    Heavy start-up work (WebGL) can wait for it. */
+export const DONE_EVENT = "star-intro-done";
 /** If the page never hydrates, CSS gives up on the intro after this many
     seconds; the flight skips the intro when it mounts later than that. */
 export const FAILSAFE_S = 7;
 
 /** The CSS pop-in that shows the star before hydration. */
 export const POP = 0.36;
+/** The CSS blink: when it starts (after the pop starts) and how long. */
+export const BLINK_AT = 0.5;
+export const BLINK_LEN = 0.23;
+/** A beat of looking at the visitor after the blink before launching. */
+export const AFTER_BLINK = 0.14;
 export const WIND = 0.16;
-export const FLY = 0.95;
-export const LAND = 0.3;
+export const LAND = 0.4;
+/** A skip dashes home in this long. */
+export const ZIP = 0.16;
+/** When the mark scrolls away mid-flight: dash up and fade in this long. */
+export const FADE = 0.15;
 
-/** Default hold (shortened when hydration was slow and the star has
-    already been on screen for a while, but never below HOLD_MIN, which
-    still fits the blink). */
-export const HOLD = 0.4;
-export const HOLD_MIN = 0.26;
-
-export const introLength = (hold: number) => hold + WIND + FLY + LAND;
+/** Body lengths per second the flight never exceeds (0.45 a frame). */
+const SPEED_CAP = 27;
+/** Cruise speed, in start sizes per second. */
+const CRUISE = 13.5;
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+const smooth = (t: number) => {
+  const c = clamp(t, 0, 1);
+  return c * c * (3 - 2 * c);
+};
+
+type Mat = [number, number, number];
 
 /** Scale by `along` in the direction `axis` (rad) and by `across` at right
     angles to it: R(axis) · diag(along, across) · R(-axis). */
-function squash(axis: number, along: number, across: number): [number, number, number] {
+function squash(axis: number, along: number, across: number): Mat {
   const c = Math.cos(axis);
   const s = Math.sin(axis);
   return [along * c * c + across * s * s, (along - across) * c * s, along * s * s + across * c * c];
 }
 
-const mix = (a: [number, number, number], b: [number, number, number], t: number): [number, number, number] => [
+const mix = (a: Mat, b: Mat, t: number): Mat => [
   a[0] + (b[0] - a[0]) * t,
   a[1] + (b[1] - a[1]) * t,
   a[2] + (b[2] - a[2]) * t,
 ];
 
+/** Stretch for a speed in body lengths per second (1 at rest). */
+const stretchFor = (bodies: number) => 1 + 0.55 * Math.tanh(bodies / 20);
+
 const VERTICAL = Math.PI / 2;
 /** The crouch before take-off: 16% shorter, 10% wider. */
 const CROUCH = squash(VERTICAL, 1 - 0.16, 1.1);
-const IDENTITY: [number, number, number] = [1, 0, 1];
-const smooth = (t: number) => t * t * (3 - 2 * t);
+const IDENTITY: Mat = [1, 0, 1];
+/** Lean back during the crouch (rad, away from the target). */
+const LEAN = 0.14;
+/** How far it sinks into the crouch (fraction of its size). */
+const SINK = 0.07;
 
-/** Time → path parameter: a cubic with control values 0, 0.1, 0.8, 1. It
-    leaves the crouch at a gentle 0.3× speed, spends ~40% of the time on
-    the big loop (u 0…0.4), ~25% on the swoop (u 0.4…0.7) and the rest
-    on the curl, still braking but without crawling at the very end (the
-    curve itself already comes to rest on the target, as its radius
-    shrinks to zero). */
-function warp(tau: number) {
-  const t = clamp(tau, 0, 1);
-  const s = 1 - t;
-  return 3 * 0.1 * t * s * s + 3 * 0.8 * t * t * s + t * t * t;
-}
+const turnOf = (scene: Scene) => (scene.tx - scene.sx <= 0 ? -1 : 1);
 
-/** Largest loop radius (px). */
-const LOOP_MAX = 160;
+/** The same angle in -π…π. */
+const normalize = (angle: number) => angle - 2 * Math.PI * Math.round(angle / (2 * Math.PI));
 
-/** The flight curve at path parameter u (see the comment above). */
-function track(scene: Scene, u: number): { x: number; y: number } {
-  const dx = scene.tx - scene.sx;
-  const dy = scene.ty - scene.sy;
-  const distance = Math.hypot(dx, dy) || 1;
-  const turn = dx <= 0 ? -1 : 1;
-  // Loop radii: up to a fifth of the viewport height, and narrower when
-  // the side the loop rolls towards has less room (phones).
-  const ry = Math.min(clamp(scene.vh * 0.2, 56, LOOP_MAX), distance * 0.5);
-  const room = turn < 0 ? scene.sx : scene.vw - scene.sx;
-  const rx = clamp((room - 10 - scene.big * 0.45) / 2, Math.min(40, ry), ry);
-  const theta0 = turn < 0 ? 0 : Math.PI;
-  const c0x = scene.sx - rx * Math.cos(theta0);
-  const c0y = scene.sy - ry * Math.sin(theta0);
-  const slide = smooth(clamp(u / 0.7, 0, 1));
-  const cx = c0x + (scene.tx - c0x) * slide;
-  const cy = c0y + (scene.ty - c0y) * slide;
-  const shrink = Math.pow(1 - u, 1.1);
-  const theta = theta0 + turn * 4 * Math.PI * (1 - Math.pow(1 - u, 1.15));
-  const flatten = clamp((cy - 10) / Math.max(ry * shrink, 1), 0.35, 1);
-  return {
-    x: cx + rx * shrink * Math.cos(theta),
-    y: cy + ry * shrink * Math.sin(theta) * flatten,
-  };
-}
-
-/** Size along the flight (log scale between big and small). */
-function sizeAt(scene: Scene, u: number) {
-  const k = smooth(clamp((u - 0.06) / 0.7, 0, 1));
-  return scene.big * Math.pow(scene.small / scene.big, k);
-}
-
-/** Position during the flight at time fraction τ (0…1). */
-function flightAt(scene: Scene, tau: number) {
-  const u = warp(tau);
-  const p = track(scene, u);
-  return { x: p.x, y: p.y, size: sizeAt(scene, u) };
-}
-
-const rest = (x: number, y: number, size: number): Pose => ({
+export const rest = (x: number, y: number, size: number): Pose => ({
   x,
   y,
   size,
   angle: 0,
   squash: IDENTITY,
   look: null,
+  opacity: 1,
 });
 
-/**
- * The star's pose `t` seconds after the hold began. `hold` is the hold's
- * length (HOLD, or shorter). Past the end it returns the target at rest.
- */
-export function poseAt(scene: Scene, t: number, hold: number = HOLD): Pose {
-  const turn = scene.tx - scene.sx <= 0 ? -1 : 1;
+/* ---------------------------------------------------------------------- */
+/* planning                                                                */
+/* ---------------------------------------------------------------------- */
 
-  // Hold: big in the middle, breathing very slightly.
-  if (t < hold) {
-    const p = t / hold;
-    const breath = Math.sin(Math.PI * p);
-    return rest(scene.sx, scene.sy - 2 * breath, scene.big * (1 + 0.012 * breath));
-  }
+/** Plan table step (s). */
+const STEP = 1 / 240;
 
-  // Wind-up: crouch, lean back, glance where it's going.
-  if (t < hold + WIND) {
-    const p = (t - hold) / WIND;
-    const crouch = Math.sin((Math.PI / 2) * p) ** 2;
-    return {
-      x: scene.sx,
-      y: scene.sy + 0.07 * scene.big * crouch,
-      size: scene.big,
-      angle: -turn * 0.14 * crouch,
-      squash: mix(IDENTITY, CROUCH, crouch),
-      look: { x: turn * 0.35 * crouch, y: -0.75 * crouch },
-    };
-  }
+export type Plan = {
+  /** The scene it was planned for (the live one is applied as an offset). */
+  scene: Scene;
+  /** Flight length (s). */
+  fly: number;
+  count: number;
+  x: Float64Array;
+  y: Float64Array;
+  size: Float64Array;
+  /** Unwrapped (the loop's whole turn is in there). */
+  angle: Float64Array;
+  s0: Float64Array;
+  s1: Float64Array;
+  s2: Float64Array;
+  /** Look direction, in the world frame. */
+  lx: Float64Array;
+  ly: Float64Array;
+  /** 0 → 1: how much of a move of the live target the path follows (the
+      start follows the rest). */
+  follow: Float64Array;
+};
 
-  // Flight.
-  if (t < hold + WIND + FLY) {
-    const tau = (t - hold - WIND) / FLY;
-    const h = 1 / 480;
-    const a = flightAt(scene, tau - h);
-    const b = flightAt(scene, tau);
-    const c = flightAt(scene, tau + h);
-    const dt = h * FLY;
-    const vx = (c.x - a.x) / (2 * dt);
-    const vy = (c.y - a.y) / (2 * dt);
-    const ax = (c.x - 2 * b.x + a.x) / (dt * dt);
-    const speed = Math.hypot(vx, vy);
-    const size = b.size;
-    const bodies = speed / size; // body lengths per second
+/** Monotone cubic (Fritsch-Carlson) through (xs, ys). */
+function monotone(xs: number[], ys: number[]) {
+  const n = xs.length;
+  const d: number[] = [];
+  const m: number[] = [];
+  for (let i = 0; i < n - 1; i++) d.push((ys[i + 1] - ys[i]) / (xs[i + 1] - xs[i]));
+  m.push(d[0]);
+  for (let i = 1; i < n - 1; i++) m.push(d[i - 1] * d[i] <= 0 ? 0 : (2 * d[i - 1] * d[i]) / (d[i - 1] + d[i]));
+  m.push(d[n - 2]);
+  return (x: number) => {
+    if (x <= xs[0]) return ys[0];
+    if (x >= xs[n - 1]) return ys[n - 1];
+    let i = 0;
+    while (x > xs[i + 1]) i++;
+    const h = xs[i + 1] - xs[i];
+    const t = (x - xs[i]) / h;
+    const t2 = t * t;
+    const t3 = t2 * t;
+    return (
+      (2 * t3 - 3 * t2 + 1) * ys[i] +
+      (t3 - 2 * t2 + t) * h * m[i] +
+      (-2 * t3 + 3 * t2) * ys[i + 1] +
+      (t3 - t2) * h * m[i + 1]
+    );
+  };
+}
 
-    // The crouch lets go over the first 90ms.
-    const release = Math.max(0, 1 - (tau * FLY) / 0.09);
-    const crouch = release * release;
+/** Keeps `v` above `lo` softly: unchanged above lo + k, easing towards lo
+    below it (C1, so a path bent by it stays smooth). */
+function soft(v: number, lo: number, k: number) {
+  return v >= lo + k ? v : lo + k * Math.exp((v - lo) / k - 1);
+}
 
-    // Stretch and bank ease out over the last 10% of the flight, so the
-    // star touches down level and round.
-    const settle = smooth(clamp((1 - tau) / 0.1, 0, 1));
-    const stretch = 1 + 0.3 * Math.tanh(bodies / 22) * settle;
-    const bank = (0.42 * Math.tanh(ax / size / 160) + 0.16 * Math.tanh(vx / size / 30)) * settle;
-    const angle = bank * (1 - crouch) - turn * 0.14 * crouch;
-
-    // Look where it's flying (in the star's own frame), fading out as it
-    // slows into the landing.
-    const lookWeight = Math.min(1, bodies / 6) * (1 - crouch) + crouch;
-    let lx = speed > 1e-3 ? vx / speed : 0;
-    let ly = speed > 1e-3 ? vy / speed : -1;
-    if (crouch > 0) {
-      lx = lx * (1 - crouch) + turn * 0.35 * crouch;
-      ly = ly * (1 - crouch) - 0.75 * crouch;
+/** Gaussian smoothing of a uniform table (in place; the ends are held). */
+function blur(values: Float64Array, sigma: number) {
+  const radius = Math.ceil(sigma * 3);
+  const weights: number[] = [];
+  for (let i = -radius; i <= radius; i++) weights.push(Math.exp(-(i * i) / (2 * sigma * sigma)));
+  const copy = Float64Array.from(values);
+  const n = values.length;
+  for (let i = 0; i < n; i++) {
+    let sum = 0;
+    let total = 0;
+    for (let j = -radius; j <= radius; j++) {
+      const k = clamp(i + j, 0, n - 1);
+      const w = weights[j + radius];
+      sum += copy[k] * w;
+      total += w;
     }
-    const cos = Math.cos(-angle);
-    const sin = Math.sin(-angle);
-    const look = {
-      x: (lx * cos - ly * sin) * 0.9 * lookWeight,
-      y: (lx * sin + ly * cos) * 0.9 * lookWeight,
-    };
+    values[i] = sum / total;
+  }
+}
 
-    const axis = speed > 1e-3 ? Math.atan2(vy, vx) : VERTICAL;
-    // The crouch's squash hands over to the velocity stretch.
-    const flying = squash(axis, stretch, 1 / Math.pow(stretch, 0.6));
-    return {
-      x: b.x,
-      y: b.y + 0.07 * scene.big * crouch,
-      size,
-      angle,
-      squash: mix(flying, CROUCH, crouch),
-      look,
-    };
+/** The flight path as a polyline, with the sample indices of its beats. */
+function track(scene: Scene) {
+  const { vw, vh, sx, sy, big, small } = scene;
+  const turn = turnOf(scene);
+  // Built as if the target were to the left, then mirrored back.
+  const back = (x: number) => (turn < 0 ? x : 2 * sx - x);
+  const tx = back(scene.tx);
+  const ty = scene.ty;
+  const room = turn < 0 ? sx : vw - sx;
+
+  // The far side of the loop sits ~2.1 rx from the start, where the star is
+  // about half its start size. The loop is kept within 1.8:1 either way.
+  const wide = clamp((room - 10 - big * 0.27) / 2.11, 44, 175);
+  const ry = clamp(Math.min(vh * 0.2, wide * 1.8), 70, 175);
+  const rx = Math.min(wide, ry * 1.8);
+  const c0x = sx - rx;
+  const c0y = sy;
+  const driftX = -0.22 * rx;
+  const driftY = -0.3 * ry;
+
+  const xs: number[] = [];
+  const ys: number[] = [];
+  /** How far round the loop (0…1; 1 after it). */
+  const phase: number[] = [];
+  const LOOP = 720;
+  for (let i = 0; i <= LOOP; i++) {
+    const f = i / LOOP;
+    const theta = -2 * Math.PI * f;
+    const d = smooth(f);
+    phase.push(f);
+    xs.push(c0x + driftX * d + rx * Math.cos(theta));
+    ys.push(c0y + driftY * d + ry * Math.sin(theta));
+  }
+  const ex = sx + driftX;
+  const ey = sy + driftY;
+
+  // The dive: three mark-sizes long, 20° below the horizontal, from the
+  // right (the side the star comes from).
+  const slope = (20 * Math.PI) / 180;
+  const run = 3 * small;
+  const ax = tx + run * Math.cos(slope);
+  const ay = ty - run * Math.sin(slope);
+
+  // The swoop: leaves the loop heading up, arrives pointed at the mark.
+  const lift = 0.55 * Math.max(60, ey - ay);
+  const reach = clamp(0.45 * Math.abs(ex - ax), 40, 160);
+  const p1x = ex;
+  const p1y = ey - lift;
+  const p2x = ax + reach * Math.cos(slope);
+  const p2y = ay - reach * Math.sin(slope);
+  const SWOOP = 600;
+  for (let i = 1; i <= SWOOP; i++) {
+    const t = i / SWOOP;
+    const s = 1 - t;
+    phase.push(1);
+    xs.push(s * s * s * ex + 3 * s * s * t * p1x + 3 * s * t * t * p2x + t * t * t * ax);
+    ys.push(s * s * s * ey + 3 * s * s * t * p1y + 3 * s * t * t * p2y + t * t * t * ay);
+  }
+  const DIVE = 60;
+  for (let i = 1; i <= DIVE; i++) {
+    const t = i / DIVE;
+    phase.push(1);
+    xs.push(ax + (tx - ax) * t);
+    ys.push(ay + (ty - ay) * t);
+  }
+  for (let i = 0; i < xs.length; i++) xs[i] = back(xs[i]);
+  return {
+    xs,
+    ys,
+    phase,
+    marks: [0, LOOP / 4, LOOP, LOOP + SWOOP, LOOP + SWOOP + DIVE],
+    turn,
+    big,
+    small,
+    vw,
+    vh,
+  };
+}
+
+/**
+ * Plans the flight for a scene: the path, its timing and the cartoon
+ * physics, as a table sampled at 240Hz. Cheap (a few thousand samples);
+ * done once at launch.
+ */
+export function planFlight(scene: Scene): Plan {
+  const { xs, ys, phase, marks, turn, big, small, vw, vh } = track(scene);
+  const n = xs.length;
+
+  // Arc length of the raw path, for the size beats.
+  const arc = new Float64Array(n);
+  for (let i = 1; i < n; i++) arc[i] = arc[i - 1] + Math.hypot(xs[i] - xs[i - 1], ys[i] - ys[i - 1]);
+  const total = arc[n - 1] || 1;
+  const beat = marks.map((index) => arc[index] / total);
+  // The way round the loop by distance, so the spin is even in time.
+  for (let i = 0; i <= marks[2]; i++) phase[i] = arc[i] / arc[marks[2]];
+  const end = Math.log(small / big);
+  const dive = Math.min(Math.log((1.75 * small) / big), Math.log(0.4) - 0.1);
+  const logSize = monotone(beat, [0, Math.log(0.66), Math.log(0.4), dive, end]);
+  const size = new Float64Array(n);
+  for (let i = 0; i < n; i++) size[i] = big * Math.exp(logSize(arc[i] / total));
+  size[n - 1] = small;
+
+  // Keep the star on screen (but never move the end).
+  for (let i = 0; i < n - 1; i++) {
+    const margin = 4 + 0.6 * size[i];
+    const band = 0.5 * size[i];
+    ys[i] = soft(ys[i], margin, band);
+    ys[i] = vh - soft(vh - ys[i], margin, band);
+    xs[i] = soft(xs[i], margin, band);
+    xs[i] = vw - soft(vw - xs[i], margin, band);
   }
 
-  // Landing: overshoot bounce, then rest.
-  const q = t - hold - WIND - FLY;
-  if (q < LAND) {
-    const decay = Math.exp(-q / 0.075);
-    const wave = Math.sin((2 * Math.PI * q) / 0.2);
-    const fade = 1 - smooth(q / LAND); // guarantees an exact zero at the end
-    const pop = 0.17 * decay * wave * fade;
-    const flat = 0.14 * decay * wave * fade;
-    const hop = 0.22 * scene.small * decay * Math.sin((2 * Math.PI * q) / 0.24) * fade;
-    return {
-      x: scene.tx,
-      y: scene.ty - hop,
-      size: scene.small * (1 + pop),
-      angle: 0,
-      squash: squash(VERTICAL, 1 - flat, 1 + flat * 0.7),
-      look: null,
-    };
+  // Retime by arc length: dt = ds / v.
+  const time = new Float64Array(n);
+  const cruise = CRUISE * big;
+  const ramp = 0.9 * big;
+  const speed = (index: number, distance: number) => {
+    const eased = 1 - (1 - clamp(distance / ramp, 0, 1)) ** 2;
+    const want = cruise * (0.18 + 0.82 * eased);
+    const cap = SPEED_CAP * size[index];
+    return (want ** -4 + cap ** -4) ** -0.25;
+  };
+  let walked = 0;
+  let last = speed(0, 0);
+  for (let i = 1; i < n; i++) {
+    const ds = Math.hypot(xs[i] - xs[i - 1], ys[i] - ys[i - 1]);
+    walked += ds;
+    const v = speed(i, walked);
+    time[i] = time[i - 1] + (ds * (1 / last + 1 / v)) / 2;
+    last = v;
+  }
+  const fly = time[n - 1];
+
+  // Resample on a uniform clock.
+  const count = Math.ceil(fly / STEP) + 1;
+  const plan: Plan = {
+    scene,
+    fly,
+    count,
+    x: new Float64Array(count),
+    y: new Float64Array(count),
+    size: new Float64Array(count),
+    angle: new Float64Array(count),
+    s0: new Float64Array(count),
+    s1: new Float64Array(count),
+    s2: new Float64Array(count),
+    lx: new Float64Array(count),
+    ly: new Float64Array(count),
+    follow: new Float64Array(count),
+  };
+  const sigma = new Float64Array(count);
+  const round = new Float64Array(count);
+  let j = 0;
+  for (let k = 0; k < count; k++) {
+    const t = Math.min(k * STEP, fly);
+    while (j < n - 2 && time[j + 1] < t) j++;
+    const span = time[j + 1] - time[j] || 1;
+    const f = clamp((t - time[j]) / span, 0, 1);
+    plan.x[k] = xs[j] + (xs[j + 1] - xs[j]) * f;
+    plan.y[k] = ys[j] + (ys[j + 1] - ys[j]) * f;
+    plan.size[k] = size[j] * Math.pow(size[j + 1] / size[j], f);
+    sigma[k] = (arc[j] + (arc[j + 1] - arc[j]) * f) / total;
+    round[k] = phase[j] + (phase[j + 1] - phase[j]) * f;
+  }
+  plan.x[count - 1] = scene.tx;
+  plan.y[count - 1] = scene.ty;
+  plan.size[count - 1] = small;
+
+  // Velocity and horizontal acceleration (central differences).
+  const vx = new Float64Array(count);
+  const vy = new Float64Array(count);
+  for (let k = 0; k < count; k++) {
+    const a = Math.max(0, k - 1);
+    const b = Math.min(count - 1, k + 1);
+    vx[k] = (plan.x[b] - plan.x[a]) / ((b - a) * STEP);
+    vy[k] = (plan.y[b] - plan.y[a]) / ((b - a) * STEP);
+  }
+  const ax = new Float64Array(count);
+  for (let k = 0; k < count; k++) {
+    const a = Math.max(0, k - 1);
+    const b = Math.min(count - 1, k + 1);
+    ax[k] = (vx[b] - vx[a]) / ((b - a) * STEP);
   }
 
-  return rest(scene.tx, scene.ty, scene.small);
+  // Orientation: through the loop the star turns once, evenly with the
+  // distance flown (on a round loop that is its heading: up at the start
+  // and the end, upside down at the far side), so it never whips round the
+  // tight ends of a narrow loop. After the loop, a bank. The two blend
+  // around the end of the loop, where both are "up". Angles stay unwrapped
+  // (a whole turn is invisible, and the smoothing below needs them
+  // continuous).
+  const loopEnd = beat[2];
+  const turned = turn * 2 * Math.PI;
+  for (let k = 0; k < count; k++) {
+    const bank = 0.3 * Math.tanh(vx[k] / (9 * big)) + 0.24 * Math.tanh(ax[k] / (90 * big));
+    const hand = smooth((sigma[k] - (loopEnd - 0.05)) / 0.12);
+    plan.angle[k] = turned * round[k] * (1 - hand) + (turned + bank) * hand;
+  }
+
+  // Stretch along the velocity; look where it's going.
+  for (let k = 0; k < count; k++) {
+    const v = Math.hypot(vx[k], vy[k]);
+    const bodies = v / plan.size[k];
+    const stretch = stretchFor(bodies);
+    const axis = v > 1e-3 ? Math.atan2(vy[k], vx[k]) : VERTICAL;
+    const m = squash(axis, stretch, 1 / Math.pow(stretch, 0.6));
+    plan.s0[k] = m[0];
+    plan.s1[k] = m[1];
+    plan.s2[k] = m[2];
+    const weight = Math.min(1, bodies / 6) * 0.9;
+    plan.lx[k] = v > 1e-3 ? (vx[k] / v) * weight : 0;
+    plan.ly[k] = v > 1e-3 ? (vy[k] / v) * weight : -0.9;
+    plan.follow[k] = smooth((sigma[k] - 0.3) / 0.6);
+  }
+  plan.follow[count - 1] = 1;
+
+  // Smooth over ~20ms so no term can snap between two frames.
+  const width = 0.02 / STEP;
+  [plan.angle, plan.s0, plan.s1, plan.s2, plan.lx, plan.ly].forEach((values) => blur(values, width));
+
+  // The crouch lets go over the first 90ms: squash, lean, sink and glance.
+  for (let k = 0; k < count; k++) {
+    const release = Math.max(0, 1 - (k * STEP) / 0.09);
+    const crouch = release * release;
+    if (crouch <= 0) break;
+    plan.angle[k] = plan.angle[k] * (1 - crouch) - turn * LEAN * crouch;
+    const m = mix([plan.s0[k], plan.s1[k], plan.s2[k]], CROUCH, crouch);
+    plan.s0[k] = m[0];
+    plan.s1[k] = m[1];
+    plan.s2[k] = m[2];
+    plan.y[k] += SINK * big * crouch;
+    plan.lx[k] = plan.lx[k] * (1 - crouch) + turn * 0.35 * crouch;
+    plan.ly[k] = plan.ly[k] * (1 - crouch) - 0.75 * crouch;
+  }
+  return plan;
+}
+
+/* ---------------------------------------------------------------------- */
+/* poses                                                                   */
+/* ---------------------------------------------------------------------- */
+
+/** A look in the world frame, turned into the star's own frame. */
+function own(lx: number, ly: number, angle: number) {
+  const c = Math.cos(-angle);
+  const s = Math.sin(-angle);
+  return { x: lx * c - ly * s, y: lx * s + ly * c };
+}
+
+function windPose(scene: Scene, p: number, breath: Breath): Pose {
+  const turn = turnOf(scene);
+  const crouch = Math.sin((Math.PI / 2) * clamp(p, 0, 1)) ** 2;
+  const fading = 1 - smooth(p);
+  return {
+    x: scene.sx,
+    y: scene.sy + SINK * scene.big * crouch + breath.dy * fading,
+    size: scene.big * (1 + (breath.scale - 1) * fading),
+    angle: -turn * LEAN * crouch,
+    squash: mix(IDENTITY, CROUCH, crouch),
+    look: { x: turn * 0.35 * crouch, y: -0.75 * crouch },
+    opacity: 1,
+  };
+}
+
+function flightPose(plan: Plan, t: number, live: Scene): Pose {
+  const at = clamp(t / STEP, 0, plan.count - 1);
+  const k = Math.min(Math.floor(at), plan.count - 2);
+  const f = at - k;
+  const lerp = (values: Float64Array) => values[k] + (values[k + 1] - values[k]) * f;
+  const follow = lerp(plan.follow);
+  const angle = lerp(plan.angle);
+  return {
+    x: lerp(plan.x) + (live.tx - plan.scene.tx) * follow + (live.sx - plan.scene.sx) * (1 - follow),
+    y: lerp(plan.y) + (live.ty - plan.scene.ty) * follow + (live.sy - plan.scene.sy) * (1 - follow),
+    size: plan.size[k] * Math.pow(plan.size[k + 1] / plan.size[k], f),
+    angle,
+    squash: [lerp(plan.s0), lerp(plan.s1), lerp(plan.s2)],
+    look: own(lerp(plan.lx), lerp(plan.ly), angle),
+    opacity: 1,
+  };
+}
+
+// Landing timeline (s after contact): contact, hop, contact, hop, rest.
+const CONTACT_1 = 0.045;
+const HOP_1 = 0.15;
+const CONTACT_2 = 0.03;
+const HOP_2 = 0.085;
+const HOPS = [
+  { start: CONTACT_1, length: HOP_1, height: 0.5 },
+  { start: CONTACT_1 + HOP_1 + CONTACT_2, length: HOP_2, height: 0.16 },
+];
+const CONTACTS = [
+  { start: 0, length: CONTACT_1, depth: 0.3 },
+  { start: CONTACT_1 + HOP_1, length: CONTACT_2, depth: 0.12 },
+];
+
+/** Height above the mark (in mark sizes) and vertical deformation (<0
+    squash, >0 stretch) q seconds after contact, before smoothing. */
+function bounce(q: number): { lift: number; form: number } {
+  for (const hop of HOPS) {
+    const p = (q - hop.start) / hop.length;
+    if (p > 0 && p < 1) {
+      const rise = (4 * hop.height * (1 - 2 * p)) / hop.length; // sizes per second
+      return { lift: 4 * hop.height * p * (1 - p), form: 0.2 * Math.tanh(Math.abs(rise) / 14) };
+    }
+  }
+  for (const contact of CONTACTS) {
+    const p = (q - contact.start) / contact.length;
+    if (p >= 0 && p <= 1) return { lift: 0, form: -contact.depth * Math.sin(Math.PI * p) };
+  }
+  return { lift: 0, form: 0 };
+}
+
+function landPose(plan: Plan, q: number, live: Scene): Pose {
+  const small = plan.scene.small;
+  const lift = bounce(q).lift;
+  // The deformation, box-filtered over ±12ms so contact and take-off blend.
+  let form = 0;
+  for (const tap of [-0.012, -0.006, 0, 0.006, 0.012]) form += bounce(Math.max(0, q + tap)).form / 5;
+  const fade = 1 - smooth(q / LAND);
+  const pop = 0.33 * Math.exp(-q / 0.09) * Math.sin((2 * Math.PI * q) / 0.2) * fade;
+  const formed: Mat =
+    form < 0 ? squash(VERTICAL, 1 + form, 1 - 0.67 * form) : squash(VERTICAL, 1 + form, 1 / (1 + form) ** 0.6);
+  // Hand over from the flight's last squash and tilt in the first 30ms.
+  const last = plan.count - 1;
+  const flown: Mat = [plan.s0[last], plan.s1[last], plan.s2[last]];
+  return {
+    x: live.tx,
+    y: live.ty - lift * small,
+    size: small * (1 + pop),
+    angle: normalize(plan.angle[last]) * (1 - smooth(q / 0.1)),
+    squash: mix(flown, formed, smooth(q / 0.03)),
+    look: null,
+    opacity: 1,
+  };
+}
+
+/** Length of the intro from launch (wind-up + flight + landing). */
+export const introLength = (plan: Plan) => WIND + plan.fly + LAND;
+
+/** Seconds from launch at which the star touches down. */
+export const touchdown = (plan: Plan) => WIND + plan.fly;
+
+/**
+ * The star's pose `t` seconds after launch (the start of the wind-up), in
+ * the live scene (the mark may have moved since the plan was made). Past
+ * the end it returns the target at rest.
+ */
+export function introPose(plan: Plan, t: number, live: Scene, breath: Breath = NO_BREATH): Pose {
+  if (t < WIND) return windPose(live, t / WIND, breath);
+  if (t < WIND + plan.fly) return flightPose(plan, t - WIND, live);
+  const q = t - WIND - plan.fly;
+  if (q < LAND) return landPose(plan, q, live);
+  return rest(live.tx, live.ty, plan.scene.small);
+}
+
+/**
+ * A quick dash from `from` to `to`, `p` (0…1) of the way through a dash
+ * `length` seconds long: off at once (no hesitation after a click), braking
+ * to a stop on arrival, resized on a log scale, smeared along the dash
+ * while it is fast, level and round on arrival. Skipping uses it to get
+ * home; with `fade` it fades out on the way (when home has scrolled
+ * off-screen).
+ */
+export function dashPose(
+  from: Pose,
+  to: { x: number; y: number; size: number },
+  p: number,
+  length: number,
+  fade = false,
+): Pose {
+  const c = clamp(p, 0, 1);
+  // Cubic with slope 1.5 at the start and 0 at the end.
+  const e = c * (1.5 - 0.5 * c * c);
+  const rate = 1.5 * (1 - c * c); // de/dp
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const distance = Math.hypot(dx, dy);
+  const size = from.size * Math.pow(to.size / from.size, e);
+  // Round again by the end, so the hand-off can't snap.
+  const settle = 1 - smooth((c - 0.55) / 0.45);
+  const stretch = 1 + (stretchFor((distance * rate) / length / size) - 1) * settle;
+  const axis = distance > 1e-3 ? Math.atan2(dy, dx) : VERTICAL;
+  const angle = normalize(from.angle) * (1 - e);
+  const aim = 0.9 * (1 - e);
+  return {
+    x: from.x + dx * e,
+    y: from.y + dy * e,
+    size,
+    angle,
+    squash: mix(from.squash, squash(axis, stretch, 1 / Math.pow(stretch, 0.6)), smooth(c / 0.35)),
+    look: distance > 1e-3 ? own((dx / distance) * aim, (dy / distance) * aim, angle) : null,
+    opacity: fade ? from.opacity * (1 - smooth(c)) : from.opacity,
+  };
 }
 
 /**

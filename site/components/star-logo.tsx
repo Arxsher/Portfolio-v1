@@ -5,7 +5,8 @@
 // It renders exactly LOGO_PATH on the server and at rest, so it looks
 // identical to the static mark; the eyes are holes in the even-odd path
 // and keep showing whatever is behind them (the page, or the link's hover
-// fill). `home` marks the header mark as the spot the first-load intro
+// fill). Below 2 device pixels per grid unit (a 16px mark on a 1x screen)
+// the eyes move in whole device pixels, so they stay crisp. `home` marks the header mark as the spot the first-load intro
 // star flies to (components/star-intro.tsx); it is hidden while that
 // plays.
 
@@ -31,7 +32,8 @@ export function StarLogo({
     if (!el || !shape) return;
     let drawn = LOGO_PATH;
     const eyes = attachEyes(el, ({ x, y, open }) => {
-      const next = starPath(x, y, open);
+      const scale = ((window.devicePixelRatio || 1) * size) / 16;
+      const next = starPath(x, y, open, scale < 2 ? scale : undefined);
       if (next === drawn) return;
       drawn = next;
       shape.setAttribute("d", next);
@@ -40,7 +42,7 @@ export function StarLogo({
       eyes.detach();
       shape.setAttribute("d", LOGO_PATH);
     };
-  }, []);
+  }, [size]);
 
   return (
     <svg

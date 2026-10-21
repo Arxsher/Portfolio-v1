@@ -32,12 +32,3 @@ export function SpinIcon(props: IconProps) {
     </Svg>
   );
 }
-
-/** A crescent and a dot on a dotted path: the moon. */
-export function MoonIcon(props: IconProps) {
-  return (
-    <Svg {...props}>
-      <path d="M10.6 3.2a4.9 4.9 0 1 0 2.2 7.6 4 4 0 0 1-2.2-7.6Z" />
-    </Svg>
-  );
-}

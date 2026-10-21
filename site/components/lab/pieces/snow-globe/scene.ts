@@ -167,7 +167,8 @@ export function newLayout(): Layout {
  * and scaled to fit.
  */
 export function layoutFor(width: number, height: number, stage: boolean, bottomPad: number, out: Layout): Layout {
-  const top = stage ? (height < 520 ? 20 : 28) : height * 0.05;
+  // stage: room above the glass to lift it into
+  const top = stage ? (height < 520 ? 30 : 50) : height * 0.05;
   const bottom = stage ? bottomPad : height * 0.05;
   const side = stage ? 20 : width * 0.055;
   const availH = Math.max(40, height - top - bottom);

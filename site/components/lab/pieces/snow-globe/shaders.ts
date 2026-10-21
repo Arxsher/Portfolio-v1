@@ -352,8 +352,8 @@ vec3 studio(vec3 d, float rough) {
   }
   // a tall strip light behind, on the right
   float sa = dot(normalize(d.xz), normalize(STRIP_DIR.xz));
-  float strip = smoothstep(0.9965 - rough * 0.05, 0.9992, sa) * smoothstep(-0.3, -0.12, up) * (1.0 - smoothstep(0.55, 0.75, up));
-  c += strip * mix(3.4, 1.1, uDark) * vec3(1.0, 0.98, 0.95) / (1.0 + rough * 8.0);
+  float strip = smoothstep(0.9965 - rough * 0.08, 0.9992 + rough * 0.02, sa) * smoothstep(-0.3, -0.12, up) * (1.0 - smoothstep(0.55, 0.75, up));
+  c += strip * mix(3.4, 1.1, uDark) * vec3(1.0, 0.98, 0.95) / (1.0 + rough * 24.0);
   return c;
 }
 
@@ -537,7 +537,7 @@ vec3 backdrop(vec2 uv) {
   vec2 sc = uv * 70.0;
   float star = step(0.985, hash12(floor(sc))) * ss(0.4, 0.0, length(fract(sc) - 0.5));
   night += vec3(0.8, 0.85, 1.0) * star * (0.4 + 0.6 * hash12(floor(sc) + 7.0)) * ss(-0.18, 0.15, v) * 1.5;
-  vec2 mp = uv - vec2(0.4, 0.36);
+  vec2 mp = uv - vec2(0.34, 0.34);
   float md = length(mp);
   night += vec3(0.6, 0.7, 1.0) * 0.16 * exp(-md * 6.0);
   float moon = 1.0 - smoothstep(0.055, 0.063, md);
@@ -924,8 +924,10 @@ uniform sampler2D uSeen;
 uniform sampler2D uRefl;
 uniform sampler2D uFlakes;
 uniform vec2 uCanvas;
+uniform vec2 uTexel;
 uniform float uDec;
 uniform float uExposure;
+uniform float uAA;
 out vec4 outColor;
 
 float tone(float x) {
@@ -941,15 +943,44 @@ float hash(vec2 p) {
   return fract((p3.x + p3.y) * p3.z);
 }
 
-void main() {
-  vec2 uv = gl_FragCoord.xy / uCanvas;
+// the three layers put together and toned (linear, 0..1)
+vec3 shade(vec2 uv) {
   vec4 a = texture(uSeen, uv);
   vec4 b = texture(uRefl, uv);
   vec4 fl = texture(uFlakes, uv);
   vec3 c = (a.rgb * uDec * (1.0 - fl.a) + fl.rgb * uDec) * b.a + b.rgb * uDec;
   c *= uExposure;
-  c = vec3(tone(c.r), tone(c.g), tone(c.b));
-  c = srgb(clamp(c, 0.0, 1.0));
+  return clamp(vec3(tone(c.r), tone(c.g), tone(c.b)), 0.0, 1.0);
+}
+float luma(vec3 c) {
+  return sqrt(dot(c, vec3(0.299, 0.587, 0.114)));
+}
+
+void main() {
+  vec2 uv = gl_FragCoord.xy / uCanvas;
+  vec3 c = shade(uv);
+  if (uAA > 0.5) {
+    // FXAA (the small console variant) where the scene is drawn at 1×
+    vec2 px = uTexel;
+    vec3 nw = shade(uv + vec2(-1.0, -1.0) * px);
+    vec3 ne = shade(uv + vec2(1.0, -1.0) * px);
+    vec3 sw = shade(uv + vec2(-1.0, 1.0) * px);
+    vec3 se = shade(uv + vec2(1.0, 1.0) * px);
+    float lNW = luma(nw), lNE = luma(ne), lSW = luma(sw), lSE = luma(se), lM = luma(c);
+    float lMin = min(lM, min(min(lNW, lNE), min(lSW, lSE)));
+    float lMax = max(lM, max(max(lNW, lNE), max(lSW, lSE)));
+    if (lMax - lMin > max(0.04, lMax * 0.1)) {
+      vec2 dir = vec2(-((lNW + lNE) - (lSW + lSE)), (lNW + lSW) - (lNE + lSE));
+      float reduce = max((lNW + lNE + lSW + lSE) * 0.03125, 1.0 / 128.0);
+      float rcp = 1.0 / (min(abs(dir.x), abs(dir.y)) + reduce);
+      dir = clamp(dir * rcp, vec2(-6.0), vec2(6.0)) * px;
+      vec3 a = 0.5 * (shade(uv + dir * (1.0 / 3.0 - 0.5)) + shade(uv + dir * (2.0 / 3.0 - 0.5)));
+      vec3 b = a * 0.5 + 0.25 * (shade(uv - dir * 0.5) + shade(uv + dir * 0.5));
+      float lB = luma(b);
+      c = lB < lMin || lB > lMax ? a : b;
+    }
+  }
+  c = srgb(c);
   c += (hash(gl_FragCoord.xy) - 0.5) / 255.0;
   outColor = vec4(c, 1.0);
 }

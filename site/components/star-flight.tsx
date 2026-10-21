@@ -3,35 +3,61 @@
 // Runs the first-load intro (see components/star-intro.tsx for when it
 // plays and components/star-path.ts for the choreography).
 //
-// The overlay is a fixed, full-viewport layer with pointer-events: none;
-// the star inside it is one element moved by a single transform matrix per
-// frame (position, size, tilt, squash and stretch), from a
-// requestAnimationFrame loop with a clamped dt. Each frame first reads
-// (the viewport size and the header mark's live position, so scrolling,
-// resizing or the mark moving are all followed), then writes. The eyes are
-// ovals in the page background colour, driven by the shared eye engine
-// (components/star-eyes.ts): they follow the pointer while the star waits
-// and look where it flies while it flies.
+// The overlay is a fixed, full-viewport layer with pointer-events: none.
+// The star inside it is one element moved by a single transform matrix per
+// frame (position, size, tilt, squash and stretch); while it is fast,
+// three fainter copies of its body trail it at its poses of the last few
+// frames (a cartoon smear). One requestAnimationFrame loop does all of it,
+// in order: read (the viewport and the header mark's live box), step the
+// eye engine (components/star-eyes.ts, driven from here: it reads the
+// stars' boxes, then writes their eyes), then write the transforms.
 //
+// Phases:
+//   wait  the CSS pop-in is still running.
+//   hold  the flight has taken over; the star sits in the middle (CSS still
+//         breathes it) and its eyes follow the pointer. It launches once
+//         the CSS blink is over plus a beat, and once the main thread has
+//         settled (QUIET_FRAMES smooth frames in a row, or QUIET_MAX later).
+//   fly   wind-up, flight and landing, planned at launch (planFlight). The
+//         clock is real time: a long frame jumps ahead rather than playing
+//         the flight in slow motion.
+//   dash  a skip (a click, a tap or Esc): a quick dash home (ZIP). Or, if
+//         the header mark scrolls out of view mid-flight: a dash up and off
+//         the screen, fading out (FADE).
 // On landing the star sits exactly where the header mark is, at its size
 // and colour; the mark takes over the gaze, and in the same frame the
-// overlay goes away and the mark is shown, so nothing pops. A click or tap
-// anywhere, Esc, or turning on reduced motion skips to that end at once
-// (scrolling doesn't: the star just follows the mark).
+// overlay goes away and the mark is shown, so nothing pops. Turning on
+// reduced motion ends it at once. If the header mark is off-screen when
+// the flight would start (the page opened scrolled down), the intro is
+// skipped and the session flag cleared, so it plays on the next visit.
+//
+// When it is over, window.__starIntro.done is true and DONE_EVENT fires on
+// window (heavy start-up work, like WebGL, can wait for it).
 
 import { useEffect, useRef } from "react";
 import { STAR_BODY, eyeShapes } from "@/components/logo";
-import { attachEyes, eyesOf, type Gaze } from "@/components/star-eyes";
+import { attachEyes, driveEyes, eyesOf, type Gaze } from "@/components/star-eyes";
 import {
+  AFTER_BLINK,
+  BLINK_LEN,
+  DONE_EVENT,
+  FADE,
   FAILSAFE_S,
-  HOLD,
-  HOLD_MIN,
   INTRO_ATTR,
-  POP,
+  INTRO_KEY,
+  NO_BREATH,
+  ZIP,
+  dashPose,
   introLength,
-  poseAt,
+  introPose,
+  planFlight,
   poseMatrix,
+  rest,
+  touchdown,
+  type Breath,
+  type Plan,
   type Pose,
+  type Scene,
 } from "@/components/star-path";
 
 declare global {
@@ -45,42 +71,77 @@ declare global {
 /** The intro star's eyes never shut completely: a closed eye is a thin
     slit, which reads better at this size than an eyeless star. */
 const SLIT = 0.08;
-
 const REST = eyeShapes();
+
+/** The smear: opacity of each trailing copy, newest first. */
+const GHOSTS = [0.35, 0.2, 0.1];
+/** Their spacing: one 60Hz frame, or less when that would put them more
+    than SPREAD body lengths apart (a dash), so the smear stays one piece. */
+const FRAME = 1 / 60;
+const SPREAD = 0.4;
+
+/** Launch once the main thread gives this many frames in a row shorter
+    than QUIET_GAP (after hydration a page is often still busy compiling
+    shaders or laying out), but wait at most QUIET_MAX for them. */
+const QUIET_FRAMES = 3;
+const QUIET_GAP = 0.024;
+const QUIET_MAX = 1.2;
+/** The shortest hold once the flight has taken over. */
+const HOLD_MIN = 0.12;
+/** While it keeps waiting, it blinks again this long after the last one. */
+const BLINK_EVERY = 1.8;
 
 /** Counts effect runs, so a cleanup can tell a remount (React's dev double
     effects) from a real unmount. */
 let generation = 0;
 
+type Mode = "wait" | "hold" | "fly" | "dash" | "done";
+
 export function StarFlight() {
   const wrapRef = useRef<HTMLDivElement>(null);
   const starRef = useRef<HTMLDivElement>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
   const leftRef = useRef<SVGEllipseElement>(null);
   const rightRef = useRef<SVGEllipseElement>(null);
+  const ghostRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   useEffect(() => {
     const intro = window.__starIntro;
     const wrap = wrapRef.current;
     const star = starRef.current;
-    const left = leftRef.current;
-    const right = rightRef.current;
-    if (!intro || intro.done || !wrap || !star || !left || !right) return;
+    const svg = svgRef.current;
+    const leftEye = leftRef.current;
+    const rightEye = rightRef.current;
+    const ghosts = GHOSTS.map((_, index) => ghostRefs.current[index]).filter(
+      (ghost): ghost is HTMLDivElement => !!ghost,
+    );
+    if (!intro || intro.done || !wrap || !star || !svg || !leftEye || !rightEye) return;
 
     const root = document.documentElement;
     const run = ++generation;
     const reducedQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
 
+    let mode: Mode = "wait";
     let raf = 0;
-    let cancelled = false;
-    let finished = false;
-    let started = false;
     let last = 0;
-    let t = 0;
-    let hold = HOLD;
-    let blinked = false;
+    let cancelled = false;
     let big = 0;
     let pose: Pose | null = null;
+    let plan: Plan | null = null;
+    let breath: Breath = NO_BREATH;
+    /** Seconds since launch (fly). */
+    let t = 0;
+    /** Seconds in the hold, when it may launch, and when the last blink
+        ended (hold clock; negative if before the hold). */
+    let held = 0;
+    let readyAt = 0;
+    let blinkedAt = 0;
+    let quiet = 0;
+    let dash: { from: Pose; p: number; fade: boolean } | null = null;
+    let stopBreathing = false;
+    let ghostsShown = false;
     let home: Element | null = null;
+    let homeBox: DOMRect | null = null;
 
     const findHome = () => {
       if (!home || !home.isConnected) home = document.querySelector("[data-star-home]");
@@ -88,8 +149,11 @@ export function StarFlight() {
     };
 
     const drawEyes = ({ x, y, open }: Gaze) => {
-      const shapes = eyeShapes(x, y, Math.max(open, SLIT));
-      [left, right].forEach((el, index) => {
+      // Small on a 1x screen (the end of the flight): whole pixels only, the
+      // same as the header mark, so the swap can't shift the eyes.
+      const scale = ((window.devicePixelRatio || 1) * (pose ? pose.size : 1000)) / 16;
+      const shapes = eyeShapes(x, y, Math.max(open, SLIT), scale < 2 ? scale : undefined);
+      [leftEye, rightEye].forEach((el, index) => {
         const eye = shapes[index];
         el.setAttribute("cx", eye.cx.toFixed(3));
         el.setAttribute("cy", eye.cy.toFixed(3));
@@ -104,26 +168,16 @@ export function StarFlight() {
       frame: () =>
         pose
           ? { x: pose.x, y: pose.y, size: pose.size }
-          : { x: wrap.clientWidth / 2, y: wrap.clientHeight / 2, size: star.offsetWidth },
+          : { x: wrap.clientWidth / 2, y: wrap.clientHeight / 2, size: big || 128 },
       aim: () => pose?.look ?? null,
     });
-
-    const end = () => {
-      if (finished) return;
-      finished = true;
-      intro.done = true;
-      if (raf) cancelAnimationFrame(raf);
-      raf = 0;
-      // Hand the gaze to the header mark, then swap in the same frame.
-      eyesOf(findHome())?.take(eyes);
-      root.removeAttribute(INTRO_ATTR);
-      detach();
-    };
+    const drive = driveEyes();
 
     /** Reads this frame's scene: the viewport and the header mark. */
-    const scene = () => {
+    const scene = (): Scene | null => {
       const target = findHome()?.getBoundingClientRect();
       if (!target || target.width === 0) return null;
+      homeBox = target;
       const vw = wrap.clientWidth;
       const vh = wrap.clientHeight;
       return {
@@ -134,67 +188,226 @@ export function StarFlight() {
         tx: target.left + target.width / 2,
         ty: target.top + target.height / 2,
         small: target.width,
-        big,
+        big: big || 128,
       };
     };
+    const homeVisible = (vh: number) => !!homeBox && homeBox.bottom > 0 && homeBox.top < vh;
 
-    /** Places the star for time t; false once there is nothing to fly to. */
-    const place = () => {
-      const now = scene();
-      if (!now) return false;
-      pose = poseAt(now, t, hold);
-      star.style.transform = poseMatrix(pose, big);
-      return true;
+    /** Let the intro play again on the next visit. */
+    const forget = () => {
+      try {
+        sessionStorage.removeItem(INTRO_KEY);
+      } catch {}
     };
 
-    const frame = (now: number) => {
-      raf = 0;
-      t += Math.min(0.05, Math.max(0, (now - last) / 1000));
-      last = now;
-      if (!place() || t >= introLength(hold)) {
-        end();
-        return;
-      }
-      eyes.poke();
-      if (!blinked && t >= hold * 0.35) {
-        blinked = true;
-        eyes.blink();
-      }
-      raf = requestAnimationFrame(frame);
+    /** The CSS breathing, as it stands right now. */
+    const readBreath = (): Breath => {
+      const style = getComputedStyle(svg);
+      const scale = parseFloat(style.scale);
+      const dy = parseFloat(style.translate.split(" ")[1] ?? "0");
+      return { scale: Number.isFinite(scale) ? scale : 1, dy: Number.isFinite(dy) ? dy : 0 };
     };
 
-    const begin = () => {
-      if (cancelled || finished || started) return;
-      started = true;
-      // A slow hydration already kept the star on screen for a while: the
-      // time it waited past the pop-in counts towards the hold.
-      const waited = (performance.now() - intro.at) / 1000;
-      hold = Math.min(HOLD, Math.max(HOLD_MIN, HOLD + POP - waited));
+    /** Seconds until the CSS blink is over (negative once it is), or null
+        if there is none to wait for. */
+    const cssBlinkLeft = (): number | null => {
+      const animations = typeof leftEye.getAnimations === "function" ? leftEye.getAnimations() : [];
+      const timing = animations[0]?.effect?.getComputedTiming();
+      if (!timing) return null;
+      const end = Number(timing.endTime ?? 0);
+      const local = timing.localTime == null ? end : Number(timing.localTime);
+      return (end - local) / 1000;
+    };
+
+    const dashTarget = (live: Scene, from: Pose, fade: boolean) =>
+      fade
+        ? { x: from.x + (live.tx - from.x) * 0.4, y: -0.8 * from.size, size: from.size * 0.6 }
+        : { x: live.tx, y: live.ty, size: live.small };
+
+    /** The pose `lag` seconds before now. */
+    const poseAt = (live: Scene, lag = 0): Pose => {
+      if (mode === "fly" && plan) {
+        return t - lag < 0 ? rest(live.sx, live.sy, big) : introPose(plan, t - lag, live, breath);
+      }
+      if (mode === "dash" && dash) {
+        const length = dash.fade ? FADE : ZIP;
+        const p = dash.p - lag / length;
+        return p <= 0 ? dash.from : dashPose(dash.from, dashTarget(live, dash.from, dash.fade), p, length, dash.fade);
+      }
+      return rest(live.sx, live.sy, big);
+    };
+
+    /** Takes over from the CSS pop-in in one go: same place, same size. */
+    const takeOver = () => {
       big = star.offsetWidth || 128;
-      // Take over from the CSS pop-in in one go: same place, same size.
       star.style.left = "0px";
       star.style.top = "0px";
       star.style.translate = "none";
       star.style.animation = "none";
       star.style.transformOrigin = "0 0";
-      if (!place()) {
+      pose = rest(wrap.clientWidth / 2, wrap.clientHeight / 2, big);
+      star.style.transform = poseMatrix(pose, big);
+    };
+
+    const launch = (live: Scene) => {
+      // The wind-up eases the CSS breathing out from where it stands.
+      breath = readBreath();
+      stopBreathing = true;
+      plan = planFlight(live);
+      t = 0;
+      mode = "fly";
+    };
+
+    const startDash = (fade: boolean) => {
+      if (!pose || mode === "dash" || mode === "done") return;
+      if (mode === "hold") {
+        const now = readBreath();
+        stopBreathing = true;
+        pose = { ...pose, y: pose.y + now.dy, size: pose.size * now.scale };
+      }
+      dash = { from: pose, p: 0, fade };
+      mode = "dash";
+    };
+
+    const skip = () => {
+      if (mode === "wait") {
+        takeOver();
+        mode = "hold";
+      }
+      if (mode === "hold" || (mode === "fly" && plan && t < touchdown(plan))) startDash(false);
+      else if (mode === "fly") end();
+    };
+
+    const writeGhosts = (live: Scene) => {
+      if (!pose) return;
+      const moving = mode === "fly" || mode === "dash";
+      const before = moving ? poseAt(live, FRAME) : pose;
+      const bodies = Math.hypot(pose.x - before.x, pose.y - before.y) / Math.max(1, pose.size);
+      // Only past ~0.2 bodies a frame (the flight and dashes, not the
+      // landing hops), full by 0.4.
+      const strength = Math.min(1, Math.max(0, (bodies - 0.18) / 0.22)) * pose.opacity;
+      if (strength <= 0) {
+        if (ghostsShown) ghosts.forEach((ghost) => (ghost.style.opacity = "0"));
+        ghostsShown = false;
+        return;
+      }
+      ghostsShown = true;
+      const spacing = FRAME * Math.min(1, SPREAD / bodies);
+      ghosts.forEach((ghost, index) => {
+        const lagged = index === 0 && spacing === FRAME ? before : poseAt(live, spacing * (index + 1));
+        ghost.style.transform = poseMatrix(lagged, big);
+        ghost.style.opacity = String(GHOSTS[index] * strength);
+      });
+    };
+
+    const frame = (now: number) => {
+      raf = 0;
+      const gap = last ? Math.max(0, (now - last) / 1000) : 0;
+      last = now;
+      const dt = Math.min(gap, 1);
+
+      // 1. Read.
+      const live = scene();
+      if (!live) {
         end();
         return;
       }
-      last = performance.now();
+
+      // 2. Advance.
+      if (mode === "hold") {
+        held += dt;
+        quiet = gap > 0 && gap < QUIET_GAP ? quiet + 1 : 0;
+        if (!homeVisible(live.vh)) {
+          forget();
+          end();
+          return;
+        }
+        if (held >= readyAt && held - blinkedAt > BLINK_EVERY) {
+          eyes.blink();
+          blinkedAt = held + BLINK_LEN;
+          readyAt = Math.max(readyAt, blinkedAt + AFTER_BLINK);
+        }
+        if (held >= readyAt && (quiet >= QUIET_FRAMES || held >= readyAt + QUIET_MAX)) launch(live);
+      } else if (mode === "fly" && plan) {
+        t += dt;
+        if (t >= introLength(plan)) {
+          end();
+          return;
+        }
+        if (!homeVisible(live.vh) && t < touchdown(plan)) startDash(true);
+      }
+      // (A dash started just above moves on in this same frame.)
+      if (mode === "dash" && dash) {
+        dash.p += dt / (dash.fade ? FADE : ZIP);
+        if (dash.p >= 1) {
+          end();
+          return;
+        }
+      }
+      if (mode !== "wait") pose = poseAt(live);
+
+      // 3. The eyes: reads the header mark's box (layout is still clean),
+      //    then writes the eyes of both stars.
+      drive.step(now);
+
+      // 4. Write.
+      if (stopBreathing) {
+        svg.style.animation = "none";
+        stopBreathing = false;
+      }
+      if (mode !== "wait" && pose) {
+        star.style.transform = poseMatrix(pose, big);
+        star.style.opacity = pose.opacity < 1 ? pose.opacity.toFixed(3) : "";
+        writeGhosts(live);
+      }
       raf = requestAnimationFrame(frame);
+    };
+
+    const begin = () => {
+      if (cancelled || mode !== "wait") return;
+      const box = findHome()?.getBoundingClientRect();
+      if (!box || box.width === 0 || box.bottom <= 0 || box.top >= window.innerHeight) {
+        // Opened scrolled down: the landing couldn't be seen.
+        forget();
+        end();
+        return;
+      }
+      takeOver();
+      // The look-and-blink beat: CSS blinks once; launch a beat after it.
+      const left = cssBlinkLeft();
+      if (left === null) {
+        eyes.blink();
+        blinkedAt = BLINK_LEN;
+      } else blinkedAt = left;
+      readyAt = Math.max(HOLD_MIN, blinkedAt + AFTER_BLINK);
+      held = 0;
+      quiet = 0;
+      mode = "hold";
+    };
+
+    const end = () => {
+      if (mode === "done") return;
+      mode = "done";
+      intro.done = true;
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
+      // Hand the gaze to the header mark, then swap in the same frame.
+      eyesOf(findHome())?.take(eyes);
+      root.removeAttribute(INTRO_ATTR);
+      detach();
+      window.dispatchEvent(new Event(DONE_EVENT));
     };
 
     // A mouse press skips at once. A finger only skips on a tap, so that
     // starting to scroll the page doesn't cut the flight short.
     let press: { id: number; x: number; y: number } | null = null;
     const onDown = (event: PointerEvent) => {
-      if (event.pointerType === "mouse") end();
+      if (event.pointerType === "mouse") skip();
       else press = { id: event.pointerId, x: event.clientX, y: event.clientY };
     };
     const onUp = (event: PointerEvent) => {
       if (press && press.id === event.pointerId && Math.hypot(event.clientX - press.x, event.clientY - press.y) < 12) {
-        end();
+        skip();
       }
       press = null;
     };
@@ -202,10 +415,10 @@ export function StarFlight() {
       press = null;
     };
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") end();
+      if (event.key === "Escape") skip();
     };
     const onResize = () => {
-      if (started) big = star.offsetWidth || big;
+      if (mode !== "wait") big = star.offsetWidth || big;
     };
     const onMotion = () => {
       if (reducedQuery.matches) end();
@@ -213,6 +426,7 @@ export function StarFlight() {
 
     function detach() {
       eyes.detach();
+      drive.release();
       window.removeEventListener("pointerdown", onDown, true);
       window.removeEventListener("pointerup", onUp, true);
       window.removeEventListener("pointercancel", onCancel, true);
@@ -234,8 +448,9 @@ export function StarFlight() {
     window.addEventListener("keydown", onKey, true);
     window.addEventListener("resize", onResize);
     reducedQuery.addEventListener("change", onMotion);
+    raf = requestAnimationFrame(frame);
 
-    // Let the CSS pop-in finish, then fly.
+    // Let the CSS pop-in finish, then take over.
     const popping = typeof star.getAnimations === "function" ? star.getAnimations() : [];
     if (popping.length === 0) begin();
     else Promise.all(popping.map((animation) => animation.finished)).then(begin, begin);
@@ -244,7 +459,7 @@ export function StarFlight() {
       cancelled = true;
       if (raf) cancelAnimationFrame(raf);
       raf = 0;
-      if (finished) return;
+      if (mode === "done") return;
       detach();
       // A real unmount mid-intro must not leave the header mark hidden; a
       // dev remount runs this effect again right away and carries on.
@@ -252,6 +467,7 @@ export function StarFlight() {
         if (generation === run && !intro.done) {
           intro.done = true;
           root.removeAttribute(INTRO_ATTR);
+          window.dispatchEvent(new Event(DONE_EVENT));
         }
       }, 0);
     };
@@ -259,8 +475,22 @@ export function StarFlight() {
 
   return (
     <div ref={wrapRef} className="star-intro" aria-hidden="true">
+      {/* The smear, oldest (faintest) first so the newest sits on top. */}
+      {[2, 1, 0].map((index) => (
+        <div
+          key={index}
+          ref={(el) => {
+            ghostRefs.current[index] = el;
+          }}
+          className="star-intro-ghost"
+        >
+          <svg viewBox="0 0 16 16" focusable="false">
+            <path d={STAR_BODY} fill="currentColor" />
+          </svg>
+        </div>
+      ))}
       <div ref={starRef} className="star-intro-star">
-        <svg viewBox="0 0 16 16" focusable="false">
+        <svg ref={svgRef} viewBox="0 0 16 16" focusable="false">
           <path d={STAR_BODY} fill="currentColor" />
           <ellipse ref={leftRef} {...REST[0]} style={{ fill: "var(--background)" }} />
           <ellipse ref={rightRef} {...REST[1]} style={{ fill: "var(--background)" }} />

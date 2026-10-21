@@ -5,7 +5,7 @@
 // - Orientation is a quaternion with an angular velocity vector.
 // - Held: a stiff, critically damped spring pulls the planet toward the
 //   target the hand sets (the point you grabbed stays under your finger,
-//   a frame or two behind). Grabbing a planet that is still spinning
+//   about 40 ms, two frames, behind). Grabbing a planet that is still spinning
 //   starts the target where the planet is now, so it is caught with a
 //   little give instead of a jump.
 // - Free: the angular velocity splits into spin about the planet's own
@@ -63,7 +63,7 @@ export const ORBIT_V = (() => {
 })();
 export const ORBIT_N = cross3(v3(), ORBIT_U, ORBIT_V);
 
-const SPRING_HOLD = { k: 720, c: 2 * Math.sqrt(720) };
+const SPRING_HOLD = { k: 2600, c: 2 * Math.sqrt(2600) };
 const SPRING_KEY = { k: 70, c: 2 * Math.sqrt(70) * 0.92 };
 const RIGHTING = { k: 7.5, c: 3.4 };
 const AIR = { k: 55, c: 6.2 };
@@ -245,7 +245,7 @@ export class Planet {
       d -= Math.round(d / (Math.PI * 2)) * Math.PI * 2;
       this.moonW += (MOON_HOLD.k * d - MOON_HOLD.c * this.moonW) * h;
     } else {
-      this.moonW = this.moonPace + (this.moonW - this.moonPace) * Math.exp(-0.75 * h);
+      this.moonW = this.moonPace + (this.moonW - this.moonPace) * Math.exp(-1.0 * h);
     }
     this.moon += this.moonW * h;
   }
@@ -270,8 +270,4 @@ export class Planet {
     return out;
   }
 
-  /** How settled everything is (for sleeping the loop under reduced motion). */
-  get still(): boolean {
-    return this.mode === "free" && len3(this.w) < 1e-4 && len3(this.air) < 1e-4 && len3(this.airW) < 1e-4;
-  }
 }

@@ -36,12 +36,24 @@ const round = (value: number) => Math.round(value * 1000) / 1000;
  * unit circle) and an openness (1 open, 0 shut). Looking sideways narrows
  * the far eye a touch (a hint of a turned head); blinking lowers the lid
  * from the top, so the bottom of each eye stays put.
+ *
+ * `snap` (device pixels per grid unit) moves the eyes in whole device
+ * pixels only. At small sizes on 1x screens an eye moved by a fraction of
+ * a pixel smears into a grey blob; snapped, it steps a pixel at a time and
+ * every frame stays as crisp as the resting mark (which has no offset, so
+ * it is unchanged).
  */
-export function eyeShapes(x = 0, y = 0, open = 1): [EyeShape, EyeShape] {
+export function eyeShapes(x = 0, y = 0, open = 1, snap?: number): [EyeShape, EyeShape] {
   const length = Math.hypot(x, y);
   if (length > 1) {
     x /= length;
     y /= length;
+  }
+  let dx = x * EYE_TRAVEL.x;
+  let dy0 = y * EYE_TRAVEL.y;
+  if (snap && snap > 0) {
+    dx = Math.round(dx * snap) / snap;
+    dy0 = Math.round(dy0 * snap) / snap;
   }
   const lid = Math.min(1, Math.max(0, open));
   const ry = EYE_RY * (1 - 0.04 * Math.abs(y)) * lid;
@@ -50,8 +62,8 @@ export function eyeShapes(x = 0, y = 0, open = 1): [EyeShape, EyeShape] {
     // index 0 is the left eye: it is the far one when looking right.
     const far = index === 0 ? Math.max(0, x) : Math.max(0, -x);
     return {
-      cx: cx + x * EYE_TRAVEL.x,
-      cy: cy + y * EYE_TRAVEL.y + dy,
+      cx: cx + dx,
+      cy: cy + dy0 + dy,
       rx: EYE_RX * (1 - 0.05 * Math.abs(x) - 0.07 * far),
       ry,
     };
@@ -70,10 +82,11 @@ export function eyePath({ cx, cy, rx, ry }: EyeShape): string {
 const SHUT = 0.12;
 
 /** The full mark (body + eye holes, for an even-odd fill) with the eyes
-    looking towards (x, y) and `open` between 0 and 1. */
-export function starPath(x = 0, y = 0, open = 1): string {
+    looking towards (x, y) and `open` between 0 and 1 (`snap`: see
+    eyeShapes). */
+export function starPath(x = 0, y = 0, open = 1, snap?: number): string {
   let d = STAR_BODY;
-  for (const eye of eyeShapes(x, y, open)) {
+  for (const eye of eyeShapes(x, y, open, snap)) {
     if (eye.ry >= SHUT) d += eyePath(eye);
   }
   return d;

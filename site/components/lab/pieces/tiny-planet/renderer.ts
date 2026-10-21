@@ -334,6 +334,7 @@ export class PlanetRenderer {
       gl.uniform3fv(u("uV"), f.orbitV);
       gl.uniform4fv(u("uMoon"), f.moon);
       gl.uniform1f(u("uDot"), f.dotPx);
+      gl.uniform1f(u("uPlanetR"), f.planetR);
       gl.uniform4fv(u("uColour"), f.dotColour);
     }
     gl.bindVertexArray(this.dotsVao);

@@ -14,7 +14,7 @@ export const meta: PieceMeta = {
   category: "scenes",
   inspiredBy: "Desk globes and toy-like planets",
   tile: { aspect: 1 },
-  stage: { aspect: 0.9, minHeight: 380 },
+  stage: { aspect: 0.95, minHeight: 360 },
   controlsHint: "Drag to turn it · flick to spin it · drag the moon along its orbit · ← → turn it an hour, ↑ ↓ nudge the moon, Space spins it",
   sound: true,
 };

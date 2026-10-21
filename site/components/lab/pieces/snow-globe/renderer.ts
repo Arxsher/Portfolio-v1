@@ -49,6 +49,8 @@ export type Frame = {
   dof: number;
   minPx: number;
   flakes: number;
+  /** 1: smooth edges in the composite (the scene is drawn at about one sample per CSS px). */
+  aa: number;
 };
 
 export function newFrame(): Frame {
@@ -78,6 +80,7 @@ export function newFrame(): Frame {
     dof: 0,
     minPx: 1,
     flakes: 0,
+    aa: 0,
   };
 }
 
@@ -319,6 +322,8 @@ export class GlobeRenderer {
     gl.uniform1i(c("uRefl"), 1);
     gl.uniform1i(c("uFlakes"), 2);
     gl.uniform2f(c("uCanvas"), canvasW, canvasH);
+    gl.uniform2f(c("uTexel"), 1 / this.w, 1 / this.h);
+    gl.uniform1f(c("uAA"), f.aa);
     gl.uniform1f(c("uDec"), 1 / this.encode);
     gl.uniform1f(c("uExposure"), EXPOSURE);
     gl.bindVertexArray(this.vao);

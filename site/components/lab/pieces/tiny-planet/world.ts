@@ -59,8 +59,8 @@ export type Detail = {
 };
 
 export const DETAIL: Record<"tile" | "stage", Detail> = {
-  stage: { level: 5, trees: 760, towns: 17, villages: 70, banks: 15 },
-  tile: { level: 4, trees: 300, towns: 14, villages: 30, banks: 12 },
+  stage: { level: 5, trees: 760, towns: 26, villages: 140, banks: 15 },
+  tile: { level: 4, trees: 300, towns: 22, villages: 80, banks: 12 },
 };
 
 const SEED = 20261021;
@@ -702,7 +702,7 @@ function buildLights(field: Field, towns: number, villages: number, rand: () => 
     }
     if (near) continue;
     centres.push(x, y, z);
-    const lights = 8 + Math.floor(rand() * rand() * 26);
+    const lights = 10 + Math.floor(rand() * rand() * 34);
     const spread = 0.022 + lights * 0.0011;
     let tx = -z, tz = x;
     const tl = Math.hypot(tx, tz) || 1;
