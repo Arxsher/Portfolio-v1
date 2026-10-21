@@ -296,13 +296,16 @@ float sunShadow(vec2 p) {
   float focus = exp(-pow((ds + bevel * 1.05) / (bevel * 0.2), 2.0)) * (1.0 - w);
   vec2 cq = p - u_sun - u_drop.xy;
   float spot = exp(-dot(cq, cq) / pow(u_drop.z * 0.26, 2.0)) * w;
-  float t = 0.7 - 0.5 * edge + 0.4 * focus + 1.8 * spot;
+  float t = 0.56 - 0.4 * edge + 0.5 * focus + 2.6 * spot;
   return mix(1.0, t, inside);
 }
 
 // The fairy lights: light they cast on the wall, light they give off, and
 // how much the wire and caps cover.
 void strings(vec2 p, float px, inout vec3 glow, inout vec3 emit, inout float cover) {
+  // the hook both swags hang from
+  cover = max(cover, lineAA(length(p - u_swag[0].zw), u_bulb.x * 0.75, px));
+  float first = floor((u_swag[0].z - u_swag[0].x) / u_swagB[0].y);
   for (int s = 0; s < 2; s++) {
     vec4 a = u_swag[s];
     vec4 b = u_swagB[s];
@@ -338,7 +341,7 @@ void strings(vec2 p, float px, inout vec3 glow, inout vec3 emit, inout float cov
       vec2 q = p - c;
       float r = u_bulb.x;
       // switched on one after another along the string, with a blink
-      float order = fs * 22.0 + i;
+      float order = fs * first + i;
       float tOn = 0.35 + order * 0.034 + h * 0.03;
       float on = smoothstep(tOn, tOn + 0.06, u_ignite);
       on *= 1.0 - 0.65 * exp(-pow((u_ignite - tOn - 0.13) * 22.0, 2.0));
@@ -393,7 +396,8 @@ vec4 bokeh(vec2 p) {
     vec3 col = mix(mix(P_BOKEH_A, P_BOKEH_B, fract(s * 3.3)), P_BOKEH_C, step(0.72, fract(s * 5.9)));
     float on = smoothstep(0.0, 0.7, u_ignite - 0.7 - fract(s * 11.3) * 1.1);
     float breathe = 0.88 + 0.12 * sin(u_time * (0.35 + 0.5 * fract(s * 2.9)) + s * 20.0);
-    float a = (disc * fill + rim * 0.14) * on * breathe * (0.45 + 0.55 * fract(s * 13.7));
+    // (a veil of light has no bright rim: only added light shows one)
+    float a = (disc * fill + rim * 0.14 * (1.0 - u_look.y)) * on * breathe * (0.45 + 0.55 * fract(s * 13.7));
     acc += vec4(col * a, a);
   }
   return acc * u_look.x;
@@ -497,6 +501,7 @@ uniform vec4 u_plate;      // radius, strength, tone (0: ink icons, 1: white ico
 uniform vec4 u_envWin;     // the window in the reflection: centre (R.xy), half size
 uniform float u_grain;
 uniform float u_grainSeed;
+uniform float u_hdr;       // 1 when the scene kept its extra light (half float)
 
 out vec4 outColor;
 
@@ -550,9 +555,11 @@ vec3 shoulder(vec3 c) {
   return min(c, vec3(k)) + (1.0 - k) * (1.0 - exp(-over / (1.0 - k)));
 }
 
-// Film grain, a touch stronger in the mid tones.
+// Film grain, a touch stronger in the mid tones. (An 8-bit scene has
+// already lost its extra light, so it skips the shoulder.)
 vec3 finish(vec3 c) {
-  c = shoulder(max(c, 0.0));
+  c = max(c, 0.0);
+  c = u_hdr > 0.5 ? shoulder(c) : min(c, 1.0);
   float y = dot(c, vec3(0.2126, 0.7152, 0.0722));
   float g = hash12(gl_FragCoord.xy + u_grainSeed) - 0.5;
   g += hash12(gl_FragCoord.xy * 1.37 + u_grainSeed + 19.0) - 0.5;
@@ -624,14 +631,14 @@ void main() {
   float thick = bevel * (0.45 + 0.55 * height) * mix(0.5, 1.25, u_refract);
   thick = min(thick, bevel * mix(0.6, 1.3, wDrop));
   float maxShift = bevel * mix(0.75, 1.2, wDrop);
-  // the droplet magnifies what lies under its flat middle a touch
-  vec2 mag = -(p - u_drop.xy) * (0.07 + 0.11 * u_refract) * wDrop * height;
+  // the droplet magnifies what lies under its flat middle, like a lens
+  vec2 mag = -(p - u_drop.xy) * (0.1 + 0.2 * u_refract) * wDrop * height;
   // frost: the dock reads blurrier mips; the droplet stays clear unless frosted
   float lod = (u_frost * 4.4 + height * (0.45 + 1.4 * u_frost)) * (1.0 - 0.85 * wDrop) + (1.0 - height) * 0.35 * dock;
   lod = min(u_lod - 1.0, lod);
 
-  // dispersion: a little stronger in the clear droplet, where it shows
-  float disp = 0.045 * (0.35 + u_refract) * (1.0 + 0.5 * wDrop);
+  // dispersion: stronger in the clear droplet, where it shows
+  float disp = 0.045 * (0.35 + u_refract) * (1.0 + 1.4 * wDrop);
   vec3 col = vec3(0.0);
   for (int i = 0; i < 6; i++) {
     float f = float(i) / 5.0;

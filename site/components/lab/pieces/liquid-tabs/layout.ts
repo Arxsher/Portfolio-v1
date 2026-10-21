@@ -85,8 +85,8 @@ export function layoutBar(
   if (mode === "tile") {
     const k = width / 204;
     size = { font: 12 * k, pad: 7.5 * k, height: 37 * k, inset: 3.4 * k };
-  } else if (width >= 940) size = { font: 21, pad: 29, height: 72, inset: 6 };
-  else if (width >= 760) size = { font: 19, pad: 26, height: 64, inset: 5 };
+  } else if (width >= 940) size = { font: 23, pad: 31, height: 80, inset: 6.5 };
+  else if (width >= 760) size = { font: 20, pad: 27, height: 68, inset: 5.5 };
   else if (width >= 520) size = { font: 16.5, pad: 20, height: 56, inset: 5 };
   else size = { font: 14.5, pad: 14, height: 48, inset: 4 };
 
@@ -128,15 +128,16 @@ export function layoutBar(
 
 /** Draws the labels (white on clear) for `bar` at `dpr` into `canvas`, sized to the bar. */
 export function drawLabels(canvas: HTMLCanvasElement, bar: BarLayout, dpr: number, family: string) {
-  const w = Math.max(1, Math.round(bar.width * dpr));
-  const h = Math.max(1, Math.round(bar.height * dpr));
+  // exactly dpr device px per CSS px (the shader reads it texel for texel)
+  const w = Math.max(1, Math.ceil(bar.width * dpr));
+  const h = Math.max(1, Math.ceil(bar.height * dpr));
   if (canvas.width !== w) canvas.width = w;
   if (canvas.height !== h) canvas.height = h;
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, w, h);
-  ctx.setTransform(w / bar.width, 0, 0, h / bar.height, 0, 0);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.fillStyle = "#fff";
   ctx.font = `${WEIGHT} ${bar.font}px ${family}`;
   ctx.textAlign = "center";

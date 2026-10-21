@@ -1,15 +1,14 @@
 "use client";
 
 // Site header: mark + handle on the left (with a breadcrumb trail on inner
-// pages), theme toggle on the right. Rendered once by app/layout.tsx; the
-// trail is derived from the URL so pages don't have to pass anything.
+// pages), the theme button and its menu on the right (ThemeMenu, in
+// components/theme-menu.tsx). Rendered once by app/layout.tsx; the trail
+// is derived from the URL so pages don't have to pass anything.
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useLayoutEffect } from "react";
-import { Moon, Sun } from "@/components/icons";
-import { Logo } from "@/components/logo";
-import { syncTheme, toggleTheme, useResolvedTheme } from "@/lib/theme";
+import { StarLogo } from "@/components/star-logo";
+import { ThemeMenu } from "@/components/theme-menu";
 
 type Crumb = { label: string; href?: string };
 
@@ -19,7 +18,7 @@ const SECTIONS: Record<string, string> = {
   projects: "work",
   lab: "lab",
   writing: "writing",
-  guestbook: "guestbook",
+  guestbook: "paper planes",
 };
 
 const NOT_FOUND: Crumb[] = [{ label: "page not found" }];
@@ -69,7 +68,9 @@ export function Header({
           aria-current={atHome ? "page" : undefined}
           className="-ms-2 inline-flex shrink-0 items-center gap-2 rounded-pill px-2 py-1.5 font-medium text-primary transition-[scale,background-color] duration-150 ease-out hover:bg-well active:scale-[0.96] focus-ring"
         >
-          <Logo className="size-4 text-primary" />
+          {/* Its eyes follow the pointer; on first load the intro star
+              (components/star-intro.tsx) flies in and lands here. */}
+          <StarLogo home className="size-4 text-primary" />
           {handle}
         </Link>
         {crumbs.map((crumb, index) => {
@@ -98,37 +99,7 @@ export function Header({
           );
         })}
       </nav>
-      <ThemeToggle />
+      <ThemeMenu />
     </header>
-  );
-}
-
-function ThemeToggle() {
-  const dark = useResolvedTheme() === "dark";
-
-  // React's dev remount resets <html> attributes set by the inline script.
-  useLayoutEffect(() => {
-    syncTheme();
-  }, []);
-
-  return (
-    <button
-      type="button"
-      onClick={toggleTheme}
-      aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
-      title={dark ? "Light mode" : "Dark mode"}
-      className="relative -me-2 flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-[12px] text-secondary transition-[background-color,color,scale] duration-150 ease-out hover:bg-well hover:text-primary active:scale-[0.96] focus-ring"
-    >
-      {/* Which icon shows is decided by the `dark` class in CSS, so the
-          right one is visible before hydration. */}
-      <span className="grid place-items-center">
-        <span className="theme-icon" data-icon="sun" data-keep-transition="">
-          <Sun />
-        </span>
-        <span className="theme-icon" data-icon="moon" data-keep-transition="">
-          <Moon />
-        </span>
-      </span>
-    </button>
   );
 }

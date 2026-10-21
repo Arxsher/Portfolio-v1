@@ -12,19 +12,24 @@
 //   the new slot, keeping whatever velocity it had. Mass flows from tail to
 //   head through a bridge, so the drop first stretches into a teardrop
 //   reaching for the target.
-// - The bridge holds a fixed volume of liquid ("string"). The longer it is
-//   pulled, the thinner its middle gets (a parabolic neck), until it can't
-//   hold together and pinches: two threads snap back into the bodies, a
-//   tiny satellite bead is left where it broke, and the flow stops.
-// - The tail is pulled along by the bridge while it holds and chases the
-//   head once it's free; when they touch they rejoin and the rest drains
-//   into the head quickly. Its momentum nudges the head, so the merge
-//   sloshes. Satellites chase whichever body is nearer and drain in too.
+// - The bridge thins as it is pulled (a parabolic neck), slowly at first
+//   and then all at once, the way a stretched liquid thread runs away to
+//   its pinch. The thinner the neck, the less liquid gets through, so on a
+//   long jump a good part of the drop is still behind when it breaks: two
+//   threads snap back into the bodies, a tiny satellite bead is left where
+//   it broke, and the flow stops.
+// - The tail is pulled along by the bridge while it holds (hard, once the
+//   head has landed: a string that didn't break is reeled back in) and
+//   chases the head once it's free; when they touch they rejoin and the
+//   rest drains into the head quickly. Its momentum nudges the head, so the
+//   merge sloshes. Satellites chase whichever body is nearer and drain in
+//   too. Mass is conserved exactly, so the drop always lands at its slot's
+//   size.
 // - The head's shape follows its motion through two under-damped springs:
 //   "stretch" (longer and thinner with speed, shorter and taller as it
 //   stops: the wobble) and "lean" (mass sloshing to the front as it
-//   brakes, drawn as a smooth swell, not a taper). The end walls of the
-//   channel squash it and push it back.
+//   brakes: a teardrop, the convex hull of a larger and a smaller end).
+//   The end walls of the channel squash it and push it back.
 // - A finger on the drop swells it (pressed), a hover makes it reach
 //   toward the hovered slot, and while dragging the head follows the finger
 //   on a stiff spring; letting go picks the slot the throw is heading for.
@@ -48,8 +53,8 @@ export type Feel = {
   /** Bridge pull on the tail (1/s²) and the free tail's chase spring. */
   tension: number;
   chase: [number, number];
-  /** Volume the bridge holds, as a fraction of the drop: longer strings before a pinch. */
-  string: number;
+  /** How far the bridge stretches before it breaks (× H, for a heavy tail; a light one lets go sooner). */
+  breakLen: number;
   /** Satellite bead left at a pinch (fraction of the drop's mass; 0 for none). */
   satellite: number;
   /** Longest stretch with speed (fraction of the length) and the speed that reaches it (H/s). */
@@ -70,29 +75,29 @@ export const FEELS: Record<MaterialId, Feel> = {
   ink: {
     head: [150, 18],
     drag: [900, 52],
-    flow: 20,
+    flow: 9,
     rejoin: 30,
     tension: 52,
     chase: [95, 14],
-    string: 0.36,
+    breakLen: 2.5,
     satellite: 0.014,
     stretch: 0.3,
     stretchSpeed: 26,
-    wobble: [300, 9],
-    lean: [240, 12],
+    wobble: [300, 11],
+    lean: [240, 19],
     blend: 0.3,
-    dry: 0.9,
+    dry: 0.55,
   },
   // Mercury: huge surface tension. It beads up, pinches early into round
   // drops that roll, and its wobble is small and quick. It never wets.
   mercury: {
     head: [190, 21],
     drag: [1100, 60],
-    flow: 30,
+    flow: 13,
     rejoin: 36,
     tension: 110,
     chase: [130, 17],
-    string: 0.24,
+    breakLen: 1.5,
     satellite: 0.02,
     stretch: 0.18,
     stretchSpeed: 30,
@@ -106,18 +111,18 @@ export const FEELS: Record<MaterialId, Feel> = {
   water: {
     head: [165, 15],
     drag: [850, 44],
-    flow: 20,
+    flow: 10,
     rejoin: 28,
     tension: 80,
     chase: [90, 12],
-    string: 0.32,
+    breakLen: 2.0,
     satellite: 0.018,
     stretch: 0.38,
     stretchSpeed: 24,
-    wobble: [240, 5.5],
-    lean: [190, 7.5],
+    wobble: [240, 6],
+    lean: [190, 11],
     blend: 0.34,
-    dry: 0.7,
+    dry: 0.5,
   },
 };
 
@@ -138,7 +143,12 @@ export type LiquidLayout = {
 export type LiquidEventType = "pinch" | "join" | "land" | "cross" | "wall";
 export type LiquidEvent = { type: LiquidEventType; x: number; strength: number; index: number };
 
-/** Capsules for the outline: (a, b, ra, rb, curve) each; curve 1 eases the radius (bodies), 0 tapers it. */
+/**
+ * Capsules for the outline: (a, b, ra, rb, curve) each. curve 0 tapers the
+ * radius between two end circles (threads, beads), 1 eases it, 2 is the
+ * convex hull of the end circles (bodies), and 3 + n is a bridge: a taper
+ * pinched in the middle by n (0..1), with no end circles of its own.
+ */
 export const PRIM_STRIDE = 5;
 export const MAX_PRIMS = 12;
 
@@ -234,6 +244,8 @@ export class Liquid {
   readonly stretch = new Osc(300, 9);
   readonly lean = new Osc(240, 12);
   private landed = true;
+  /** The slot under a hovering mouse (-1: none), so a new pick re-aims the reach. */
+  private hovered = -1;
   private lastV = 0;
   private accel = 0;
   /** Every move lands at once (reduced motion). */
@@ -369,6 +381,7 @@ export class Liquid {
     this.target = target;
     this.targetW = this.slotWidth(i);
     this.landed = false;
+    this.hover(this.hovered);
     return changed;
   }
 
@@ -411,6 +424,7 @@ export class Liquid {
     this.target = this.slotCentre(i);
     this.targetW = this.slotWidth(i);
     this.landed = false;
+    this.hover(this.hovered);
     return i;
   }
 
@@ -421,13 +435,14 @@ export class Liquid {
 
   /** Reach toward a hovered slot (-1, or the selected one, to stop). */
   hover(i: number) {
+    this.hovered = i;
     if (i < 0 || i === this.index || this.dragging || this.instant) {
       this.reach.target = 0;
       return;
     }
     const dir = Math.sign(this.slotCentre(i) - this.slotCentre(this.index));
     const near = Math.abs(i - this.index) === 1 ? 1 : 0.72;
-    this.reach.target = dir * this.layout.height * 0.15 * near;
+    this.reach.target = dir * this.layout.height * 0.2 * near;
   }
 
   /* ------------------------------------------------------------------ */
@@ -473,18 +488,19 @@ export class Liquid {
     return (b.h / 2) * Math.max(0.3, Math.min(1.3, 1 + dir * b.lean));
   }
 
-  /** How pinched the bridge is: 0 (a straight cone) … 1 (broken), from the volume it holds. */
+  /**
+   * How pinched the bridge is: 0 (a straight cone) … 1 (broken). It grows
+   * with the bridge's free length against the length this liquid holds,
+   * slowly at first and fast at the end.
+   */
   neck(): number {
-    const h = this.head;
-    const t = this.tail;
-    const ea = this.facingRadius(t, Math.sign(h.x - t.x));
-    const eb = this.facingRadius(h, Math.sign(t.x - h.x));
-    const len = Math.max(0, this.gap()) + ea + eb;
-    if (len <= 1e-3) return 0;
-    const avg = (this.feel.string * this.fullArea(h.W)) / (2 * len);
-    const ends = Math.max(1e-3, (ea + eb) / 2);
-    // r(u) = ends · (1 − n · 4u(1 − u)) averages to ends · (1 − 2n/3)
-    return clamp01((1 - avg / ends) * 1.5);
+    const H = this.layout.height;
+    const g = this.gap();
+    if (g <= 0) return 0;
+    const heavy = clamp01(this.tail.m / 0.4);
+    const hold = this.feel.breakLen * H * (0.55 + 0.45 * Math.sqrt(heavy));
+    const u = clamp01(g / hold);
+    return Math.pow(u, 1.35);
   }
 
   /** Advance by dt seconds. Returns true while anything is still moving. */
@@ -552,8 +568,10 @@ export class Liquid {
         // merging: it's pulled into the head and carried along with it
         at = f.chase[0] * 1.5 * (head.x - tail.x) - 30 * (tail.v - head.v);
       } else if (this.connected) {
+        // once the head has landed, surface tension reels the rest in
         const n = this.neck();
-        at = f.tension * (1 - n) * (head.x - tail.x) - 9 * tail.v;
+        const reel = this.landed && !this.dragging ? 3.2 : 1;
+        at = f.tension * reel * (1 - n) * (head.x - tail.x) - (reel > 1 ? 17 : 9) * tail.v;
       } else {
         at = f.chase[0] * (head.x - tail.x) - f.chase[1] * (tail.v - head.v * 0.4);
       }
@@ -567,9 +585,12 @@ export class Liquid {
       if (this.connected) {
         const n = this.neck();
         const inside = Math.abs(head.x - tail.x) + tail.w / 2 <= head.w / 2 + 0.5;
-        // a small remnant is swallowed faster (surface tension wins)
+        // a small remnant is swallowed faster (surface tension wins), but
+        // a thinning neck lets less and less through, so a long jump keeps
+        // a real drop behind until it breaks
         const small = 1 + 3 * Math.max(0, 1 - tail.m / 0.25);
-        const rate = (inside ? f.rejoin * 1.6 : this.rejoined ? f.rejoin : f.flow * (1 - n)) * small;
+        const open = (1 - n) * (1 - n);
+        const rate = inside ? f.rejoin * 1.6 * small : this.rejoined ? f.rejoin * small : f.flow * open * (1 + 2 * Math.max(0, 1 - tail.m / 0.12) * open);
         const dm = tail.m * (1 - Math.exp(-rate * dt));
         tail.m -= dm;
         head.m += dm;
@@ -595,15 +616,19 @@ export class Liquid {
         tail.on = false;
         this.connected = false;
       }
-    } else if (head.m < 1) {
-      head.m = 1;
+    } else {
+      // no tail: the head holds everything but the beads still on their
+      // way in (so the drop is exactly its slot's size once they land)
+      let loose = 0;
+      for (const bead of this.beads) if (bead.on) loose += bead.m;
+      head.m = 1 - loose;
     }
 
     // Satellites: chase the nearer body and drain into it on contact.
     for (const bead of this.beads) {
       if (!bead.on) continue;
       const body = tail.on && Math.abs(tail.x - bead.x) < Math.abs(head.x - bead.x) ? tail : head;
-      const ab = f.chase[0] * 1.25 * (body.x - bead.x) - f.chase[1] * 1.1 * (bead.v - body.v * 0.5);
+      const ab = f.chase[0] * 1.7 * (body.x - bead.x) - f.chase[1] * 1.3 * (bead.v - body.v * 0.5);
       bead.v += ab * dt;
       bead.x += bead.v * dt;
       if (Math.abs(body.x - bead.x) - body.w / 2 - this.beadRadius(bead.m) < 0) {
@@ -620,7 +645,7 @@ export class Liquid {
     // Threads snap back.
     for (const th of this.threads) {
       if (!th.on) continue;
-      th.len *= Math.exp(-dt / 0.022);
+      th.len *= Math.exp(-dt / 0.018);
       if (th.len < 1.2) th.on = false;
     }
 
@@ -780,7 +805,7 @@ export class Liquid {
           ch.ra *= thin;
         }
       }
-      this.push(ch.a, ch.b, ch.ra, ch.rb, 1);
+      this.push(ch.a, ch.b, ch.ra, ch.rb, 2);
     } else {
       ch.a = ch.b = head.x;
       ch.ra = ch.rb = 0;
@@ -788,7 +813,7 @@ export class Liquid {
 
     if (tail.on && tail.m > 1e-4) {
       this.caps(tail, ct);
-      this.push(ct.a, ct.b, ct.ra, ct.rb, 1);
+      this.push(ct.a, ct.b, ct.ra, ct.rb, 2);
       if (this.connected) this.bridge(ct, ch);
     }
 
@@ -799,7 +824,8 @@ export class Liquid {
       const rBase = th.dir > 0 ? b.rb : b.ra;
       const edge = base + th.dir * rBase;
       const fade = Math.min(1, th.len / (this.layout.height * 0.5));
-      this.push(edge - th.dir * rBase * 0.4, edge + th.dir * th.len, Math.min(rBase * 0.45, th.r * 2.6) * (0.4 + 0.6 * fade), th.r * (0.5 + 0.5 * fade), 0);
+      // a retracting thread gathers into a little bulb at its tip
+      this.push(edge - th.dir * rBase * 0.4, edge + th.dir * th.len, Math.min(rBase * 0.45, th.r * 2.6) * (0.4 + 0.6 * fade), th.r * (1.1 + 0.5 * (1 - fade)), 0);
     }
 
     for (const bead of this.beads) {
@@ -812,7 +838,7 @@ export class Liquid {
     }
   }
 
-  /** The bridge from tail to head: four tapers along a parabolic neck. */
+  /** The bridge from tail to head: one taper with a parabolic neck (drawn exactly by the profile). */
   private bridge(t: Caps, h: Caps) {
     const dir = Math.sign(this.head.x - this.tail.x) || 1;
     const x0 = dir > 0 ? t.b : t.a;
@@ -820,17 +846,7 @@ export class Liquid {
     const x1 = dir > 0 ? h.a : h.b;
     const r1 = (dir > 0 ? h.ra : h.rb) * 0.94;
     if ((x1 - x0) * dir < -Math.min(r0, r1)) return; // overlapping: nothing to bridge
-    const n = this.neck();
-    let px = x0;
-    let pr = r0;
-    for (let i = 1; i <= 4; i++) {
-      const u = i / 4;
-      const x = x0 + (x1 - x0) * u;
-      const r = (r0 + (r1 - r0) * u) * Math.max(0, 1 - n * 4 * u * (1 - u));
-      this.push(px, x, Math.max(pr, 0.25), Math.max(r, 0.25), 0);
-      px = x;
-      pr = r;
-    }
+    this.push(x0, x1, Math.max(r0, 0.25), Math.max(r1, 0.25), 3 + Math.min(0.999, this.neck()));
   }
 
   /** Nothing moving (the floor may still be drying: see Wet). */

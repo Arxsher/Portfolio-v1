@@ -443,7 +443,7 @@ export class GlassWorld {
     return this.clamped;
   }
 
-  /** Busy with something that still needs frames (beyond the backdrop's drift). */
+  /** Busy with something that still needs frames (beyond the room's slow motion). */
   get busy(): boolean {
     if (
       // (reduced motion eases the droplet without its springs)

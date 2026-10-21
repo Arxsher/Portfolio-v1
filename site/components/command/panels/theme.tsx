@@ -1,60 +1,110 @@
 "use client";
 
-// "Theme": three small previews of the page, light, dark and split for
-// "system". The chosen one wears a 2px ring; picking applies at once.
+// "Theme": small previews of the page in each palette (Light, Red Dragon,
+// AMOLED) and a split one for "System" (light or Red Dragon, following the
+// device). Same choices as the menu on the header's theme button.
+//
+// A radio group: Tab lands on the chosen card, the arrow keys (and Home /
+// End) move and pick at once, as radios do. The chosen card wears a 2px
+// ring in the text colour hugging the card and a check badge in its
+// corner; keyboard focus is the --ring outline 4px out, so the two never
+// look alike.
 
-import type { CSSProperties } from "react";
-import { Moon, Sun } from "@/components/icons";
+import { useRef, type CSSProperties, type KeyboardEvent } from "react";
+import { Check, Monitor, Moon, Sun } from "@/components/icons";
 import { cn } from "@/lib/cn";
-import { setTheme, useThemePreference, type Theme } from "@/lib/theme";
+import { PALETTES, setTheme, useThemePreference, type Palette, type ThemeChoice } from "@/lib/theme";
 import { VIEWS } from "../items";
 import { Panel } from "./panel";
 
-/** The two palettes drawn in the previews (the site's own light and dark colours). */
-const SWATCH = {
-  light: { page: "#fbfbfb", title: "#171717", line: "#e4e4e4", block: "#f2f2f2" },
-  dark: { page: "#1a1a1a", title: "#f2f2f2", line: "#3a3a3a", block: "#262626" },
-} as const;
+const swatchOf = (palette: Palette) => PALETTES.find((entry) => entry.id === palette)!.swatch;
 
-function MiniPage({ tone }: { tone: keyof typeof SWATCH }) {
-  const c = SWATCH[tone];
+function MiniPage({ palette }: { palette: Palette }) {
+  const c = swatchOf(palette);
   const fill = (color: string): CSSProperties => ({ background: color });
   return (
-    <span className="flex size-full flex-col gap-1.5 p-2.5" style={fill(c.page)}>
-      <span className="h-1.5 w-8 rounded-full" style={fill(c.title)} />
+    <span className="flex size-full flex-col gap-1.5 p-2.5" style={fill(c.bg)}>
+      <span className="flex items-center gap-1">
+        <span className="size-1.5 shrink-0 rounded-full" style={fill(c.main)} />
+        <span className="h-1.5 w-8 max-w-full rounded-full" style={fill(c.text)} />
+      </span>
       <span className="h-1 w-14 max-w-full rounded-full" style={fill(c.line)} />
       <span className="h-1 w-10 max-w-full rounded-full" style={fill(c.line)} />
-      <span className="mt-auto h-5 w-full rounded-[5px]" style={fill(c.block)} />
+      <span className="mt-auto h-5 w-full rounded-[5px]" style={fill(c.tile)} />
     </span>
   );
 }
 
-const OPTIONS: ReadonlyArray<{ value: Theme; label: string }> = [
-  { value: "light", label: "Light" },
-  { value: "dark", label: "Dark" },
+const OPTIONS: ReadonlyArray<{ value: ThemeChoice; label: string }> = [
+  ...PALETTES.map(({ id, label }) => ({ value: id, label })),
   { value: "system", label: "System" },
 ];
+
+function OptionIcon({ value }: { value: ThemeChoice }) {
+  if (value === "light") return <Sun size={13} />;
+  if (value === "system") return <Monitor size={13} />;
+  return <Moon size={13} />;
+}
 
 export function ThemePanel({ onClose }: { onClose: () => void }) {
   const info = VIEWS.theme;
   const current = useThemePreference();
+  const refs = useRef<Array<HTMLButtonElement | null>>([]);
+  // The one in the tab order: the chosen card (the first if none matches).
+  const tabStop = Math.max(
+    0,
+    OPTIONS.findIndex((option) => option.value === current),
+  );
+
+  const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    let next: number;
+    switch (event.key) {
+      case "ArrowRight":
+      case "ArrowDown":
+        next = index + 1;
+        break;
+      case "ArrowLeft":
+      case "ArrowUp":
+        next = index - 1;
+        break;
+      case "Home":
+        next = 0;
+        break;
+      case "End":
+        next = OPTIONS.length - 1;
+        break;
+      default:
+        return;
+    }
+    event.preventDefault();
+    next = (next + OPTIONS.length) % OPTIONS.length;
+    refs.current[next]?.focus();
+    setTheme(OPTIONS[next].value);
+  };
 
   return (
     <Panel title={info.title} description={info.description} icon="moon" onClose={onClose}>
-      <div role="group" aria-label="Theme" className="grid grid-cols-3 gap-2">
-        {OPTIONS.map(({ value, label }) => {
+      <div role="radiogroup" aria-label="Theme" className="grid grid-cols-2 gap-x-2 gap-y-3 sm:grid-cols-4">
+        {OPTIONS.map(({ value, label }, index) => {
           const selected = current === value;
           return (
             <button
               key={value}
+              ref={(node) => {
+                refs.current[index] = node;
+              }}
               type="button"
-              aria-pressed={selected}
+              role="radio"
+              aria-checked={selected}
+              tabIndex={index === tabStop ? 0 : -1}
+              aria-label={value === "system" ? "System (light or Red Dragon, following your device)" : undefined}
               onClick={() => setTheme(value)}
+              onKeyDown={(event) => onKeyDown(event, index)}
               className="group cursor-pointer rounded-[14px] text-left outline-none"
             >
               <span
                 className={cn(
-                  "flex aspect-[4/3] overflow-hidden rounded-[14px] transition-shadow duration-200 ease-out group-focus-visible:outline-2 group-focus-visible:outline-offset-2 group-focus-visible:outline-primary",
+                  "relative flex aspect-[4/3] overflow-hidden rounded-[14px] transition-shadow duration-200 ease-out group-focus-visible:outline-2 group-focus-visible:outline-offset-4 group-focus-visible:outline-ring",
                   selected
                     ? "shadow-[0_0_0_2px_var(--foreground)]"
                     : "shadow-lift group-hover:shadow-[0_0_0_1px_var(--tertiary)]",
@@ -63,23 +113,34 @@ export function ThemePanel({ onClose }: { onClose: () => void }) {
                 {value === "system" ? (
                   <>
                     <span className="w-1/2 overflow-hidden">
-                      <MiniPage tone="light" />
+                      <MiniPage palette="light" />
                     </span>
                     <span className="w-1/2 overflow-hidden">
-                      <MiniPage tone="dark" />
+                      <MiniPage palette="red-dragon" />
                     </span>
                   </>
                 ) : (
-                  <MiniPage tone={value} />
+                  <MiniPage palette={value} />
                 )}
+                {/* The check badge: the solid-button colours, with a ring in
+                    the panel colour so it reads on any preview. */}
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    "absolute end-1.5 top-1.5 grid size-[18px] place-items-center rounded-full bg-ink text-on-ink shadow-[0_0_0_2px_var(--float)] transition-[opacity,scale] duration-200 ease-out motion-reduce:transition-none",
+                    selected ? "opacity-100" : "scale-50 opacity-0",
+                  )}
+                >
+                  <Check size={11} />
+                </span>
               </span>
               <span
                 className={cn(
                   "mt-2 flex items-center gap-1.5 px-0.5 text-[13px] transition-colors duration-150",
-                  selected ? "text-primary" : "text-secondary group-hover:text-primary",
+                  selected ? "font-medium text-primary" : "text-secondary group-hover:text-primary",
                 )}
               >
-                {value === "light" ? <Sun size={13} /> : value === "dark" ? <Moon size={13} /> : null}
+                <OptionIcon value={value} />
                 {label}
               </span>
             </button>

@@ -257,6 +257,7 @@ export class GlassRenderer {
     gl.uniform4fv(ug("u_envWin"), f.envWin);
     gl.uniform1f(ug("u_grain"), f.grain);
     gl.uniform1f(ug("u_grainSeed"), f.grainSeed);
+    gl.uniform1f(ug("u_hdr"), this.hdr ? 1 : 0);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     gl.bindVertexArray(null);
   }

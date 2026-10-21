@@ -6,6 +6,7 @@ import { Footer } from "@/components/footer";
 import { Header } from "@/components/header";
 import { pieces } from "@/components/lab/registry";
 import { ScrollTop } from "@/components/scroll-top";
+import { StarIntro } from "@/components/star-intro";
 import { projects, site } from "@/content/site";
 import { themeScript } from "@/lib/theme-script";
 import "./globals.css";
@@ -53,7 +54,9 @@ export const viewport: Viewport = {
   colorScheme: "light dark",
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#fbfbfb" },
-    { media: "(prefers-color-scheme: dark)", color: "#1a1a1a" },
+    // Red Dragon, the default dark palette; lib/theme.ts retints both
+    // metas to whichever palette is picked.
+    { media: "(prefers-color-scheme: dark)", color: "#1a0b0c" },
   ],
 };
 
@@ -67,10 +70,12 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className={`${GeistSans.variable} h-full antialiased`} suppressHydrationWarning>
       <head>
-        {/* Applies the saved theme before first paint (see lib/theme.ts). */}
+        {/* Applies the saved theme and palette (class="dark",
+            data-palette) before first paint (see lib/theme.ts). */}
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body className="flex min-h-full flex-col">
+        <StarIntro />
         <a
           href="#main"
           className="pointer-events-none fixed top-3 left-3 z-50 -translate-y-[calc(100%+24px)] rounded-[10px] bg-float px-3 py-2 text-[13px] font-medium text-primary opacity-0 shadow-float transition-[translate,opacity] duration-150 ease-out focus-visible:pointer-events-auto focus-visible:translate-y-0 focus-visible:opacity-100"

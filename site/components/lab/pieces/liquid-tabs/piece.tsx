@@ -3,37 +3,44 @@
 // Liquid tabs: a segmented control whose highlight is a drop of liquid.
 //
 // The look
-// - A groove milled into the stage (a shade darker than the tile, shadow
-//   under its top wall, a lit lip along its bottom edge), the labels
-//   printed on its floor in the site's secondary grey, and one drop of
-//   liquid sitting in it. Ink by default: glossy black by day, white
-//   enamel by night, with the label under it in the opposite tone, so the
-//   letters invert exactly where the liquid covers them, mid-motion too.
-//   Mercury (pure reflection, beads up, never wets) and water (clear,
-//   magnifies the label, dark meniscus, a caustic) are one tap away.
+// - A groove cut into the stage (a shade under the tile by day, a shade
+//   over the darkest surface at night; shadow under its top wall, a lit
+//   lip along its bottom edge), the labels printed on its floor in the
+//   site's secondary colour, and one drop of liquid sitting in it. The
+//   default liquid is the palette's own ink under a clear varnish: glossy
+//   black by day, cherry red in Red Dragon, white enamel on AMOLED (look.ts
+//   reads the CSS variables, live), with the label under it in the
+//   palette's on-ink tone, so the letters invert exactly where the liquid
+//   covers them, mid-motion too. Mercury (pure reflection, beads up, never
+//   wets) and water (clear, magnifies the label, dark meniscus, a caustic)
+//   are one tap away.
 // - Everything is lit by one small studio: an overhead softbox the liquid
 //   reflects as a highlight band, a strip light on the right, a key glint.
 //
 // The motion (engine.ts: all springs keep their velocity, nothing resets)
 // - Pick a tab and the drop reaches for it: a fresh head leaves on a spring
-//   whose pull saturates (a long jump travels, it doesn't teleport), mass
-//   flows into it through a bridge that holds a fixed volume, so the drop
-//   strings out like syrup, necks, and on a long jump pinches: two threads
-//   snap back, a satellite bead is left behind, the remnant chases the
-//   head, touches, bridges gooily (profile.ts: a rolling-ball closing) and
-//   drains in with a slosh and a ripple across the surface. The landing
-//   wobbles on under-damped stretch and lean springs.
+//   whose pull saturates (a long jump travels, it doesn't teleport), and
+//   mass flows into it through a bridge. The longer the bridge, the thinner
+//   its middle and the less gets through: an adjacent tab is a teardrop
+//   that pours across; two tabs over, the drop strings out like syrup and
+//   is reeled back in once the head lands; further, it pinches: two threads
+//   snap back, a satellite bead is left where it broke, the remnant (a
+//   third of the drop) rounds up and races after the head, touches,
+//   bridges gooily (profile.ts: a rolling-ball closing) and drains in with
+//   a slosh and a ripple. The landing wobbles on under-damped springs.
 // - The "wow" second: a click from Work to Guestbook. The ink pulls into a
 //   hairline across the whole bar, snaps, and the last bead races home.
 // - Drag: press the drop (it swells under your finger) or anywhere on the
 //   bar (the drop comes to you) and scrub; the labels invert as it passes,
 //   with a detent tick per tab. Let go and it settles where the throw is
-//   heading. Grabbing mid-flight takes the liquid from wherever it is.
+//   heading, squashing against the channel's end if thrown hard. Grabbing
+//   mid-flight takes the liquid from wherever it is.
 // - Hover: the drop leans toward the tab under the pointer.
-// - The floor stays wet behind ink and water for a moment, a band as thick
-//   as the liquid was there, drying from the edges.
+// - The floor stays faintly wet behind ink and water for half a second, a
+//   film as thick as the liquid was there, drying from the edges.
 // - Keys: ← → (wrapping, so End → Home is the longest jump), Home / End,
-//   1–5. It's a radio group of real buttons over the canvas.
+//   1–5. It's a radio group of real buttons over the canvas; the focus
+//   ring sits round the drop's footprint, inside the channel.
 // - Sound (stage, after a gesture, lab mute): a plip per landing pitched by
 //   the tab, a dry tick at a pinch, a soft blup at a merge, detent ticks
 //   while scrubbing, a thud against the channel's ends.
@@ -42,21 +49,31 @@
 // - Reduced motion: selections land at once, no wet film, no wobble; the
 //   tile is a still caught just before the string snaps.
 // - Cost: the shader runs only inside the bar's scissor box; the loop
-//   sleeps once the liquid has settled and the floor is dry.
+//   sleeps once the liquid has settled and the floor is dry, and stops
+//   offscreen (useFrame); the WebGL context is released on unmount
+//   (useWebGL2) after the renderer frees its program and textures.
 //
 // Files: engine.ts (the liquid), profile.ts (outline + wet film), layout.ts
-// (bar geometry, label mask), shaders.ts + renderer.ts (WebGL2), look.ts,
-// sound.ts, fallback.ts (Canvas 2D without WebGL2).
+// (bar geometry, label mask), shaders.ts + renderer.ts (WebGL2), look.ts
+// (palette), sound.ts, fallback.ts (Canvas 2D without WebGL2).
 
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { ensureAudio } from "../../audio";
-import { damp, useElementSize, useFinePointer, useFrame, useLatest, useWebGL2 } from "../../hooks";
+import { useElementSize, useFinePointer, useFrame, useLatest, useWebGL2 } from "../../hooks";
 import type { PieceProps } from "../../types";
 import { MuteButton, Segmented, StageControls, StageHint, Tray } from "../../ui";
 import { FEELS, Liquid, type MaterialId } from "./engine";
 import { draw2D } from "./fallback";
 import { drawLabels, fontFamily, fontReady, layoutBar, STAGE_TABS, TILE_TABS, type BarLayout } from "./layout";
-import { MATERIAL_INDEX, MATERIALS, mixRoom, newRoom, WET_K } from "./look";
+import { MATERIAL_INDEX, MATERIALS, newRoom, readRoom, WET_K } from "./look";
 import { Profile, Wet } from "./profile";
 import { LiquidRenderer, type Frame } from "./renderer";
 import { join, pinch, plip, thud, tick } from "./sound";
@@ -73,6 +90,24 @@ const TILE_LOOP: ReadonlyArray<[number, number]> = [
 
 /** A press that moves this far along the bar becomes a drag. */
 const DRAG_SLOP = 6;
+
+/**
+ * Which palette is on screen ("light", "red-dragon", "amoled"), live: the
+ * two dark palettes share the `dark` class, so the theme prop alone can't
+ * tell them apart.
+ */
+function subscribePalette(onChange: () => void) {
+  const observer = new MutationObserver(onChange);
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "data-palette"] });
+  return () => observer.disconnect();
+}
+const readPalette = () => {
+  const root = document.documentElement;
+  return `${root.classList.contains("dark") ? "dark" : "light"}:${root.getAttribute("data-palette") ?? ""}`;
+};
+function usePalette(): string {
+  return useSyncExternalStore(subscribePalette, readPalette, () => "light:");
+}
 
 export default function Piece({ mode, active, reducedMotion, theme }: PieceProps) {
   const stage = mode === "stage";
@@ -100,9 +135,9 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
   const [fontVersion, setFontVersion] = useState(0);
 
   const settings = useLatest({ reducedMotion, stage, material });
+  const palette = usePalette();
   const live = useRef({
-    dark: theme === "dark" ? 1 : 0,
-    darkTarget: theme === "dark" ? 1 : 0,
+    /** The palette's colours (the site's own switch cross-fades the page, canvas included). */
     room: newRoom(),
     matFrom: 0,
     matTo: 0,
@@ -195,12 +230,11 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
     wakeRef.current();
   }, [bar, liquid, profile, wet, settings, reducedMotion, stage]);
 
+  // the palette's colours, re-read whenever it changes
   useEffect(() => {
-    const L = live.current;
-    L.darkTarget = theme === "dark" ? 1 : 0;
-    if (reducedMotion) L.dark = L.darkTarget;
+    readRoom(live.current.room, theme === "dark");
     wakeRef.current();
-  }, [theme, reducedMotion]);
+  }, [theme, palette]);
 
   /* -------------------------------------------------------------------- */
   /* frame                                                                 */
@@ -213,14 +247,7 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
     const s = settings.current;
     const reduced = s.reducedMotion;
 
-    // day ⇄ night
     let busy = false;
-    if (L.dark !== L.darkTarget) {
-      L.dark = reduced ? L.darkTarget : damp(L.dark, L.darkTarget, 7, dt);
-      if (Math.abs(L.dark - L.darkTarget) < 0.002) L.dark = L.darkTarget;
-      busy = true;
-    }
-    mixRoom(L.room, L.dark);
 
     // the tile's loop (paused while a mouse is over it)
     if (!s.stage && !L.still) {
@@ -298,7 +325,9 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
         floor: L.room.floor,
         label: L.room.label,
         fg: L.room.fg,
+        ink: L.room.ink,
         onInk: L.room.onInk,
+        lip: L.room.lip,
         mat: [0, 0, 1, 0],
         ripple: [0, 10, 0],
         press: 0,
@@ -312,7 +341,7 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
       f.bar.width = b.width;
       f.bar.height = b.height;
       f.dropH = b.liquid.height;
-      f.dark = L.dark;
+      f.dark = L.room.dark;
       f.mat[0] = L.matFrom;
       f.mat[1] = L.matTo;
       f.mat[2] = L.matT;
@@ -333,7 +362,7 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
       const h = Math.round(size.height * dpr);
       if (fb.width !== w) fb.width = w;
       if (fb.height !== h) fb.height = h;
-      if (ctx) draw2D(ctx, dpr, size.width, size.height, b, profile, L.room, L.dark, family || fontFamily());
+      if (ctx) draw2D(ctx, dpr, size.width, size.height, b, profile, L.room, family || fontFamily());
     }
   }
 
@@ -416,6 +445,8 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
       indexRef.current = i;
       setIndex(i);
     }
+    // a mouse still over the bar: aim the hover reach from where it is now
+    if (event.pointerType === "mouse") liquid.hover(liquid.slotAt(localX(event.clientX)));
     liquid.setPressed(false);
     d.mode = "none";
     d.id = -1;
@@ -553,8 +584,10 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
                   // assistive tech clicks arrive without a pointer press
                   if (event.detail === 0) choose(i);
                 }}
-                className="absolute top-0 h-full cursor-[inherit] rounded-full bg-transparent outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-                style={{ left: slot.x0, width: slot.x1 - slot.x0 }}
+                className="absolute cursor-[inherit] rounded-full bg-transparent outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                // the drop's own footprint, so the focus ring sits just
+                // round it, inside the channel
+                style={{ left: slot.x0, width: slot.x1 - slot.x0, top: bar.inset, bottom: bar.inset }}
               />
             ))}
           </div>

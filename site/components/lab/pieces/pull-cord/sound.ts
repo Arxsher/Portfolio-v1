@@ -163,7 +163,7 @@ export class Rasp {
   /** `speed`: the cord's speed through the grommet (units / s). */
   set(speed: number) {
     const gain = this.gain;
-    if (!gain) return;
+    if (!gain || !Number.isFinite(speed)) return;
     const target = Math.min(1, Math.max(0, (Math.abs(speed) - 15) / 420)) * 0.06;
     if (Math.abs(target - this.level) < 0.0015) return;
     this.level = target;

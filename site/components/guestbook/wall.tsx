@@ -1,61 +1,92 @@
 "use client";
 
-// The /guestbook page body: the "Sign it" button and every signature in a
-// two-column masonry (one column on phones), loaded in the browser.
+// The /guestbook page body: a big sky with every recent plane in it, then
+// every note written out as plain text (the accessible, scannable version
+// of the sky), newest first. Loaded in the browser.
 
 import { openCommand } from "@/lib/command";
 import { useGuestbook } from "./data";
-import { EntryCard, EntryCardSkeleton } from "./entry-card";
+import { formatPlaneDate } from "./planes/sky";
+import { Signature } from "./signature";
+import { PlaneGlyph, PlaneSkyBand, foldButtonClass } from "./sky";
 
 const ALL = 1000;
-// Skeleton heights alternate so the loading wall reads like a masonry.
-const SKELETONS = 6;
 
-export function SignItButton() {
+export function FoldPlaneButton() {
   return (
-    <button
-      type="button"
-      onClick={() => openCommand("guestbook")}
-      className="inline-flex h-9 cursor-pointer items-center rounded-[12px] bg-ink px-4 text-[14px] font-medium text-on-ink transition-[opacity,scale] duration-150 ease-out hover:opacity-90 active:scale-[0.96] focus-ring"
-    >
-      Sign it
+    <button type="button" onClick={() => openCommand("guestbook")} className={foldButtonClass}>
+      <PlaneGlyph size={15} />
+      Fold a plane
     </button>
   );
 }
 
-export function GuestbookWall() {
-  const { status, entries, enabled } = useGuestbook(ALL);
-
-  if (status === "loading") {
-    return (
-      <ul aria-busy="true" aria-label="Loading signatures" className="mt-12 gap-3 min-[580px]:columns-2">
-        {Array.from({ length: SKELETONS }, (_, index) => (
-          <EntryCardSkeleton key={index} variant="full" lines={index % 3 === 1 ? 2 : 1} />
-        ))}
-      </ul>
-    );
-  }
-
-  if (entries.length === 0) {
-    const [title, body] =
-      status === "error"
-        ? ["Couldn't load the guestbook", "Something went wrong on the way here. Try again in a little while."]
-        : !enabled
-          ? ["Not open yet", "The guestbook isn't connected yet. Signatures will show up here once it is."]
-          : ["No signatures yet", "Leave the first note and it will sit right here."];
-    return (
-      <div className="mt-12 flex min-h-[220px] flex-col items-center justify-center rounded-[24px] border border-dashed border-line-firm px-6 py-10 text-center">
-        <p className="text-[15px] font-medium text-primary">{title}</p>
-        <p className="mt-1.5 max-w-[42ch] text-[14px] leading-[1.5] text-pretty text-tertiary">{body}</p>
-      </div>
-    );
-  }
+export function PaperPlanesWall() {
+  const { status, entries, count, enabled, retry } = useGuestbook(ALL);
+  const total = count ?? entries.length;
 
   return (
-    <ul className="mt-12 gap-3 min-[580px]:columns-2">
-      {entries.map((entry) => (
-        <EntryCard key={entry.id} entry={entry} variant="full" className="animate-fade-in" />
-      ))}
-    </ul>
+    <>
+      <PlaneSkyBand kind="page" entries={entries} status={status} onRetry={retry} className="mt-10" />
+
+      {status === "loading" ? (
+        <ol aria-busy="true" aria-label="Loading notes" className="mt-14 divide-y divide-border">
+          {Array.from({ length: 4 }, (_, index) => (
+            <li key={index} aria-hidden="true" className="grid grid-cols-[84px_1fr] items-center gap-4 py-4 sm:grid-cols-[120px_1fr] sm:gap-6">
+              <div className="skeleton h-9 rounded-[10px] bg-well/60" />
+              <div>
+                <div className="h-3 w-4/5 rounded-[6px] bg-well/60" />
+                <div className="mt-3 h-2.5 w-28 rounded-[5px] bg-well/60" />
+              </div>
+            </li>
+          ))}
+        </ol>
+      ) : entries.length ? (
+        <section aria-labelledby="notes-title" className="mt-14">
+          <div className="flex items-baseline gap-2 text-[13px]">
+            <h2 id="notes-title" className="text-secondary">
+              every note, unfolded
+            </h2>
+            {enabled ? (
+              <span className="text-tertiary tabular-nums">
+                <span aria-hidden="true" className="me-2 opacity-60">
+                  /
+                </span>
+                {total}
+              </span>
+            ) : null}
+          </div>
+          <ol className="mt-3 divide-y divide-border">
+            {entries.map((entry) => {
+              const date = formatPlaneDate(entry.created_at);
+              return (
+                <li
+                  key={entry.id}
+                  className="grid animate-fade-in grid-cols-[84px_1fr] items-center gap-4 py-4 sm:grid-cols-[120px_1fr] sm:gap-6"
+                >
+                  <div className="flex h-12 items-center">
+                    <Signature path={entry.signature} name={entry.name} className="max-h-12 w-full max-w-full text-primary" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[15px]/[1.5] break-words text-pretty text-primary">{entry.message}</p>
+                    <p className="mt-1 text-[13px] text-tertiary">
+                      <span className="text-secondary">{entry.name}</span>
+                      {date ? (
+                        <>
+                          <span aria-hidden="true"> · </span>
+                          <time dateTime={entry.created_at} className="tabular-nums">
+                            {date}
+                          </time>
+                        </>
+                      ) : null}
+                    </p>
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+        </section>
+      ) : null}
+    </>
   );
 }

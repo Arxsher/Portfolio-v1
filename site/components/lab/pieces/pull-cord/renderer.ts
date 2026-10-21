@@ -36,17 +36,25 @@ const hex = (value: string): RGB => [
 ];
 
 /**
- * The room in the site's own greys: lit, the bounce light sits a little
- * under the light theme's tile colour and the lamp brings it up to it and
- * past; dark, it is the dark theme's tile. The lamp is a 2700 K warm white;
- * the pull's phosphorescent glaze a pale, barely green white.
+ * The room in the site's own colours. Lit, the bounce light sits a little
+ * under the light theme's tile and the lamp brings it up to it and past;
+ * dark, the walls are the dark palette's tile at the edges of the stage
+ * (so the stage still reads as the page's card) with a little ambient left
+ * in the middle of the room. The lamp is a 2700 K warm white; the pull's
+ * phosphorescent glaze a pale, barely green white.
  */
-export const PALETTE: Palette = {
-  wallLit: hex("#efefef"),
-  wallDark: hex("#232323"),
-  warm: hex("#ffd8ae"),
-  glow: hex("#d9f2e6"),
-};
+export function makePalette(lightTile: string, darkTile: string): Palette {
+  const lit = hex(lightTile);
+  return {
+    wallLit: [lit[0] * 0.972, lit[1] * 0.972, lit[2] * 0.972],
+    wallDark: hex(darkTile),
+    warm: hex("#ffd8ae"),
+    glow: hex("#d9f2e6"),
+  };
+}
+
+/** The light theme's tile and the default dark palette's (Red Dragon). */
+export const PALETTE: Palette = makePalette("#f2f2f2", "#0e0506");
 
 const smoothstep = (a: number, b: number, x: number) => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
@@ -75,6 +83,8 @@ export class PullCordRenderer {
   private readonly vao: WebGLVertexArrayObject | null;
   private readonly cord = new Float32Array(CORD_POINTS * 4);
   private readonly lampCol = new Float32Array(3);
+  /** The room's bounce light takes the filament's colour as it cools (1 at full heat). */
+  private readonly tint = new Float32Array(3);
   // control points: the grommet, then the particles
   private readonly cx = new Float64Array(N + 1);
   private readonly cy = new Float64Array(N + 1);
@@ -146,6 +156,7 @@ export class PullCordRenderer {
     reach = Math.max(reach, Math.hypot(layout.width - bx, layout.height - by));
     this.reach = reach;
     filamentColour(light.filament, palette.warm, this.lampCol);
+    for (let i = 0; i < 3; i++) this.tint[i] = 0.15 + (0.85 * this.lampCol[i]) / Math.max(palette.warm[i], 1e-3);
 
     const { cx, cy, cs } = this;
     cx[0] = sim.ex;
@@ -243,6 +254,7 @@ export class PullCordRenderer {
     gl.uniform3fv(u("uWarm"), palette.warm);
     gl.uniform3fv(u("uGlowCol"), palette.glow);
     gl.uniform3fv(u("uLampCol"), this.lampCol);
+    gl.uniform3fv(u("uTint"), this.tint);
 
     gl.uniform2f(u("uAnchor"), sim.ax, sim.ay);
     gl.uniform2f(u("uO"), sim.ox, sim.oy);

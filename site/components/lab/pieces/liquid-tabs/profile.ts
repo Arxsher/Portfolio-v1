@@ -102,13 +102,44 @@ export class Profile {
       const i0 = Math.max(0, Math.ceil((a - ra - this.origin) * DENSITY));
       const i1 = Math.min(n - 1, Math.floor((b + rb - this.origin) * DENSITY));
       const len = b - a;
+      // curve 2: the convex hull of the two end circles (a teardrop when
+      // the ends differ), between the points where the outer tangent
+      // touches them
+      let xa = a;
+      let xb = b;
+      let ya = ra;
+      let yb = rb;
+      if (curve > 1.5 && len > 1e-4 && Math.abs(rb - ra) < len) {
+        const sn = (rb - ra) / len;
+        const cs = Math.sqrt(1 - sn * sn);
+        xa = a - ra * sn;
+        ya = ra * cs;
+        xb = b - rb * sn;
+        yb = rb * cs;
+      }
+      const span = xb - xa;
+      if (curve >= 3) {
+        // a bridge: r(t) = taper · (1 − n · 4t(1 − t)), exact, no end circles
+        const pinch = curve - 3;
+        if (len <= 1e-4) continue;
+        const j0 = Math.max(0, Math.ceil((a - this.origin) * DENSITY));
+        const j1 = Math.min(n - 1, Math.floor((b - this.origin) * DENSITY));
+        for (let i = j0; i <= j1; i++) {
+          const t = (this.origin + i * step - a) / len;
+          const r = (ra + (rb - ra) * t) * (1 - pinch * 4 * t * (1 - t));
+          if (r > raw[i]) raw[i] = r;
+        }
+        if (j0 < lo) lo = j0;
+        if (j1 > hi) hi = j1;
+        continue;
+      }
       for (let i = i0; i <= i1; i++) {
         const x = this.origin + i * step;
         let r = -1;
-        if (x >= a && x <= b && len > 1e-4) {
-          let t = (x - a) / len;
-          if (curve > 0) t = t * t * (3 - 2 * t);
-          r = ra + (rb - ra) * t;
+        if (x >= xa && x <= xb && span > 1e-4) {
+          let t = (x - xa) / span;
+          if (curve > 0.5 && curve < 1.5) t = t * t * (3 - 2 * t);
+          r = ya + (yb - ya) * t;
         }
         const da = x - a;
         if (da * da < ra * ra) {
@@ -185,15 +216,30 @@ export class Profile {
     this.pack();
   }
 
+  /**
+   * Interleave (r, r′). The slope comes from a lightly blurred copy of r
+   * (about a pixel), so the creases where two shapes meet shade as soft
+   * folds instead of hard steps in the reflections; the outline itself
+   * stays exact.
+   */
   private pack() {
     const r = this.rBuf;
+    const b = this.dil; // free after compute: reused for the blur
     const d = this.data;
     const n = this.count;
-    const inv = DENSITY / 2;
     for (let i = 0; i < n; i++) {
-      const a = r[i > 0 ? i - 1 : 0];
-      const b = r[i < n - 1 ? i + 1 : n - 1];
-      let s = (b - a) * inv;
+      const a2 = r[i > 1 ? i - 2 : 0];
+      const a1 = r[i > 0 ? i - 1 : 0];
+      const c1 = r[i < n - 1 ? i + 1 : n - 1];
+      const c2 = r[i < n - 2 ? i + 2 : n - 1];
+      b[i] = (a2 + 4 * a1 + 6 * r[i] + 4 * c1 + c2) / 16;
+    }
+    const inv = DENSITY / 4;
+    for (let i = 0; i < n; i++) {
+      // inside the liquid, the blurred slope; at the tips, the exact one
+      const exact = r[i] > 0 && (r[i > 1 ? i - 2 : 0] <= 0 || r[i < n - 2 ? i + 2 : n - 1] <= 0);
+      const src = exact ? r : b;
+      let s = (src[i < n - 2 ? i + 2 : n - 1] - src[i > 1 ? i - 2 : 0]) * inv;
       if (s > 10) s = 10;
       else if (s < -10) s = -10;
       d[i * 2] = r[i];

@@ -1,12 +1,12 @@
 // Without WebGL2: the same liquid drawn flat with Canvas 2D. The outline
 // is the same profile (so it still stretches, necks and splits), filled in
-// the ink tone, with the labels re-drawn inside it in the opposite tone.
+// the palette's ink, with the labels re-drawn inside it in the opposite tone.
 
 import type { BarLayout } from "./layout";
 import { css, type Room } from "./look";
 import type { Profile } from "./profile";
 
-export function draw2D(ctx: CanvasRenderingContext2D, dpr: number, width: number, height: number, bar: BarLayout, profile: Profile, room: Room, dark: number, family: string) {
+export function draw2D(ctx: CanvasRenderingContext2D, dpr: number, width: number, height: number, bar: BarLayout, profile: Profile, room: Room, family: string) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, width, height);
   ctx.save();
@@ -57,8 +57,7 @@ export function draw2D(ctx: CanvasRenderingContext2D, dpr: number, width: number
   }
   if (open) close(profile.count - 1);
 
-  const ink = dark > 0.5 ? "rgb(232 232 232)" : "rgb(20 20 20)";
-  ctx.fillStyle = ink;
+  ctx.fillStyle = css(room.ink);
   ctx.fill(drop);
   ctx.save();
   ctx.clip(drop);

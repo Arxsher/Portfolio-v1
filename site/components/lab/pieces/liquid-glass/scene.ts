@@ -78,25 +78,25 @@ const hex = (value: string): Vec3 => {
 const scale = (c: Vec3, k: number): Vec3 => [c[0] * k, c[1] * k, c[2] * k];
 
 /** The plaster, the same in both themes. */
-const PAINT_TOP = hex("#f1e2d3");
-const PAINT_BOTTOM = hex("#ead6c3");
+const PAINT_TOP = hex("#f2e4d1");
+const PAINT_BOTTOM = hex("#ebd8c2");
 
 export const LIGHT: Look = {
   albedoTop: PAINT_TOP,
   albedoBottom: PAINT_BOTTOM,
-  ambient: [0.965, 0.92, 0.87],
-  lamp: [0.12, 0.065, 0.025],
+  ambient: [0.95, 0.89, 0.79],
+  lamp: [0.14, 0.07, 0.025],
   // low sun: gold near the window, deeper toward the far end of the patch
-  window: [0.38, 0.29, 0.15],
-  windowFar: [0.4, 0.25, 0.1],
+  window: [0.42, 0.3, 0.13],
+  windowFar: [0.46, 0.26, 0.08],
   wire: hex("#4a3a2f"),
   bulb: [1.55, 1.24, 0.82],
   bulbOff: hex("#f3e7d6"),
-  halo: [0.15, 0.085, 0.03],
+  halo: [0.2, 0.11, 0.035],
   // the bokeh lay soft light over the wall
-  bokehA: hex("#fff6e6"),
-  bokehB: hex("#ffe8c4"),
-  bokehC: hex("#ffe1d2"),
+  bokehA: hex("#fff2da"),
+  bokehB: hex("#ffe4ba"),
+  bokehC: hex("#ffdcc8"),
   shadowTint: hex("#8a6f5c"),
   caustic: [0.34, 0.25, 0.11],
   milk: hex("#fbf6ef"),
@@ -107,9 +107,9 @@ export const LIGHT: Look = {
   rim: [1, 0.97, 0.92],
   plateInk: hex("#fcf8f2"),
   plateWhite: hex("#2a221d"),
-  bokehAmount: 0.55,
+  bokehAmount: 0.64,
   bokehBlend: 1,
-  vignette: 0.2,
+  vignette: 0.22,
   wireAlpha: 0.7,
   shadow: 0.24,
   causticAmount: 1,
@@ -172,6 +172,7 @@ export function mixLook(key: LookScalar, dark: number) {
 /* layout                                                                  */
 /* ---------------------------------------------------------------------- */
 
+/** The two swags hang from one hook: the first ends where the second starts. */
 export type Swag = {
   x0: number;
   y0: number;
@@ -286,12 +287,12 @@ export function computeScene(width: number, height: number, mode: PieceMode, com
         softNear: 1.2,
         softFar: u * 0.014,
       },
-      sun: { x: u * 0.03, y: u * 0.03 * 0.36 + u * 0.006 },
+      sun: { x: u * 0.052, y: u * 0.034 },
       rain: u * 0.023,
       plant: { x: W * 0.4 * 0.26, y: H * 0.84, size: u * 0.42 },
       swags: [
-        { x0: -W * 0.04, y0: H * 0.085, x1: W * 0.55, y1: H * 0.05, sag: H * 0.215, spacing: u * 0.068, phase: 0.3, sway: u * 0.01 },
-        { x0: W * 0.47, y0: H * 0.06, x1: W * 1.04, y1: H * 0.15, sag: H * 0.165, spacing: u * 0.068, phase: 0.7, sway: u * 0.012 },
+        { x0: -W * 0.04, y0: H * 0.085, x1: W * 0.52, y1: H * 0.045, sag: H * 0.215, spacing: u * 0.068, phase: 0.3, sway: u * 0.01 },
+        { x0: W * 0.52, y0: H * 0.045, x1: W * 1.04, y1: H * 0.15, sag: H * 0.165, spacing: u * 0.068, phase: 0.7, sway: u * 0.012 },
       ],
       bulb: { r: u * 0.0058, hang: u * 0.012, halo: u * 0.034, wire: 0.42 },
       bokeh,
@@ -303,6 +304,8 @@ export function computeScene(width: number, height: number, mode: PieceMode, com
     bokeh.set([x * W, y * H, r * W, seed], i * 4);
   });
   const u = Math.min(W, 520);
+  // on a portrait stage the lights hang just under the top tray
+  const top = mode === "stage" ? 62 : 0;
   return {
     landscape,
     lamp: { x: W * 1.02, y: H * 1.0, r: W * 0.95 },
@@ -318,12 +321,12 @@ export function computeScene(width: number, height: number, mode: PieceMode, com
       softNear: tile ? 0.8 : 1.1,
       softFar: u * 0.022,
     },
-    sun: { x: u * 0.045, y: u * 0.045 * 0.38 + u * 0.008 },
+    sun: { x: u * 0.07, y: u * 0.046 },
     rain: u * (tile ? 0.05 : 0.036),
     plant: { x: W * 0.78 * 0.3, y: H * 0.68, size: u * 0.36 },
     swags: [
-      { x0: -W * 0.06, y0: H * 0.1, x1: W * 0.62, y1: H * 0.05, sag: H * 0.1, spacing: u * (tile ? 0.1 : 0.085), phase: 0.3, sway: u * 0.012 },
-      { x0: W * 0.52, y0: H * 0.05, x1: W * 1.06, y1: H * 0.11, sag: H * 0.085, spacing: u * (tile ? 0.1 : 0.085), phase: 0.6, sway: u * 0.014 },
+      { x0: -W * 0.06, y0: top + H * 0.1, x1: W * 0.57, y1: top + H * 0.04, sag: H * 0.1, spacing: u * (tile ? 0.1 : 0.085), phase: 0.3, sway: u * 0.012 },
+      { x0: W * 0.57, y0: top + H * 0.04, x1: W * 1.06, y1: top + H * 0.11, sag: H * 0.085, spacing: u * (tile ? 0.1 : 0.085), phase: 0.6, sway: u * 0.014 },
     ],
     bulb: { r: u * (tile ? 0.011 : 0.0092), hang: u * 0.018, halo: u * 0.05, wire: tile ? 0.36 : 0.42 },
     bokeh,

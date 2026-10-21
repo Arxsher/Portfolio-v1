@@ -4,13 +4,13 @@
 // wall and the sign form: one fetch, one cache, and every view updates the
 // moment someone signs in this tab.
 //
-//   const { status, entries, count } = useGuestbook(5);
+//   const { status, entries, count, retry } = useGuestbook(5);
 //   const count = useGuestbookCount();
 //
 // The first render (and the static HTML) is always the loading state, so
 // hydration matches; the data arrives right after.
 
-import { createContext, useContext, useEffect, useSyncExternalStore } from "react";
+import { createContext, useCallback, useContext, useEffect, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
 import { guestbookClient, type GuestbookClient, type GuestbookEntry } from "@/lib/guestbook";
 
@@ -26,7 +26,7 @@ export type GuestbookSnapshot = {
 };
 
 const STALE_MS = 30_000;
-const LOAD_ERROR = "Couldn't load the guestbook right now.";
+const LOAD_ERROR = "Couldn't load the paper planes right now.";
 
 type Store = {
   subscribe(listener: () => void): () => void;
@@ -150,16 +150,22 @@ export function useGuestbookClient(): GuestbookClient {
   return useContext(ClientContext);
 }
 
-/** Entries (newest first, at most `limit`) and the total count. */
-export function useGuestbook(limit: number): GuestbookSnapshot & { enabled: boolean } {
+/**
+ * Entries (newest first, at most `limit`) and the total count. `retry`
+ * asks again after a failed load (it is a no-op while one is running).
+ */
+export function useGuestbook(limit: number): GuestbookSnapshot & { enabled: boolean; retry: () => void } {
   const client = useGuestbookClient();
   const store = storeFor(client);
   const snapshot = useSyncExternalStore(store.subscribe, store.get, store.server);
   useEffect(() => {
     void store.load(limit);
   }, [store, limit]);
+  const retry = useCallback(() => {
+    void store.load(limit);
+  }, [store, limit]);
   const entries = snapshot.entries.length > limit ? snapshot.entries.slice(0, limit) : snapshot.entries;
-  return { ...snapshot, entries, enabled: client.enabled };
+  return { ...snapshot, entries, enabled: client.enabled, retry };
 }
 
 /** Just the total, for the sign form's counter. Null until known. */

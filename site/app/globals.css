@@ -75,35 +75,118 @@
 
   --selection: color-mix(in oklab, var(--foreground) 13%, transparent);
   --scrollbar: color-mix(in oklab, var(--foreground) 22%, transparent);
+
+  /* focus rings and underlined links (the `focus-ring`, `btn` and `link`
+     utilities); the foreground colour unless a palette says otherwise */
+  --ring: var(--foreground);
+  --link: var(--foreground);
 }
 
+/* Dark mode comes in two palettes, picked from the theme menu in the
+   header (lib/theme.ts). Both keep `class="dark"` on <html>, so every
+   `dark:` style still applies; `data-palette` on <html> says which one.
+   `.dark` on its own is Red Dragon, the default dark palette. */
+
+/* Red Dragon: colours from Monkeytype's "red_dragon" theme (bg #1a0b0c,
+   main #ff3a32, sub #e2a528, subAlt #0e0506). Gold carries the text,
+   dimming from headings to captions (all >= 4.5:1 on every fill below);
+   red marks what is live: links, focus, the status dot, the solid button.
+   Tiles sink below the maroon page like Monkeytype's subAlt; wells rise a
+   step above it and floats a step above the wells (lightness ~2 / 4 / 8 /
+   13), so a well shows on a tile and a floating thumb on a well track. */
 .dark {
-  --background: #1a1a1a;
-  --foreground: #f2f2f2;
-  --body: #a3a3a3;
-  --secondary: #9c9c9c;
-  --tertiary: #919191;
+  --background: #1a0b0c;
+  --foreground: #e2a528; /* 8.8:1 on the page */
+  --body: #bc9553; /* 6.9:1 */
+  --secondary: #af894d; /* 5.9:1 (5.0:1 on float) */
+  --tertiary: #a88349; /* 5.5:1 (4.6:1 on float, 4.8:1 on well-hover) */
 
-  --tile: #232323;
-  --tile-hover: #2a2a2a;
-  --float: #262626;
-  --well: #2a2a2a;
-  --well-hover: #333333;
-  --wash: rgb(255 255 255 / 0.054);
+  --tile: #0e0506;
+  --tile-hover: #080303;
+  --float: #331a1b;
+  --well: #271113;
+  --well-hover: #2f1618;
+  --wash: rgb(226 165 40 / 0.05);
 
-  --border: rgb(255 255 255 / 0.07);
-  --line-firm: rgb(255 255 255 / 0.12);
-  --line-dash: rgb(255 255 255 / 0.185);
-  --edge: rgb(255 255 255 / 0.07);
-  --edge-firm: rgb(255 255 255 / 0.12);
+  --border: rgb(226 165 40 / 0.1);
+  --line-firm: rgb(226 165 40 / 0.17);
+  --line-dash: rgb(226 165 40 / 0.24);
+  --edge: rgb(226 165 40 / 0.09);
+  --edge-firm: rgb(226 165 40 / 0.16);
 
-  --ink: #f2f2f2;
-  --on-ink: #1a1a1a;
+  --ink: #ff3a32;
+  --on-ink: #0e0506; /* 5.7:1 on the red */
+
+  --status: #ff3a32;
+  --verified: #ff3a32;
+  --accent: #ff3a32;
+  --accent-wash: rgb(255 58 50 / 0.14);
+  --danger: #ff6f9a; /* rose, apart from the red accent; 6.1:1 on float */
+  --ring: #ff3a32;
+  --link: #ff3a32; /* 5.4:1 (4.5:1 on float) */
+
+  /* contribution graph: maroon to red to gold */
+  --graph-0: rgb(226 165 40 / 0.07);
+  --graph-1: #5a1714;
+  --graph-2: #a5241e;
+  --graph-3: #ff3a32;
+  --graph-4: #e2a528;
+
+  --quote-purple: #d58ab5;
+  --quote-amber: #e2a528;
+  --quote-red: #ff6a61;
+  --quote-blue: #e0b46a;
+  --quote-green: #c9b458;
+
+  --lift: 0 0 0 1px rgb(226 165 40 / 0.09);
+  --lift-hover: 0 0 0 1px rgb(226 165 40 / 0.15);
+  --lift-float: 0 0 0 1px rgb(226 165 40 / 0.13), 0 16px 40px -12px rgb(0 0 0 / 0.75);
+
+  --selection: rgb(255 58 50 / 0.28); /* body text 4.8:1 on it */
+  --scrollbar: rgb(226 165 40 / 0.24);
+}
+
+/* AMOLED: true black for OLED screens, after Monkeytype's monochrome
+   "shadow" theme (bg #000, main #eee, subAlt #171717). Near-black tiles,
+   #eee text with greys below it, white for what is live. As in light mode,
+   floats sit above wells (lightness 4 / 8 / 13 for tile, well, float), so
+   a floating thumb stands out on a well track. */
+.dark[data-palette="amoled"] {
+  --background: #000000;
+  --foreground: #eeeeee; /* 18:1 */
+  --body: #a6a6a6; /* 8.6:1 */
+  --secondary: #999999; /* 7.4:1 */
+  --tertiary: #8f8f8f; /* 6.5:1 (4.9:1 on float, 5.2:1 on well-hover) */
+
+  --tile: #0d0d0d;
+  --tile-hover: #171717;
+  --float: #222222;
+  --well: #171717;
+  --well-hover: #1e1e1e;
+  --wash: rgb(255 255 255 / 0.05);
+
+  --border: rgb(255 255 255 / 0.08);
+  --line-firm: rgb(255 255 255 / 0.13);
+  --line-dash: rgb(255 255 255 / 0.2);
+  --edge: rgb(255 255 255 / 0.08);
+  --edge-firm: rgb(255 255 255 / 0.13);
+
+  --ink: #eeeeee;
+  --on-ink: #000000;
 
   --status: #3fcf6e;
-  --accent: #4aabf7;
-  --accent-wash: rgb(74 171 247 / 0.16);
+  --verified: #1d9bf0;
+  --accent: #ffffff;
+  --accent-wash: rgb(255 255 255 / 0.12);
   --danger: #f2575c;
+  --ring: #ffffff;
+  --link: #ffffff;
+
+  --graph-0: color-mix(in oklab, var(--foreground) 8%, transparent);
+  --graph-1: color-mix(in oklab, var(--foreground) 24%, transparent);
+  --graph-2: color-mix(in oklab, var(--foreground) 44%, transparent);
+  --graph-3: color-mix(in oklab, var(--foreground) 70%, transparent);
+  --graph-4: var(--foreground);
 
   --quote-purple: #a58cf0;
   --quote-amber: #e3b341;
@@ -111,9 +194,12 @@
   --quote-blue: #6cb6ff;
   --quote-green: #56d364;
 
-  --lift: 0 0 0 1px rgb(255 255 255 / 0.07);
-  --lift-hover: 0 0 0 1px rgb(255 255 255 / 0.11);
-  --lift-float: 0 0 0 1px rgb(255 255 255 / 0.08), 0 16px 40px -12px rgb(0 0 0 / 0.6);
+  --lift: 0 0 0 1px rgb(255 255 255 / 0.08);
+  --lift-hover: 0 0 0 1px rgb(255 255 255 / 0.13);
+  --lift-float: 0 0 0 1px rgb(255 255 255 / 0.1), 0 16px 40px -12px rgb(0 0 0 / 0.9);
+
+  --selection: rgb(255 255 255 / 0.22);
+  --scrollbar: rgb(255 255 255 / 0.22);
 }
 
 /* Tailwind names. Use e.g. `bg-background text-primary`, `bg-tile`
@@ -158,6 +244,8 @@
   --color-accent: var(--accent);
   --color-accent-wash: var(--accent-wash);
   --color-danger: var(--danger);
+  --color-ring: var(--ring);
+  --color-link: var(--link);
 
   --color-graph-0: var(--graph-0);
   --color-graph-1: var(--graph-1);
@@ -293,7 +381,7 @@
   }
 
   :focus-visible {
-    outline: 2px solid var(--foreground);
+    outline: 2px solid var(--ring);
     outline-offset: 2px;
   }
 
@@ -344,7 +432,7 @@
     scale: 0.96;
   }
   &:focus-visible {
-    outline: 2px solid var(--foreground);
+    outline: 2px solid var(--ring);
     outline-offset: 2px;
   }
   &:disabled {
@@ -387,14 +475,14 @@
 @utility focus-ring {
   outline: none;
   &:focus-visible {
-    outline: 2px solid var(--foreground);
+    outline: 2px solid var(--ring);
     outline-offset: 2px;
   }
 }
 @utility focus-ring-far {
   outline: none;
   &:focus-visible {
-    outline: 2px solid var(--foreground);
+    outline: 2px solid var(--ring);
     outline-offset: 4px;
   }
 }
@@ -435,11 +523,11 @@
 
 /* Underlined text link (prose, small inline links). */
 @utility link {
-  color: var(--foreground);
+  color: var(--link);
   text-decoration-line: underline;
   text-decoration-thickness: 1px;
   text-underline-offset: 2px;
-  text-decoration-color: color-mix(in oklab, var(--foreground) 35%, transparent);
+  text-decoration-color: color-mix(in oklab, var(--link) 35%, transparent);
   transition: text-decoration-color 150ms ease-out;
   &:hover {
     text-decoration-color: currentColor;

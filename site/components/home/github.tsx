@@ -4,7 +4,7 @@
 //
 //   github / 602 in the last year .......................... @Arxsher ↗
 //   ┌────────────────────────────────────────────┬──────────────────┐
-//   │ Drag to turn · hover a building       ↺ ↻ │ 215 of 368       │
+//   │ Drag to turn · hover a building       ↺ ↻ │ 188 of 368       │
 //   │                                            │ Active days      │
 //   │      ◇ the last 12 months as a city ◇      │ 13 days …        │
 //   │                                            │ 83 in Oct …      │
@@ -33,8 +33,8 @@
 // Motion: when fresher numbers land while the card is on screen, every
 // figure counts from its old value to its new one (700 ms, ease-out) while
 // the city's changed buildings grow into place; nothing in the layout moves
-// (tabular figures in fixed slots). Off screen, from this tab's cache, or
-// with reduced motion, they simply change.
+// (tabular figures in fixed slots). Off screen or with reduced motion they
+// simply change.
 //
 // The city's code only loads once the card is near the viewport, runs only
 // while the card is on screen and the tab is visible, and lets go of its
@@ -220,21 +220,32 @@ function figuresOf(stats: WindowStats): Figures {
   };
 }
 
+/** Is any of the element on screen right now (and the tab in front)? */
+function onScreenNow(element: Element | null): boolean {
+  if (!element || document.visibilityState === "hidden") return false;
+  const rect = element.getBoundingClientRect();
+  return rect.width > 0 && rect.bottom > 0 && rect.top < window.innerHeight;
+}
+
 /**
- * The figures as shown: the target itself, or (while `animate` and the
- * target has just changed) whole numbers counting from what was on screen
- * to the target, fast at first and easing in (expo out). A change mid-count
- * counts on from where the figures are.
+ * The figures as shown: the target itself, or (when the target changes
+ * while `animate()` says someone can see it) whole numbers counting from
+ * what was on screen to the target, fast at first and easing in (expo out).
+ * A change mid-count counts on from where the figures are.
  */
-function useCountedFigures(target: Figures, animate: boolean): Figures {
+function useCountedFigures(target: Figures, animate: () => boolean): Figures {
   const [tween, setTween] = useState<Figures | null>(null);
   const display = tween ?? target;
   const onScreen = useRef(display);
+  const canAnimate = useRef(animate);
+  useIsoLayoutEffect(() => {
+    canAnimate.current = animate;
+  });
 
   // Runs before the commit's own bookkeeping below, so `onScreen` still holds the last frame's figures.
   useIsoLayoutEffect(() => {
     const from = onScreen.current;
-    if (!animate || sameFigures(from, target)) {
+    if (sameFigures(from, target) || !canAnimate.current()) {
       setTween(null);
       return;
     }
@@ -255,7 +266,7 @@ function useCountedFigures(target: Figures, animate: boolean): Figures {
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [target, animate]);
+  }, [target]);
 
   useIsoLayoutEffect(() => {
     onScreen.current = display;
@@ -343,7 +354,7 @@ export function GitHubGraph({
   /** Section anchor (#github by default). */
   id?: string;
 }) {
-  const { data, source } = useLiveContributions(initial);
+  const { data } = useLiveContributions(initial);
   const { username } = data;
   const profile = `https://github.com/${username}`;
   const stats = useMemo(() => windowStats(data), [data]);
@@ -351,11 +362,11 @@ export function GitHubGraph({
   const summaryId = useId();
   const empty = stats.total === 0 || stats.days === 0;
 
-  // Fresh numbers count up only where someone can see them do it.
+  // Fresh numbers (from GitHub, or this tab's cache over the page's own
+  // copy) count up only where someone can see them do it.
   const cardRef = useRef<HTMLDivElement>(null);
-  const inView = useInView(cardRef);
   const reducedMotion = useReducedMotion();
-  const shown = useCountedFigures(target, source === "live" && inView && !reducedMotion);
+  const shown = useCountedFigures(target, () => !reducedMotion && onScreenNow(cardRef.current));
 
   return (
     <Section

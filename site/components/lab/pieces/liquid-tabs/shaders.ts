@@ -13,8 +13,9 @@
 //
 // Materials (uMat.x → uMat.y, wiping outward from uMat.w as uMat.z goes
 // 0 → 1):
-//   0 ink: glossy black in a light room, white enamel in a dark one; the
-//          label under it reads in the opposite tone, lensed a touch.
+//   0 ink: the palette's own ink under a clear varnish (glossy black by
+//          day, cherry red in Red Dragon, white enamel on AMOLED); the label
+//          under it reads in the palette's on-ink tone, lensed a touch.
 //   1 mercury: all reflection, a dark horizon band and the floor in it.
 //   2 water: clear; magnifies the floor and the label (which reads in the
 //            foreground tone), a dark meniscus at the rim, a caustic low inside.
@@ -41,6 +42,8 @@ uniform vec3 uFloor;
 uniform vec3 uLabelCol;
 uniform vec3 uFg;
 uniform vec3 uOnInk;
+uniform vec3 uInk;
+uniform vec3 uLip;
 uniform vec4 uMat;
 uniform vec4 uRipple;
 uniform float uPress;
@@ -73,8 +76,22 @@ float channelDist(vec2 q) {
   return length(vec2(max(abs(c.x) - (uBar.z * 0.5 - hh), 0.0), c.y)) - hh;
 }
 
+/* The label mask is drawn at device pixels (scale exactly uDpr), so the
+   printed labels are read texel for texel on the screen's own grid and
+   stay crisp at any DPR; seen through liquid they are filtered. */
+float labelCrisp(vec2 q) {
+  ivec2 ts = textureSize(uLabels, 0);
+  ivec2 p = ivec2(floor(q * uDpr));
+  if (p.x < 0 || p.y < 0 || p.x >= ts.x || p.y >= ts.y) return 0.0;
+  return texelFetch(uLabels, p, 0).a;
+}
+
+float labelSoft(vec2 q) {
+  return texture(uLabels, q * uDpr / vec2(textureSize(uLabels, 0))).a;
+}
+
 /* The channel floor at q (bar-local CSS px): walls, wet film, labels. */
-vec3 floorAt(vec2 q, vec3 labelColor) {
+vec3 floorAt(vec2 q, vec3 labelColor, bool crisp) {
   vec3 col = uFloor;
   float dc = channelDist(q);
   float hh = uBar.w * 0.5;
@@ -87,24 +104,29 @@ vec3 floorAt(vec2 q, vec3 labelColor) {
 
   float w = texture(uWet, vec2(clamp(q.x / uWetLen, 0.0, 1.0), 0.5)).r;
   if (w > 0.003) {
+    // a thin film where the liquid was: a breath of its colour, a little
+    // darker, and a bright line where its upper edge catches the softbox
     float y = abs(q.y - hh);
-    float band = w * uDropH * 0.47;
-    float a = smoothstep(band + 1.0, band - 1.0, y) * sqrt(w) * uWetK;
-    col = mix(col, col * mix(0.91, 1.0, uDark) + vec3(mix(0.0, 0.03, uDark)), a);
-    float sheen = exp(-pow((y - band * 0.8) / 1.0, 2.0)) * step(q.y, hh) * a;
-    col += sheen * mix(0.08, 0.05, uDark);
+    float band = w * uDropH * 0.45;
+    float a = smoothstep(band + 1.2, band - 1.2, y) * sqrt(w) * uWetK;
+    vec3 film = uMat.y < 0.5 ? uInk : uFloor * mix(0.86, 1.25, uDark);
+    col = mix(col, mix(col * mix(0.97, 1.0, uDark), film, mix(0.06, 0.1, uDark)), a);
+    float sheen = exp(-pow((y - band * 0.86) / 0.9, 2.0)) * step(q.y, hh) * a;
+    col += sheen * mix(0.05, 0.04, uDark);
   }
 
-  float l = texture(uLabels, q / uBar.zw).a;
+  float l = crisp ? labelCrisp(q) : labelSoft(q);
   return mix(col, labelColor, l);
 }
 
 float softbox(vec3 R) {
-  return smoothstep(0.3, 0.42, -R.y) * (1.0 - smoothstep(0.5, 0.8, abs(R.x + 0.08)));
+  return smoothstep(0.3, 0.42, -R.y) * (1.0 - smoothstep(0.45, 0.85, abs(R.x + 0.08)));
 }
 
+/* a tall strip light to the right, with soft edges so a shoulder sweeping
+   past it glows instead of flashing a hard-edged block */
 float stripLight(vec3 R) {
-  return smoothstep(0.52, 0.62, R.x) * (1.0 - smoothstep(0.74, 0.86, R.x)) * (1.0 - smoothstep(0.08, 0.36, abs(R.y + 0.12)));
+  return smoothstep(0.46, 0.66, R.x) * (1.0 - smoothstep(0.76, 0.95, R.x)) * (1.0 - smoothstep(0.0, 0.42, abs(R.y + 0.12)));
 }
 
 float glint(vec3 N, float sharp) {
@@ -116,23 +138,26 @@ float lambert(vec3 N) {
   return max(dot(N, normalize(vec3(-0.42, -0.78, 0.9))), 0.0);
 }
 
-vec3 shadeInk(vec3 N, vec2 q, float z) {
+vec3 shadeInk(vec3 N, vec2 q, float z, float s, float yn) {
   vec3 R = reflect(-V, N);
   float F = 0.04 + 0.96 * pow(1.0 - N.z, 5.0);
-  float la = texture(uLabels, (q + N.xy * z * 0.12) / uBar.zw).a;
-  // black ink (light room)
-  vec3 cb = vec3(0.05) + 0.03 * lambert(N);
-  cb = mix(cb, uOnInk, la);
-  // what the rim sees at grazing angles: the floor right beside it, in its shadow
+  // the label under the varnish: crisp where the surface is flat, lensed
+  // (and so filtered) where it curves
+  vec2 lens = N.xy * z * 0.12;
+  float la = mix(labelCrisp(q), labelSoft(q + lens), smoothstep(0.15, 0.6, length(lens) * uDpr));
+  float lum = dot(uInk, vec3(0.2126, 0.7152, 0.0722));
+  float sat = max(uInk.r, max(uInk.g, uInk.b)) - min(uInk.r, min(uInk.g, uInk.b));
+  // the pigment, lit softly from above and deepening where the surface
+  // turns away toward the rim
+  vec3 body = uInk * (0.8 + 0.3 * lambert(N)) * mix(1.0, mix(0.62, 0.74, lum), smoothstep(0.5, 1.0, s));
+  // a coloured ink lets a little light through: its lower shoulder glows
+  body += uInk * sat * 0.22 * smoothstep(0.15, 0.85, yn) * (1.0 - smoothstep(0.85, 1.0, s));
+  body = mix(body, uOnInk, la);
+  // the studio in the varnish: dark inks show it all, light ones a little
+  float k = mix(1.0, 0.32, lum);
   vec3 room = uFloor * mix(0.5, 0.62, smoothstep(0.0, 0.6, R.y));
-  vec3 env = vec3(softbox(R) * (6.5 + uPress * 2.0) + stripLight(R) * 2.0 + 0.04) + room * smoothstep(0.35, -0.2, R.z);
-  cb += F * env + glint(N, 90.0) * 0.85;
-  // white enamel (dark room)
-  vec3 cw = vec3(0.9) * (0.6 + 0.4 * lambert(N));
-  cw = mix(cw, uOnInk, la);
-  vec3 envw = vec3(softbox(R) * 1.5 + stripLight(R) * 0.6) + mix(vec3(0.8), uFloor, smoothstep(0.05, 0.6, R.y));
-  cw = mix(cw, envw, F * 0.85) + glint(N, 90.0) * 0.4;
-  return mix(cb, cw, uDark);
+  vec3 env = vec3(softbox(R) * (6.5 + uPress * 2.0) + stripLight(R) * 2.0) * k + room * smoothstep(0.35, -0.2, R.z);
+  return body + F * env + glint(N, 90.0) * mix(0.85, 0.45, lum);
 }
 
 vec3 shadeMercury(vec3 N, vec2 q) {
@@ -147,15 +172,17 @@ vec3 shadeMercury(vec3 N, vec2 q) {
   float rim = smoothstep(-0.48, -0.72, R.z);
   vec3 col = mix(vec3(env), uFloor * mix(1.02, 0.9, step(0.0, R.y)), rim);
   col += stripLight(R) * 0.45;
-  col *= mix(1.0, 0.72, uDark);
-  float la = texture(uLabels, q / uBar.zw).a;
+  // a dark room's own light colours the chrome a little
+  vec3 tint = uFg / max(max(uFg.r, max(uFg.g, uFg.b)), 1e-3);
+  col *= mix(vec3(1.0), mix(vec3(1.0), tint, 0.22) * 0.72, uDark);
+  float la = labelCrisp(q);
   col = mix(col, vec3(mix(0.08, 0.06, uDark)), la * 0.9);
   return col + glint(N, 160.0) * 0.7;
 }
 
 vec3 shadeWater(vec3 N, vec2 q, float z, float s, float yn) {
   vec2 off = -N.xy * z * 0.3;
-  vec3 col = floorAt(q + off, uFg) * mix(0.975, 1.03, uDark);
+  vec3 col = floorAt(q + off, uFg, false) * mix(0.975, 1.03, uDark);
   col *= 1.0 - mix(0.4, 0.3, uDark) * smoothstep(0.6, 1.0, s);
   col += mix(0.2, 0.08, uDark) * exp(-pow((yn - 0.42) / 0.22, 2.0)) * smoothstep(0.98, 0.55, s);
   vec3 R = reflect(-V, N);
@@ -165,7 +192,7 @@ vec3 shadeWater(vec3 N, vec2 q, float z, float s, float yn) {
 }
 
 vec3 shadeAs(float m, vec3 N, vec2 q, float z, float s, float yn) {
-  if (m < 0.5) return shadeInk(N, q, z);
+  if (m < 0.5) return shadeInk(N, q, z, s, yn);
   if (m < 1.5) return shadeMercury(N, q);
   return shadeWater(N, q, z, s, yn);
 }
@@ -186,10 +213,10 @@ void main() {
   float yc = (q.y - hh) / hh;
 
   // the lip: the cut's lower edge catches the light
-  float lip = (1.0 - smoothstep(0.0, 1.3, dc)) * smoothstep(-0.1, 0.85, yc) * mix(0.85, 0.07, uDark);
+  float lip = (1.0 - smoothstep(0.0, 1.3, dc)) * smoothstep(-0.1, 0.85, yc) * mix(0.85, 0.32, uDark);
   float chA = clamp(0.5 - dc / px, 0.0, 1.0);
   if (chA <= 0.0) {
-    outColor = vec4(vec3(1.0) * lip, lip) * step(0.0, dc);
+    outColor = vec4(uLip * lip, lip) * step(0.0, dc);
     return;
   }
 
@@ -205,7 +232,7 @@ void main() {
   float matA = uMat.x;
   float matB = uMat.y;
 
-  vec3 col = floorAt(q, uLabelCol);
+  vec3 col = floorAt(q, uLabelCol, true);
   // soft shadow (offset down a little) and a tight contact shadow
   vec2 ps = prof(q.x + 0.5);
   float ds = softDist(p.y - 2.2, ps.x);
@@ -225,9 +252,12 @@ void main() {
     if (uRipple.z > 0.001) {
       float dx = q.x - uRipple.x;
       float age = uRipple.y;
-      float front = age * 420.0;
-      float env = uRipple.z * exp(-age * 5.5) * exp(-pow((abs(dx) - front) / 26.0, 2.0));
-      dzdx += env * 0.55 * sin(abs(dx) * 0.22 - age * 34.0) * sign(dx);
+      // one smooth swell running outward (the slope of a travelling bump),
+      // so the highlight rolls over it instead of breaking into dashes
+      float u = (abs(dx) - age * 380.0) / 24.0;
+      float env = uRipple.z * exp(-age * 5.0) * exp(-u * u);
+      // (flat at its origin, where the two outgoing fronts meet)
+      dzdx -= env * 1.1 * u * sign(dx) * (1.0 - exp(-dx * dx / 90.0));
     }
     vec3 N = normalize(vec3(-dzdx, -dzdy, 1.0));
     float z = KAPPA * r * (1.0 - sp * s);
@@ -239,6 +269,6 @@ void main() {
   }
 
   float a = chA + lip * (1.0 - chA) * step(0.0, dc);
-  outColor = vec4(col * chA + vec3(1.0) * lip * (1.0 - chA) * step(0.0, dc), a);
+  outColor = vec4(col * chA + uLip * lip * (1.0 - chA) * step(0.0, dc), a);
 }
 `;

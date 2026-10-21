@@ -1,9 +1,11 @@
 "use client";
 
-// Draw-your-signature canvas. Works with mouse, pen and touch (pointer
-// events, touch-action: none so the page doesn't scroll mid-stroke), draws
-// crisp on high-DPI screens and smooths strokes with quadratic curves
-// through the midpoints of the sampled points.
+// The doodle pad on the note you fold into a paper plane. Works with mouse,
+// pen and touch (pointer events, touch-action: none so the page doesn't
+// scroll mid-stroke), draws crisp on high-DPI screens and smooths strokes
+// with quadratic curves through the midpoints of the sampled points. It
+// sits directly on the paper: no fill of its own, ink from the paper's
+// --paper-ink colour.
 //
 // onChange receives the drawing as compact SVG path data: every point is
 // scaled so the pad is SIGNATURE_WIDTH (600) units wide, rounded to one
@@ -13,6 +15,9 @@
 // Without a pointer (keyboard, screen readers) the pad offers a button that
 // only shows when it has focus: it writes a flowing, signature-like line
 // from the typed name (see nameStrokes), which can be cleared like ink.
+//
+// Stored doodles keep the original format (600-unit-wide M/L/Q path data)
+// so the table and every older entry stay valid.
 
 import { useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent, Ref } from "react";
@@ -42,6 +47,7 @@ export function SignaturePad({
   name = "",
   onNeedName,
   className,
+  canvasClassName,
 }: {
   ref?: Ref<SignaturePadHandle>;
   onChange?: (path: string) => void;
@@ -53,6 +59,8 @@ export function SignaturePad({
   /** Asked to sign from the keyboard before a name was typed. */
   onNeedName?: () => void;
   className?: string;
+  /** Size of the drawing surface (defaults to a 2:1 / 4:1 strip). */
+  canvasClassName?: string;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const strokes = useRef<Point[][]>([]);
@@ -247,8 +255,8 @@ export function SignaturePad({
     >
       <span id={statusId} className="sr-only">
         {empty
-          ? "Required. Draw your signature with a mouse, pen or finger, or use the sign button to sign with your name."
-          : "Signed."}
+          ? "Required. Draw a doodle or your signature with a mouse, pen or finger, or use the button to sign with your name."
+          : "Doodle added."}
       </span>
       <canvas
         ref={canvasRef}
@@ -259,18 +267,20 @@ export function SignaturePad({
         onPointerCancel={endStroke}
         onLostPointerCapture={endStroke}
         className={cn(
-          "block aspect-2/1 w-full touch-none rounded-xl bg-float text-primary shadow-lift select-none sm:aspect-4/1",
+          "block w-full touch-none rounded-[10px] text-[var(--paper-ink,currentColor)] select-none",
+          canvasClassName ?? "aspect-2/1 sm:aspect-4/1",
           disabled ? "cursor-default" : "cursor-crosshair",
         )}
       />
       <span
         aria-hidden="true"
         className={cn(
-          "pointer-events-none absolute inset-0 flex items-center justify-center text-[14px] text-tertiary transition-opacity duration-200 ease-out",
+          "pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-1 text-[14px] text-[var(--paper-muted,currentColor)] transition-opacity duration-200 ease-out",
           empty ? "opacity-100" : "opacity-0",
         )}
       >
-        Sign here with your mouse or finger
+        <DoodleHint />
+        Doodle or sign here
       </span>
       {empty && !disabled ? (
         // Shows only while focused, over the hint; pointer presses go
@@ -279,7 +289,7 @@ export function SignaturePad({
           ref={typedRef}
           type="button"
           onClick={signWithName}
-          className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-xl bg-float px-4 text-center text-[14px] text-primary opacity-0 focus-visible:opacity-100 focus-ring"
+          className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-[10px] bg-[var(--paper,transparent)] px-4 text-center text-[14px] text-[var(--paper-ink,currentColor)] opacity-0 outline-none focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-[var(--paper-ink,currentColor)]"
         >
           {typedLabel}
         </button>
@@ -289,13 +299,22 @@ export function SignaturePad({
           ref={clearRef}
           type="button"
           onClick={clearByButton}
-          aria-label="Clear signature"
-          className="absolute end-1.5 bottom-1.5 cursor-pointer rounded-lg px-2 py-0.5 text-[13px] text-secondary outline-none transition-[color,background-color] duration-150 ease-out animate-fade-in hover:bg-wash hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
+          aria-label="Clear doodle"
+          className="absolute end-0 top-0 cursor-pointer rounded-[8px] px-2 py-0.5 text-[12px] text-[var(--paper-muted,currentColor)] outline-none transition-[color,background-color] duration-150 ease-out animate-fade-in hover:bg-[color-mix(in_oklab,var(--paper-ink,currentColor)_7%,transparent)] hover:text-[var(--paper-ink,currentColor)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--paper-ink,currentColor)]"
         >
           Clear
         </button>
       ) : null}
     </div>
+  );
+}
+
+/** A tiny squiggle above the hint, drawn like ink. */
+function DoodleHint() {
+  return (
+    <svg width="34" height="14" viewBox="0 0 34 14" fill="none" aria-hidden="true" className="opacity-70">
+      <path d="M2 9c3-6 6-6 7.5-2S13 13 16 8s4-6 6.5-3 3.5 5 9.5 1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }
 

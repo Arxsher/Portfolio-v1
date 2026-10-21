@@ -68,6 +68,7 @@ uniform float uReach;
 uniform float uGlow;
 uniform float uHover;
 uniform vec3 uLampCol;
+uniform vec3 uTint;
 uniform float uRvLamp;
 
 uniform vec4 uCord[${CORD_POINTS}];
@@ -174,7 +175,7 @@ float revealAt(vec2 p) {
 vec3 envAt(vec3 r, float rv, vec3 lampCol) {
   float up = clamp(r.y, -1.0, 1.0) * 0.5 + 0.5;
   float below = smoothstep(0.55, 0.0, up);
-  vec3 lit = uWallLit * mix(0.98, 0.66, up) + lampCol * uEmit * 0.16 * below;
+  vec3 lit = uWallLit * uTint * mix(0.98, 0.66, up) + lampCol * uEmit * 0.16 * below;
   vec3 dark = uWallDark * mix(1.15, 0.85, up) + lampCol * uEmit * 0.42 * below;
   vec3 e = mix(dark, lit, rv);
   vec3 key = normalize(vec3(-0.5, 0.55, 0.67));
@@ -282,11 +283,15 @@ void main() {
   /* wall ----------------------------------------------------------- */
   vec2 cv = p / uView - vec2(0.5, 0.42);
   float vig = clamp(1.0 - dot(cv, cv) * 0.95, 0.0, 1.0);
-  vec3 dark = uWallDark * (0.74 + 0.34 * vig);
+  // dark: the dark palette's tile at the stage's edges, a little ambient
+  // left in the middle of the room so the shade still has a silhouette
+  vec3 dark = uWallDark * mix(0.95, 2.2, vig * vig);
   // lit: only bounced light reaches the wall above the shade's cut-off, a
   // shade dimmer toward the ceiling; the lamp's own light adds the rest
   vec3 lit = uWallLit * (0.90 + 0.04 * vig) * (1.0 - 0.07 * (1.0 - smoothstep(0.0, 230.0, p.y)));
   lit *= 1.0 + 0.5 * max(uRoom - 1.0, 0.0);
+  // the bounce light is the lamp's: it warms as the filament cools
+  lit *= uTint;
   vec3 col = mix(dark, lit, rvHere);
 
   float shade = 0.0;

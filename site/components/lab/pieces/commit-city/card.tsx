@@ -26,14 +26,16 @@
 // - Light theme: the white massing model on its plaster plinth. Dark: the
 //   graphite model with its windows lit floor by floor, a soft bloom, a few
 //   stars and the beacon on the tallest tower.
-// - Reduced motion: a still at the isometric rest, turns land at once.
+// - Reduced motion: a still at the isometric rest, every building already
+//   standing, turns land at once.
 // - No sound (the lab's mute control lives on the lab pages).
 //
 // Data: the last 12 months (`data`, from components/home/github.tsx: the
 // build's copy first, then a live one from GitHub), laid out as a rolling
-// window: the weeks run from a Sunday last October to today, so the oldest
-// month (last year's October) stands at the back and this month at the
-// front corner. Dates from last year carry their year ("Oct 20, 2025").
+// window: the weeks run from the Sunday about a year back to today, so the
+// oldest month (last year's October, today) stands at the back and this
+// month at the front corner. Dates from last year carry their year
+// ("Oct 20, 2025").
 //
 // Motion (see rise.ts):
 // - The "wow" second: the first time the card is properly in view, the
@@ -47,8 +49,9 @@
 //   changed grows (or settles) from the height it had to its new one, a
 //   new day rises from its empty lot, a few hundredths of a second apart,
 //   newest last; the framing glides to the new fit rather than jumping. If
-//   the window itself has moved on (a new week began since the build), the
-//   old picture crossfades into the new one instead (450 ms). A building
+//   the window itself has moved on (a new week began since the build, so
+//   every day has a new place), the old city fades away (280 ms) while the
+//   new one builds itself again in a quicker wave (0.6 s). A building
 //   mid-rise is handed over at its current height and speed, never reset.
 // - Off screen or with reduced motion, new numbers simply replace the old.
 //
@@ -142,13 +145,14 @@ function cardStars(width: number, height: number): Star[] {
 const announcement = (city: City, lot: Lot) =>
   `${lot.count === 0 ? "No" : lot.count} ${plural(lot.count, "contribution")} on ${dateIn(city, lot.date, true)}.`;
 
-/** The intro wave: seconds from the first day's building to the last day's. */
+/** The intro wave: seconds from the first day's building to the last day's (and when a moved window rebuilds). */
 const WAVE = 1;
+const REBUILD_WAVE = 0.6;
 /** Fresher numbers: seconds between one changed day and the next, and at most in all. */
 const UPDATE_STAGGER = 0.07;
 const UPDATE_SPREAD = 0.5;
-/** The crossfade when a fresher window has moved the plan (ms). */
-const FADE_MS = 450;
+/** How long the old picture takes to fade when a fresher window has moved the plan (ms). */
+const FADE_MS = 280;
 /** How quickly the framing glides to a new fit (per second, for damp). */
 const REFRAME = 6;
 /** Share of the card that has to be in view before the city builds itself. */
@@ -177,12 +181,12 @@ function samePlan(a: City, b: City): boolean {
   return shared === a.lots.length;
 }
 
-/** Every building down to its empty lot, to rise in a wave through the year once go() is called. */
-function holdForWave(city: City, rise: Rise) {
+/** Every building down to its empty lot, to rise in a wave through the year (held until go() unless `now`). */
+function holdForWave(city: City, rise: Rise, wave = WAVE, now = false) {
   const last = Math.max(1, city.lots.length - 1);
   // A touch of jitter so a week's seven days don't rise as one slab.
-  for (const lot of city.lots) rise.set(lot, 0, 0, WAVE * (lot.slot / last) + (lot.seed - 0.5) * 0.05);
-  rise.pause();
+  for (const lot of city.lots) rise.set(lot, 0, 0, wave * (lot.slot / last) + (lot.seed - 0.5) * 0.05);
+  if (!now) rise.pause();
 }
 
 type Gesture = {
@@ -414,7 +418,9 @@ export default function CityCard({ data, active, reducedMotion, theme, described
       const view = viewRef.current;
       if (view) reframe.current = { active: true, scale: view.scale, fx: view.fx, fz: view.fz };
     } else if (onScreen) {
-      // The window moved on: the old picture fades out over the new one.
+      // The window moved on (a new week): the old city fades away as the
+      // new one builds itself again, quicker than the first time.
+      holdForWave(city, rise, REBUILD_WAVE, true);
       const canvas = canvasRef.current;
       if (canvas && canvas.width > 1 && canvas.height > 1) {
         const f = fade.current;

@@ -1,5 +1,7 @@
 // Guestbook storage: a single Supabase table (see supabase/guestbook.sql),
-// talked to through its REST API with plain fetch. No SDK.
+// talked to through its REST API with plain fetch. No SDK. On the site each
+// entry is a paper plane (components/guestbook/planes); the messages below
+// use that language.
 //
 //   guestbookEnabled            true once NEXT_PUBLIC_SUPABASE_URL and
 //                               NEXT_PUBLIC_SUPABASE_ANON_KEY are set
@@ -56,13 +58,13 @@ const TIMEOUT_MS = 12000;
 const MAX_ROWS = 1000;
 
 const MESSAGES = {
-  disabled: "The guestbook isn't connected yet.",
-  offline: "The guestbook is out of reach right now. Try again in a moment.",
-  timeout: "The guestbook took too long to answer. Please try again.",
-  rejected: "The guestbook didn't accept that note. Please check it and try again.",
-  busy: "Lots of people signing right now. Give it a minute and try again.",
-  server: "The guestbook is having a moment. Please try again shortly.",
-  load: "Couldn't load the guestbook right now.",
+  disabled: "Paper planes aren't connected yet.",
+  offline: "The sky is out of reach right now. Try again in a moment.",
+  timeout: "That took too long to land. Please try again.",
+  rejected: "That note couldn't be sent. Please check it and try again.",
+  busy: "Lots of planes in the air right now. Give it a minute and try again.",
+  server: "Something's off on the other end. Please try again shortly.",
+  load: "Couldn't load the paper planes right now.",
 } as const;
 
 /**
@@ -176,7 +178,7 @@ export function cleanEntry(input: NewGuestbookEntry): NewGuestbookEntry {
   const signature = input.signature.trim();
   if (!name) throw new GuestbookError("Add your name first.");
   if (!message) throw new GuestbookError("Write a short message first.");
-  if (!signature) throw new GuestbookError("Add your signature first.");
+  if (!signature) throw new GuestbookError("Add a doodle, or sign with your name, first.");
   if ([...name].length > GUESTBOOK_LIMITS.name) {
     throw new GuestbookError(`Names can be up to ${GUESTBOOK_LIMITS.name} characters.`);
   }
@@ -184,7 +186,7 @@ export function cleanEntry(input: NewGuestbookEntry): NewGuestbookEntry {
     throw new GuestbookError(`Messages can be up to ${GUESTBOOK_LIMITS.message} characters.`);
   }
   if (signature.length > GUESTBOOK_LIMITS.signature || !SIGNATURE_PATTERN.test(signature)) {
-    throw new GuestbookError("That signature is a little too detailed. Clear it and try a simpler one.");
+    throw new GuestbookError("That doodle is a little too detailed. Clear it and try a simpler one.");
   }
   return { name, message, signature };
 }

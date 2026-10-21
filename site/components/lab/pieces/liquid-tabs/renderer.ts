@@ -21,7 +21,9 @@ export type Frame = {
   floor: Vec3;
   label: Vec3;
   fg: Vec3;
+  ink: Vec3;
   onInk: Vec3;
+  lip: Vec3;
   /** from, to, wipe progress (0..1; ≥ 1 done), wipe origin x. */
   mat: [number, number, number, number];
   ripple: [number, number, number];
@@ -128,6 +130,8 @@ export class LiquidRenderer {
     gl.uniform3f(u("uLabelCol"), f.label[0], f.label[1], f.label[2]);
     gl.uniform3f(u("uFg"), f.fg[0], f.fg[1], f.fg[2]);
     gl.uniform3f(u("uOnInk"), f.onInk[0], f.onInk[1], f.onInk[2]);
+    gl.uniform3f(u("uInk"), f.ink[0], f.ink[1], f.ink[2]);
+    gl.uniform3f(u("uLip"), f.lip[0], f.lip[1], f.lip[2]);
     gl.uniform4f(u("uMat"), f.mat[0], f.mat[1], f.mat[2], f.mat[3]);
     gl.uniform4f(u("uRipple"), f.ripple[0], f.ripple[1], f.ripple[2], 0);
     gl.uniform1f(u("uPress"), f.press);

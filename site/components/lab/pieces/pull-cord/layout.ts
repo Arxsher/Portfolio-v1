@@ -30,15 +30,15 @@ export type Layout = {
  */
 export function layoutFor(mode: PieceMode, cssWidth: number, cssHeight: number, reserve = 0): Layout {
   const tile = mode === "tile";
-  const arm = tile ? 142 : 196;
-  const cord = tile ? 112 : 148;
+  const arm = tile ? 142 : 158;
+  const cord = tile ? 112 : 140;
   // canopy, cable and shade, the cord and the pull, plus room to pull it down
   const pull = tile ? 22 : 40;
   const content = CANOPY_H + arm - EXIT_Y + cord + BEAD_LENGTH + pull;
   const width = DOME_R * 2 + (tile ? 28 : 120);
   const room = Math.max(80, cssHeight - reserve - (tile ? 4 : 12));
   let scale = Math.min(room / content, (cssWidth * (tile ? 0.98 : 0.9)) / width);
-  scale = Math.max(0.2, Math.min(tile ? 1.4 : 1.12, scale));
+  scale = Math.max(0.2, Math.min(tile ? 1.4 : 1.3, scale));
   const w = cssWidth / scale;
   const h = cssHeight / scale;
   // the cord hangs at the shade's right edge: lean the lamp left so the pair is centred

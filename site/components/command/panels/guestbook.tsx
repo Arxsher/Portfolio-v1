@@ -1,8 +1,8 @@
 "use client";
 
-// "Sign the guestbook": the panel chrome around the guestbook's own sign
-// form (components/guestbook/sign-form.tsx), which closes the bar when the
-// signature is in.
+// "Fold a paper plane": the panel chrome around the guestbook's send flow
+// (components/guestbook/sign-form.tsx), which closes the bar once the plane
+// has been thrown and saved.
 
 import { GuestbookSignForm } from "@/components/guestbook/sign-form";
 import type { CommandPrefill } from "@/lib/command";

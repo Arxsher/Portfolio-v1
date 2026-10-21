@@ -1,4 +1,7 @@
 -- Guestbook table for the site (lib/guestbook.ts talks to it over REST).
+-- On the site every row is a paper plane: the note, the name and the
+-- hand-drawn doodle (the `signature` column) are folded into a plane that
+-- drifts across the "paper planes" sky (components/guestbook/planes).
 --
 -- One-time setup:
 --   1. Create a free project at https://supabase.com.

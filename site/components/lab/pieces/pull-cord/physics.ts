@@ -44,6 +44,8 @@ export const N = 20;
 /** Substeps a second, and constraint passes per substep. */
 const RATE = 600;
 const ITERATIONS = 3;
+/** Longest frame simulated in real time (seconds); longer ones run slow. */
+const MAX_FRAME = 1 / 24;
 /** Gravity, scene units / s². */
 const G = 1800;
 const M_ROPE = 0.04;
@@ -145,7 +147,6 @@ export class CordSim {
   maxSpeed = 0;
   events: CordEvents = {};
 
-  private flip = false;
   private clinkCooldown = 0;
   private readonly lambdaLinks = new Float64Array(N);
   private readonly lambdaBends = new Float64Array(N);
@@ -194,6 +195,7 @@ export class CordSim {
     this.vyl = 0;
     this.d = 0;
     this.vd = 0;
+    this.tension = 0;
     this.armed = true;
     this.grab = -1;
     this.frame();
@@ -210,7 +212,8 @@ export class CordSim {
     const reduced = this.reduced;
     this.events = {};
     this.reduced = true;
-    for (let k = 0; k < 40; k++) this.step(1 / 60);
+    // (the cord's weight tips the lamp a little: let that finish too)
+    for (let k = 0; k < 360 && (k < 40 || !this.settled); k++) this.step(1 / 60);
     this.reduced = reduced;
     this.events = events;
     this.omega = 0;
@@ -311,8 +314,15 @@ export class CordSim {
   }
 
   step(dt: number) {
-    const n = Math.min(16, Math.max(4, Math.ceil(dt * RATE)));
-    const h = dt / n;
+    // a repeated timestamp (dt 0) would divide by zero below
+    if (!(dt > 0)) return;
+    // Substeps never longer than 1 / RATE: the switch is a light slider on a
+    // stiff cord, and longer steps let it ring and re-arm under a held hand
+    // (one pull clicking the light off and on again). A long frame (a hitch,
+    // the page repainting for a theme change) plays in slow motion instead.
+    const span = Math.min(dt, MAX_FRAME);
+    const n = Math.max(2, Math.ceil(span * RATE - 1e-6));
+    const h = span / n;
     this.maxSpeed = 0;
     for (let k = 0; k < n; k++) {
       const f = (k + 1) / n;
@@ -320,7 +330,9 @@ export class CordSim {
     }
     this.hxPrev = this.hx;
     this.hyPrev = this.hy;
-    this.clinkCooldown = Math.max(0, this.clinkCooldown - dt);
+    this.clinkCooldown = Math.max(0, this.clinkCooldown - span);
+    // never let one bad frame poison the simulation for good
+    if (!Number.isFinite(this.x[N - 1] + this.y[N - 1] + this.theta + this.yl + this.d + this.tension)) this.hang();
   }
 
   private substep(h: number, tx: number, ty: number) {
@@ -378,14 +390,13 @@ export class CordSim {
     const bendA = ALPHA_BEND / h2;
     for (let it = 0; it < ITERATIONS; it++) {
       if (this.grab >= 0) this.solveGrip(tx, ty, ALPHA_GRIP / h2, GRIP_MAX * h2);
-      this.flip = !this.flip;
-      if (this.flip) {
-        this.solveExit(ropeA);
-        for (let i = 1; i < N; i++) links[i] += this.solveLink(i - 1, i, seg, ropeA, links[i]);
-      } else {
-        for (let i = N - 1; i >= 1; i--) links[i] += this.solveLink(i - 1, i, seg, ropeA, links[i]);
-        this.solveExit(ropeA);
-      }
+      // one sweep down the cord and one back up, every pass: alternating the
+      // order from substep to substep leaves the top particle flickering
+      // between two solutions, which never lets the cord come to rest
+      this.solveExit(ropeA);
+      for (let i = 1; i < N; i++) links[i] += this.solveLink(i - 1, i, seg, ropeA, links[i]);
+      for (let i = N - 1; i >= 1; i--) links[i] += this.solveLink(i - 1, i, seg, ropeA, links[i]);
+      this.solveExit(ropeA);
       for (let i = 2; i < N; i++) bends[i] += this.solveLink(i - 2, i, seg * 2, bendA, bends[i]);
     }
 

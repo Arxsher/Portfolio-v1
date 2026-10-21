@@ -94,8 +94,8 @@ import { MuteButton, Slider, StageControls, StageHint, Swatches, Tray, TrayDivid
 import { computeLayout, GlassWorld, TINTS, tintById, type Settings, type TintId } from "./engine";
 import { TabGlyph, TABS, TILE_TABS } from "./icons";
 import { GlassRenderer, releaseContextLater } from "./renderer";
-import { merge, pinch, plip, tap, wake as wakeAudio } from "./sound";
 import { computeScene, DARK, LIGHT } from "./scene";
+import { merge, pinch, plip, tap, wake as wakeAudio } from "./sound";
 
 const SWATCHES = TINTS.map((t) => ({ value: t.id, label: t.label, swatch: t.swatch }));
 

@@ -6,7 +6,7 @@ import { BULB_R, BULB_SY, DOME_R, DOME_SIL, RIM_E } from "./geometry";
 import { layoutFor, type Layout } from "./layout";
 import { LampLight } from "./light";
 import { DCLICK, N, CordSim } from "./physics";
-import { PALETTE, PullCordRenderer } from "./renderer";
+import { PALETTE, PullCordRenderer, type Palette } from "./renderer";
 import type { PieceMode } from "../../types";
 
 export type PullSource = "hand" | "key" | "auto";
@@ -34,6 +34,8 @@ export class PullCord {
   readonly sim: CordSim;
   readonly light: LampLight;
   layout: Layout;
+  /** The room's colours (the site's light tile and the current dark palette's). */
+  palette: Palette = PALETTE;
   hover = 0;
   hoverTarget = 0;
   /** Called when the switch clicks over (any source). */
@@ -252,7 +254,7 @@ export class PullCord {
   }
 
   render() {
-    this.renderer?.render(this.sim, this.light, this.layout, PALETTE, this.hover);
+    this.renderer?.render(this.sim, this.light, this.layout, this.palette, this.hover);
   }
 
   /** The pull's centre and direction (scene units), for the focus target. */

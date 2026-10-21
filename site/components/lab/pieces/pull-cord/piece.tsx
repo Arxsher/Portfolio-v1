@@ -12,23 +12,30 @@
 //   cuts it off above the rim), the cord and the pull cast soft shadows in
 //   it, the inside of the shade glows and the room sits in the light
 //   theme's greys. Dark, only the bulb's afterglow and the pull's
-//   phosphorescent glaze are left, on the dark theme's greys.
+//   phosphorescent glaze are left, on the tile colour of whichever dark
+//   palette the site uses (Red Dragon's oxblood, AMOLED's grey), so the
+//   stage still reads as the page's card.
 //
 // The motion (physics.ts, light.ts)
 // - The cord is a Verlet/XPBD rope of 20 particles, the switch a preloaded
 //   spring slider behind the grommet with a cam bump at the click point,
 //   the lamp a heavy pendulum with a little give in its cable, all solved
-//   together 600 times a second. Grab anywhere on the cord: the hand is a
-//   force-capped spring, so the cord follows exactly until the switch is
-//   all the way out, then the hand runs on ahead. Every gesture can be
-//   interrupted: grab the pull mid-swing and it comes from where it is.
+//   together in substeps of at most 1/600 s (a long frame plays in slow
+//   motion rather than in unstable steps, so one pull is always exactly one
+//   click). Grab anywhere on the cord: the hand is a force-capped spring,
+//   so the cord follows exactly until the switch is all the way out, then
+//   the hand runs on ahead, and a flick keeps its speed when let go. Every
+//   gesture can be interrupted: grab the pull mid-swing and it comes from
+//   where it is; switch mid-fade and the light turns back from where it is.
 // - The "wow" second: draw the pull down. The braid slides out of the
 //   grommet, the lamp tips toward your hand and dips on its cable, the
-//   switch clicks. Lights out: the filament fades through orange, the room
-//   goes dark around it, the pull starts to glow, and (with "Site theme"
-//   on) the whole site goes dark with it. Pull again: the filament flares,
-//   the scallop of light blooms onto the dark wall, then the room fills
-//   with light outward from the lamp. Let go and the cord snaps home, the
+//   switch clicks. Lights out: the room drops into the dark in a fifth of a
+//   second, warming as it goes the way a cooling filament does, the coil
+//   stays orange a moment longer, the pull starts to glow, and (with "Site
+//   theme" on) the whole site goes dark with it. Pull again: the filament
+//   flares, the scallop of light lands on the dark wall first, then the
+//   light blooms out of the lamp into the room, landing with a hint of
+//   flash (an under-damped spring). Let go and the cord snaps home, the
 //   pull bounces and swings, the lamp sways, and the light and the
 //   shadows swing with it.
 //
@@ -49,13 +56,14 @@
 
 import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { cn } from "@/lib/cn";
-import { getResolvedTheme, setTheme } from "@/lib/theme";
+import { type DarkPalette, getDarkPalette, getResolvedTheme, PALETTES, setTheme, useDarkPalette } from "@/lib/theme";
 import { ensureAudio } from "../../audio";
 import { useFinePointer, useFrame, useLatest, useWebGL2 } from "../../hooks";
 import type { PieceProps } from "../../types";
 import { MuteButton, StageControls, StageHint, Toggle, Tray, TrayDivider } from "../../ui";
 import { PullCord } from "./controller";
 import { BEAD_LENGTH, BEAD_R1 } from "./geometry";
+import { makePalette } from "./renderer";
 import { click, clink, filament, knock, Rasp, rearm } from "./sound";
 
 export default function Piece(props: PieceProps) {
@@ -103,6 +111,31 @@ function useLampCanvas(lamp: PullCord, maxDpr: number, reserve: (width: number) 
   return { canvasRef, wakeRef };
 }
 
+const swatchOf = (id: string) => PALETTES.find((entry) => entry.id === id)?.swatch;
+
+/** The room's colours: the light theme's tile, and the tile of the dark palette in use. */
+function roomPalette(dark: DarkPalette) {
+  return makePalette(swatchOf("light")?.tile ?? "#f2f2f2", swatchOf(dark)?.tile ?? "#0e0506");
+}
+
+/** A lamp for this mode, in the site's current colours. */
+function createLamp(mode: "tile" | "stage", on: boolean) {
+  const lamp = new PullCord(mode, on, mode === "stage" ? 800 : 204, mode === "stage" ? 575 : 280);
+  lamp.palette = roomPalette(getDarkPalette());
+  return lamp;
+}
+
+/** Follow the dark palette (Red Dragon, AMOLED) as it changes. */
+function useRoomPalette(lamp: PullCord, wake: () => void) {
+  const dark = useDarkPalette();
+  useEffect(() => {
+    lamp.palette = roomPalette(dark);
+    lamp.render();
+    wake();
+  }, [dark, lamp, wake]);
+  return dark;
+}
+
 /* ---------------------------------------------------------------------- */
 /* tile                                                                    */
 /* ---------------------------------------------------------------------- */
@@ -110,7 +143,7 @@ function useLampCanvas(lamp: PullCord, maxDpr: number, reserve: (width: number) 
 function Tile({ active, reducedMotion, theme, onFail }: Props) {
   const home = theme === "light";
   const [lamp] = useState(() => {
-    const l = new PullCord("tile", home);
+    const l = createLamp("tile", home);
     l.setReduced(reducedMotion);
     if (!reducedMotion) l.sim.nudge(90);
     return l;
@@ -125,6 +158,7 @@ function Tile({ active, reducedMotion, theme, onFail }: Props) {
     return busy || !reducedMotion;
   });
   wakeRef.current = wake;
+  useRoomPalette(lamp, wake);
 
   // reduced motion, or the theme changed: back to the theme's own state (with a pull)
   useEffect(() => {
@@ -170,7 +204,7 @@ function Stage({ active, reducedMotion, theme, onFail }: Props) {
   const [announce, setAnnounce] = useState("");
   const [dprCap, setDprCap] = useState(2);
   const [lamp] = useState(() => {
-    const l = new PullCord("stage", theme === "light", 800, 575);
+    const l = createLamp("stage", theme === "light");
     l.setReduced(reducedMotion);
     if (!reducedMotion) {
       // arrive with a little life in it
@@ -206,6 +240,7 @@ function Stage({ active, reducedMotion, theme, onFail }: Props) {
     return busy;
   });
   wakeRef.current = wake;
+  const darkPalette = useRoomPalette(lamp, wake);
 
   /** Keep the touch target over the cord and the focus target on the pull. */
   function syncDom() {
@@ -290,9 +325,11 @@ function Stage({ active, reducedMotion, theme, onFail }: Props) {
     wake();
   }, [reducedMotion, lamp, wake]);
 
-  // sound stops with the piece
+  // sound stops with the piece (the next press starts the rasp again)
   useEffect(() => {
-    if (!active) rasp.current?.set(0);
+    if (active) return;
+    rasp.current?.stop();
+    rasp.current = null;
   }, [active]);
   useEffect(
     () => () => {
@@ -420,7 +457,11 @@ function Stage({ active, reducedMotion, theme, onFail }: Props) {
   const k = lamp.layout.scale;
   const beadW = Math.max(32, (BEAD_R1 * 2 + 10) * k);
   const beadH = Math.max(44, (BEAD_LENGTH + 12) * k);
+  // the hint sits on the room, not on the page: when the two disagree (Site
+  // theme off), it takes the colours of the room it is written on
   const darkRoom = !on;
+  const hintColour =
+    darkRoom === (theme === "dark") ? undefined : darkRoom ? (swatchOf(darkPalette)?.text ?? "#9a9a9a") : "#6b6b6b";
 
   const hint = fine
     ? "Grab the pull and draw it down until it clicks · flick it to set it swinging"
@@ -469,14 +510,10 @@ function Stage({ active, reducedMotion, theme, onFail }: Props) {
           <TrayDivider />
           <MuteButton />
         </Tray>
-        <StageHint
-          className={cn(
-            "transition-[opacity,color] duration-700",
-            touched && "opacity-0",
-            darkRoom ? "text-[#9a9a9a]" : "text-[#6b6b6b]",
-          )}
-        >
-          {hint}
+        <StageHint className={cn("transition-opacity duration-700", touched && "opacity-0")}>
+          <span className="transition-colors duration-700" style={hintColour ? { color: hintColour } : undefined}>
+            {hint}
+          </span>
         </StageHint>
       </StageControls>
     </div>
@@ -507,7 +544,7 @@ function Fallback({ mode, theme }: PieceProps) {
       const L = lamp.layout;
       const s = lamp.sim;
       ctx.setTransform(dpr * L.scale, 0, 0, dpr * L.scale, 0, 0);
-      ctx.fillStyle = lit ? "#efefef" : "#232323";
+      ctx.fillStyle = lit ? (swatchOf("light")?.tile ?? "#f2f2f2") : (swatchOf(getDarkPalette())?.tile ?? "#0e0506");
       ctx.fillRect(0, 0, L.width, L.height);
       if (lit) {
         const glow = ctx.createRadialGradient(s.ox, s.oy + 10, 10, s.ox, s.oy + 10, 320);
@@ -527,11 +564,11 @@ function Fallback({ mode, theme }: PieceProps) {
       ctx.beginPath();
       ctx.ellipse(s.ox, s.oy, 84, 57, 0, Math.PI, 2 * Math.PI);
       ctx.fill();
-      ctx.fillStyle = lit ? "#fff4e4" : "#3a3a3a";
+      ctx.fillStyle = lit ? "#fff4e4" : "#2a2a2a";
       ctx.beginPath();
       ctx.ellipse(s.ox, s.oy, 84, 18, 0, 0, 2 * Math.PI);
       ctx.fill();
-      ctx.fillStyle = lit ? "#fffaf0" : "#4a4a4a";
+      ctx.fillStyle = lit ? "#fffaf0" : "#3a3a3a";
       ctx.beginPath();
       ctx.arc(s.ox, s.oy + 5, 18, 0, 2 * Math.PI);
       ctx.fill();
