@@ -1,15 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect width="32" height="32" rx="8" fill="#000000"/>
-  <text 
-    x="16" 
-    y="22" 
-    font-family="system-ui, -apple-system, sans-serif" 
-    font-size="18" 
-    font-weight="900" 
-    fill="#ff3a32" 
-    text-anchor="middle"
-    style="letter-spacing: -1px; stroke: #ff3a32; stroke-width: 0.8px; stroke-linejoin: round;"
-  >
-    Za
-  </text>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><style>path{fill:#171717}@media (prefers-color-scheme:dark){path{fill:#f2f2f2}}</style><path fill-rule="evenodd" d="M8.75 2.51L9.92 4.64Q10.38 5.47 11.31 5.65L13.71 6.11Q15.23 6.4 14.17 7.53L12.5 9.31Q11.85 10 11.97 10.94L12.27 13.36Q12.47 14.9 11.06 14.24L8.86 13.2Q8 12.8 7.14 13.2L4.94 14.24Q3.53 14.9 3.73 13.36L4.03 10.94Q4.15 10 3.5 9.31L1.83 7.53Q0.77 6.4 2.29 6.11L4.69 5.65Q5.62 5.47 6.08 4.64L7.25 2.51Q8 1.15 8.75 2.51ZM5.57 8.55a0.78 1.08 0 1 0 1.56 0a0.78 1.08 0 1 0 -1.56 0ZM8.87 8.55a0.78 1.08 0 1 0 1.56 0a0.78 1.08 0 1 0 -1.56 0Z"/></svg>
