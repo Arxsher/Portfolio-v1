@@ -1,8 +1,9 @@
 "use client";
 
-// "Theme": small previews of the page in each palette (Light, Red Dragon,
-// AMOLED) and a split one for "System" (light or Red Dragon, following the
-// device). Same choices as the menu on the header's theme button.
+// "Theme": small previews of the page in each palette (Light, AMOLED, Red
+// Dragon) and a split one for "System" (light or AMOLED, the main dark
+// palette, following the device). Same choices, in the same order, as the
+// menu on the header's theme button.
 //
 // A radio group: Tab lands on the chosen card, the arrow keys (and Home /
 // End) move and pick at once, as radios do. The chosen card wears a 2px
@@ -13,7 +14,15 @@
 import { useRef, type CSSProperties, type KeyboardEvent } from "react";
 import { Check, Monitor, Moon, Sun } from "@/components/icons";
 import { cn } from "@/lib/cn";
-import { PALETTES, setTheme, useThemePreference, type Palette, type ThemeChoice } from "@/lib/theme";
+import {
+  DEFAULT_DARK_PALETTE,
+  PALETTES,
+  paletteLabel,
+  setTheme,
+  useThemePreference,
+  type Palette,
+  type ThemeChoice,
+} from "@/lib/theme";
 import { VIEWS } from "../items";
 import { Panel } from "./panel";
 
@@ -39,6 +48,9 @@ const OPTIONS: ReadonlyArray<{ value: ThemeChoice; label: string }> = [
   ...PALETTES.map(({ id, label }) => ({ value: id, label })),
   { value: "system", label: "System" },
 ];
+
+/** What "System" shows: light, or the main dark palette on a dark device. */
+const SYSTEM_LABEL = `System (light or ${paletteLabel(DEFAULT_DARK_PALETTE)}, following your device)`;
 
 function OptionIcon({ value }: { value: ThemeChoice }) {
   if (value === "light") return <Sun size={13} />;
@@ -97,7 +109,7 @@ export function ThemePanel({ onClose }: { onClose: () => void }) {
               role="radio"
               aria-checked={selected}
               tabIndex={index === tabStop ? 0 : -1}
-              aria-label={value === "system" ? "System (light or Red Dragon, following your device)" : undefined}
+              aria-label={value === "system" ? SYSTEM_LABEL : undefined}
               onClick={() => setTheme(value)}
               onKeyDown={(event) => onKeyDown(event, index)}
               className="group cursor-pointer rounded-[14px] text-left outline-none"
@@ -116,7 +128,7 @@ export function ThemePanel({ onClose }: { onClose: () => void }) {
                       <MiniPage palette="light" />
                     </span>
                     <span className="w-1/2 overflow-hidden">
-                      <MiniPage palette="red-dragon" />
+                      <MiniPage palette={DEFAULT_DARK_PALETTE} />
                     </span>
                   </>
                 ) : (

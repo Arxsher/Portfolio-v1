@@ -21,7 +21,7 @@
 //   fly   wind-up, flight and landing, planned at launch (planFlight). The
 //         clock is real time: a long frame jumps ahead rather than playing
 //         the flight in slow motion.
-//   dash  a skip (a click, a tap or Esc): a quick dash home (ZIP). Or, if
+//   dash  a skip (a click, a tap or a key): a quick dash home (ZIP). Or, if
 //         the header mark scrolls out of view mid-flight: a dash up and off
 //         the screen, fading out (FADE).
 // On landing the star sits exactly where the header mark is, at its size
@@ -31,8 +31,16 @@
 // the flight would start (the page opened scrolled down), the intro is
 // skipped and the session flag cleared, so it plays on the next visit.
 //
-// When it is over, window.__starIntro.done is true and DONE_EVENT fires on
-// window (heavy start-up work, like WebGL, can wait for it).
+// The page stays veiled (components/star-reveal.ts) until the star touches
+// down on the mark (REVEAL_LEAD before contact), then the reveal grows out
+// of the mark while the star does its landing hops. A skip reveals the
+// page as the dash starts; every other way out (the end, a scrolled-away
+// mark, reduced motion, an error, the WATCHDOG_S watchdog, an unmount)
+// lifts the veil too, so the page can never stay hidden.
+//
+// When the star is home and the reveal is over, window.__starIntro.done
+// is true and DONE_EVENT fires on window (heavy start-up work, like WebGL,
+// can wait for it).
 
 import { useEffect, useRef } from "react";
 import { STAR_BODY, eyeShapes } from "@/components/logo";
@@ -46,6 +54,7 @@ import {
   INTRO_ATTR,
   INTRO_KEY,
   NO_BREATH,
+  VEIL_ATTR,
   ZIP,
   dashPose,
   introLength,
@@ -59,12 +68,14 @@ import {
   type Pose,
   type Scene,
 } from "@/components/star-path";
+import { liftVeil, type RevealOrigin } from "@/components/star-reveal";
 
 declare global {
   interface Window {
     /** Set by the inline script in components/star-intro.tsx when the
-        intro should play: when it decided (ms), and whether it's over. */
-    __starIntro?: { at: number; done?: boolean };
+        intro should play: when it decided (ms), whether the star is home,
+        and whether it's all over (the page revealed too). */
+    __starIntro?: { at: number; landed?: boolean; done?: boolean };
   }
 }
 
@@ -90,6 +101,23 @@ const QUIET_MAX = 1.2;
 const HOLD_MIN = 0.12;
 /** While it keeps waiting, it blinks again this long after the last one. */
 const BLINK_EVERY = 1.8;
+/** The page is revealed this long before the star touches down, so the
+    first frames of the reveal meet the impact. */
+const REVEAL_LEAD = 0.05;
+/** The reveal's circle (a clip-path, which browsers animate on the main
+    thread) is only used when the last ROUGH_FRAMES frames all came within
+    ROUGH_GAP: on a struggling page a stall would freeze it half-way, while
+    the rest of the reveal (opacity and transform) runs on the compositor. */
+const ROUGH_FRAMES = 12;
+const ROUGH_GAP = 0.05;
+/** Ends the intro (and lifts the veil) if it is somehow still running this
+    long after hydration; the longest real one is about 5s (a hold that
+    waits out QUIET_MAX, then a long flight). Hidden-tab time is not
+    counted. */
+const WATCHDOG_S = 8;
+
+/** Keys that don't skip the intro on their own. */
+const MODIFIERS = new Set(["Shift", "Control", "Alt", "Meta", "AltGraph", "CapsLock", "Fn", "FnLock", "OS"]);
 
 /** Counts effect runs, so a cleanup can tell a remount (React's dev double
     effects) from a real unmount. */
@@ -115,7 +143,7 @@ export function StarFlight() {
     const ghosts = GHOSTS.map((_, index) => ghostRefs.current[index]).filter(
       (ghost): ghost is HTMLDivElement => !!ghost,
     );
-    if (!intro || intro.done || !wrap || !star || !svg || !leftEye || !rightEye) return;
+    if (!intro || intro.landed || intro.done || !wrap || !star || !svg || !leftEye || !rightEye) return;
 
     const root = document.documentElement;
     const run = ++generation;
@@ -142,6 +170,10 @@ export function StarFlight() {
     let ghostsShown = false;
     let home: Element | null = null;
     let homeBox: DOMRect | null = null;
+    let revealing: Promise<void> | null = null;
+    let watchdog = 0;
+    /** Recent frame gaps (s), newest last. */
+    const gaps: number[] = [];
 
     const findHome = () => {
       if (!home || !home.isConnected) home = document.querySelector("[data-star-home]");
@@ -198,6 +230,21 @@ export function StarFlight() {
       try {
         sessionStorage.removeItem(INTRO_KEY);
       } catch {}
+    };
+
+    /** Lifts the veil (once): the reveal grows out of the header mark, or
+        the page just fades in if the mark is off-screen. */
+    const reveal = () => {
+      if (revealing) return;
+      let origin: RevealOrigin | null = null;
+      try {
+        const box = findHome()?.getBoundingClientRect();
+        if (box && box.width > 0 && box.bottom > 0 && box.top < window.innerHeight) {
+          origin = { x: box.left + box.width / 2, y: box.top + box.height / 2, size: box.width };
+        }
+      } catch {}
+      const smooth = gaps.length >= ROUGH_FRAMES && gaps.every((gap) => gap < ROUGH_GAP);
+      revealing = liftVeil(origin, !reducedQuery.matches, smooth);
     };
 
     /** The CSS breathing, as it stands right now. */
@@ -267,6 +314,7 @@ export function StarFlight() {
       }
       dash = { from: pose, p: 0, fade };
       mode = "dash";
+      reveal();
     };
 
     const skip = () => {
@@ -300,11 +348,15 @@ export function StarFlight() {
       });
     };
 
-    const frame = (now: number) => {
+    const step = (now: number) => {
       raf = 0;
       const gap = last ? Math.max(0, (now - last) / 1000) : 0;
       last = now;
       const dt = Math.min(gap, 1);
+      if (gap > 0) {
+        gaps.push(gap);
+        if (gaps.length > ROUGH_FRAMES) gaps.shift();
+      }
 
       // 1. Read.
       const live = scene();
@@ -335,6 +387,7 @@ export function StarFlight() {
           return;
         }
         if (!homeVisible(live.vh) && t < touchdown(plan)) startDash(true);
+        else if (t >= touchdown(plan) - REVEAL_LEAD) reveal();
       }
       // (A dash started just above moves on in this same frame.)
       if (mode === "dash" && dash) {
@@ -363,7 +416,16 @@ export function StarFlight() {
       raf = requestAnimationFrame(frame);
     };
 
-    const begin = () => {
+    /** Anything going wrong ends the intro (and so shows the page). */
+    function frame(now: number) {
+      try {
+        step(now);
+      } catch {
+        end();
+      }
+    }
+
+    const start = () => {
       if (cancelled || mode !== "wait") return;
       const box = findHome()?.getBoundingClientRect();
       if (!box || box.width === 0 || box.bottom <= 0 || box.top >= window.innerHeight) {
@@ -384,17 +446,37 @@ export function StarFlight() {
       quiet = 0;
       mode = "hold";
     };
+    const begin = () => {
+      try {
+        start();
+      } catch {
+        end();
+      }
+    };
 
     const end = () => {
       if (mode === "done") return;
       mode = "done";
-      intro.done = true;
+      intro.landed = true;
       if (raf) cancelAnimationFrame(raf);
       raf = 0;
+      window.clearTimeout(watchdog);
       // Hand the gaze to the header mark, then swap in the same frame.
-      eyesOf(findHome())?.take(eyes);
+      try {
+        eyesOf(findHome())?.take(eyes);
+      } catch {}
       root.removeAttribute(INTRO_ATTR);
-      detach();
+      reveal();
+      try {
+        detach();
+      } catch {}
+      revealing?.then(finish);
+    };
+
+    /** All over: the star is home and the page revealed. */
+    const finish = () => {
+      if (intro.done) return;
+      intro.done = true;
       window.dispatchEvent(new Event(DONE_EVENT));
     };
 
@@ -414,8 +496,10 @@ export function StarFlight() {
     const onCancel = () => {
       press = null;
     };
+    // Esc, or any other key: with the page veiled, a key press means the
+    // visitor wants to get going (Tab then lands on the revealed page).
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") skip();
+      if (!MODIFIERS.has(event.key)) skip();
     };
     const onResize = () => {
       if (mode !== "wait") big = star.offsetWidth || big;
@@ -441,6 +525,21 @@ export function StarFlight() {
       return;
     }
     root.setAttribute(INTRO_ATTR, "live");
+    if (root.hasAttribute(VEIL_ATTR)) {
+      root.setAttribute(VEIL_ATTR, "live");
+      document.getElementById("main")?.setAttribute("aria-busy", "true");
+    }
+    let watched = 0;
+    let checked = performance.now();
+    const watch = () => {
+      if (mode === "done") return;
+      const now = performance.now();
+      if (!document.hidden) watched += now - checked;
+      checked = now;
+      if (watched >= WATCHDOG_S * 1000) end();
+      else watchdog = window.setTimeout(watch, 1000);
+    };
+    watchdog = window.setTimeout(watch, 1000);
 
     window.addEventListener("pointerdown", onDown, true);
     window.addEventListener("pointerup", onUp, true);
@@ -459,15 +558,18 @@ export function StarFlight() {
       cancelled = true;
       if (raf) cancelAnimationFrame(raf);
       raf = 0;
+      window.clearTimeout(watchdog);
       if (mode === "done") return;
       detach();
-      // A real unmount mid-intro must not leave the header mark hidden; a
-      // dev remount runs this effect again right away and carries on.
+      // A real unmount mid-intro must not leave the header mark or the
+      // page hidden; a dev remount runs this effect again right away and
+      // carries on.
       window.setTimeout(() => {
-        if (generation === run && !intro.done) {
-          intro.done = true;
+        if (generation === run && !intro.landed) {
+          intro.landed = true;
           root.removeAttribute(INTRO_ATTR);
-          window.dispatchEvent(new Event(DONE_EVENT));
+          liftVeil(null, false);
+          finish();
         }
       }, 0);
     };

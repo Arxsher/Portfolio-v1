@@ -1,7 +1,8 @@
 // The first-load star's choreography (components/star-intro.tsx): pure
 // functions of time, no DOM, so every beat can be sampled and tested.
 //
-// Beats (seconds since the star became visible; about 2.6s in all):
+// Beats (seconds since the star became visible; about 2.6s in all; the
+// page is revealed from the mark at touch-down, components/star-reveal.ts):
 //   pop    0.36  CSS: the star pops in, big, in the middle of the screen
 //   look         CSS keeps it alive before hydration: it breathes, and
 //                blinks once at BLINK_AT. The flight launches once the blink
@@ -97,13 +98,19 @@ export const INTRO_KEY = "star-intro";
 /** Attribute on <html> while the intro runs ("" before hydration, then
     "live"). The header mark is hidden while it is there. */
 export const INTRO_ATTR = "data-star-intro";
-/** Fired on window once the intro is over (window.__starIntro.done is then
-    true; window.__starIntro is undefined when no intro plays at all).
-    Heavy start-up work (WebGL) can wait for it. */
+/** Attribute on <html> while the page is veiled (everything but the star
+    hidden; "" before hydration, then "live"). It goes when the star lands
+    and the page is revealed (components/star-reveal.ts). */
+export const VEIL_ATTR = "data-intro-veil";
+/** Fired on window once the intro is over and the page is revealed
+    (window.__starIntro.done is then true; window.__starIntro is undefined
+    when no intro plays at all). Heavy start-up work (WebGL) can wait for
+    it. */
 export const DONE_EVENT = "star-intro-done";
 /** If the page never hydrates, CSS gives up on the intro after this many
-    seconds; the flight skips the intro when it mounts later than that. */
-export const FAILSAFE_S = 7;
+    seconds: the star fades out and the page fades in. The flight skips the
+    intro when it mounts later than half a second before that. */
+export const FAILSAFE_S = 3.5;
 
 /** The CSS pop-in that shows the star before hydration. */
 export const POP = 0.36;

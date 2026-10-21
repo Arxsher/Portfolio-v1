@@ -14,12 +14,15 @@
 // Throwing. While held, the plane's position follows the pointer through a
 // stiff spring, it pitches with the vertical speed and banks with the
 // horizontal acceleration. On release, the pointer's velocity over the
-// last ~90ms decides: fast enough and it is thrown (handed to flight.ts at
-// that velocity), otherwise it springs back to rest. Enter throws it up
-// and to the right.
+// last ~90ms decides: fast enough and it is thrown (handed to flight.ts,
+// which flies it away into the screen and behind the page: the flick's
+// speed sets how far and how much it spins, its direction tilts the
+// heading a little), otherwise it springs back to rest. Enter throws it
+// straight ahead, a touch to the right.
 //
 // Reduced motion: folding becomes a cross-fade from the sheet to the
-// finished plane, and a throw fades the plane out where it is.
+// finished plane, and a throw shrinks and fades the plane into depth
+// where it is.
 
 import { anglesFrom, buildSheet, type Sheet } from "./fold";
 import { PlaneScratch, drawPlane, drawShadow, flatPaperCss, projectPlane, type PlaneContent, type PlaneParams } from "./draw";
@@ -39,7 +42,27 @@ export type StageCallbacks = {
 };
 
 const THROW_MIN = 260; // px/s
-const DEFAULT_THROW = { vx: 760, vy: -540 };
+/** Enter / the Throw button: a medium throw, straight away from you. */
+const DEFAULT_THROW = { vx: 160, vy: -1150 };
+
+/**
+ * The opaque surface an element sits on (its nearest ancestor with a
+ * background), in viewport px: the floating panel the plane is thrown
+ * from. The flight stays in front of the page until it has cleared it.
+ */
+function surfaceOf(element: Element): { left: number; top: number; right: number; bottom: number } | null {
+  for (let node = element.parentElement; node && node !== document.body; node = node.parentElement) {
+    const color = getComputedStyle(node).backgroundColor;
+    if (!color || color === "transparent") continue;
+    const slash = color.match(/\/\s*([\d.]+)(%?)\s*\)$/);
+    const comma = color.match(/^rgba\([^)]*,\s*([\d.]+)\s*\)$/);
+    const alpha = slash ? parseFloat(slash[1]) / (slash[2] ? 100 : 1) : comma ? parseFloat(comma[1]) : 1;
+    if (alpha < 0.5) continue;
+    const rect = node.getBoundingClientRect();
+    return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom };
+  }
+  return null;
+}
 
 export class FoldStage {
   private canvas: HTMLCanvasElement;
@@ -376,7 +399,7 @@ export class FoldStage {
     this.timers = [];
     this.setPhase("thrown");
     this.callbacks.onThrow?.(strength);
-    if (this.reduced || !this.note) {
+    if (!this.note) {
       this.presence.to(0, 0.45, 1);
       this.wake();
       return;
@@ -388,11 +411,14 @@ export class FoldStage {
       y: rect.top + this.params.y,
       vx,
       vy,
+      strength,
       scale: this.params.scale,
       quat: [...this.quat] as Quat,
       look: this.look,
       paper,
       content: this.content,
+      origin: surfaceOf(this.canvas),
+      reduced: this.reduced,
     });
     this.presence.snap(0);
     this.wake();

@@ -85,6 +85,13 @@ float angleOf(vec2 xz) {
   float a = atan(xz.x, -xz.y);
   return a < 0.0 ? a + TAU : a;
 }
+// a lamp close by (dark theme): light falls off across the slice, 1 at its centre
+float lampFall(vec3 p, vec4 lamp) {
+  vec3 d = p - lamp.xyz;
+  float a = 1.0 / (1.0 + dot(d, d) / 2.6);
+  float a0 = 1.0 / (1.0 + dot(lamp.xyz, lamp.xyz) / 2.6);
+  return mix(1.0, a / a0, lamp.w);
+}
 // GGX specular (normalised), times n·l
 float ggx(vec3 n, vec3 v, vec3 l, float rough, float f0) {
   vec3 h = normalize(v + l);
@@ -161,6 +168,7 @@ uniform sampler2D uOutline;
 uniform float uDialR;
 uniform vec4 uDialCol;
 uniform float uDpr;
+uniform vec4 uLamp;
 in vec2 vUv;
 out vec4 outColor;
 
@@ -199,8 +207,11 @@ void main() {
   vec3 bg = toLinear(uBg);
   // a pool of light round the slice, leaning toward the lamp
   vec2 lh = uLight.xz / max(length(uLight.xz), 1e-4);
-  vec2 pc = q - lh * 0.35;
-  float pool = exp(-dot(pc, pc) / 2.1);
+  vec2 pc = q - lh * 0.3;
+  float pool = exp(-dot(pc, pc) / 0.75) * 0.75 + exp(-dot(pc, pc) / 2.4) * 0.25;
+  pool *= min(lampFall(vec3(q.x, 0.0, q.y), uLamp), 1.6);
+  // and it always fades out before the frame's edge, so the edge is the card's own colour
+  pool *= 1.0 - smoothstep(0.45, 1.0, max(abs(ndc.x), abs(ndc.y)));
   vec3 col = bg * (1.0 - uShadowK * shadow) * ao + uPoolCol * pool * (1.0 - 0.9 * shadow) * ao;
 
   // the dial: a dotted ring with gaps where the weekdays are written
@@ -252,6 +263,8 @@ uniform vec4 uSelA;
 uniform vec4 uSelB;
 uniform vec3 uLineCol;
 uniform vec4 uKnock;
+uniform vec4 uLamp;
+uniform float uClose;
 in vec3 vPos;
 in vec3 vNrm;
 in vec2 vUv;
@@ -307,7 +320,7 @@ void selection(inout vec3 col, vec4 sel, float c, float aa, float th, float r, f
   float inside = clamp(edge + 0.5, 0.0, 1.0);
   // a crisp line just inside the edge
   float line = 1.0 - smoothstep(0.55, 1.35, abs(edge - 0.85));
-  col = mix(col, col * 1.08 + vec3(0.03, 0.026, 0.018), inside * sel.z);
+  col = mix(col, col * 1.04 + vec3(0.025, 0.018, 0.006), inside * sel.z);
   col = mix(col, uLineCol, line * sel.z * 0.95);
 }
 
@@ -344,7 +357,7 @@ void main() {
   float lmA = smoothstep(a0, a1, fract(c - 0.3 * aa));
   float lmB = smoothstep(a0, a1, fract(c + 0.3 * aa));
   float lm = 0.5 * (lmA + lmB);
-  float tiny = smoothstep(0.12, 0.45, aa);
+  float tiny = smoothstep(0.22, 0.65, aa);
   lm = mix(lm, lw * 0.85, tiny);
 
   // colours (linear): pale sapwood round a warmer heartwood
@@ -353,9 +366,9 @@ void main() {
   float wobble = (vnoise3(vec3(around * 1.6, 0.5)) - 0.5) * 2.4;
   float heart = 1.0 - smoothstep(0.48 * n, 0.68 * n, c + wobble);
   vec3 early = mix(srgb(224.0, 199.0, 163.0), srgb(212.0, 174.0, 130.0), heart);
-  vec3 late = mix(srgb(184.0, 146.0, 104.0), srgb(166.0, 120.0, 80.0), heart);
+  vec3 late = mix(srgb(174.0, 133.0, 92.0), srgb(154.0, 108.0, 70.0), heart);
   // busy days: a wide band of dense, dark latewood
-  vec3 busy = mix(srgb(118.0, 74.0, 44.0), srgb(104.0, 62.0, 36.0), heart);
+  vec3 busy = mix(srgb(100.0, 60.0, 34.0), srgb(90.0, 52.0, 30.0), heart);
   late = mix(late, busy, smoothstep(0.08, 0.95, lev));
   // figure: slow streaks in the tone along each ring, and fine fibres across it
   float figure = vnoise3(vec3(around * 6.0, c * 0.7)) * 0.6 + vnoise3(vec3(around * 21.0, c * 2.3)) * 0.4;
@@ -376,23 +389,26 @@ void main() {
 #if DETAIL
   // ring-porous: a band of open pores where each ring starts (seen close up)
   {
-    vec2 cell = xz * 150.0;
+    const float CELLS = 270.0;
+    vec2 cell = xz * CELLS;
     vec2 ci = floor(cell);
     vec2 cf = cell - ci;
     ivec2 ic = ivec2(ci);
     float h1 = hash2(ic);
     float h2 = hash2(ic + ivec2(17, 31));
     float h3 = hash2(ic + ivec2(53, 7));
-    vec2 centre = 0.3 + 0.4 * vec2(h1, h2);
-    float rad = mix(0.17, 0.36, h3);
-    float zone = 1.0 - smoothstep(0.04, 0.26 + 0.14 * lev, f);
-    zone *= step(0.0, c) * step(0.25, h2 + 0.5 * zone);
-    float sizePx = rad / 150.0 / px;
-    float dd = length((cf - centre) * vec2(1.0, 1.0)) / rad;
-    float visible = smoothstep(0.5, 1.6, sizePx);
-    pore = (1.0 - smoothstep(0.6, 1.0 + 0.6 / max(sizePx, 0.25), dd)) * zone * visible;
+    vec2 centre = 0.18 + 0.64 * vec2(h1, h2);
+    float rad = mix(0.16, 0.34, h3);
+    // the pore band: widest on busy days, thinning out into the ring
+    float band = 0.22 + 0.18 * lev;
+    float zone = 1.0 - smoothstep(band * (0.25 + 0.6 * h3), band, f);
+    zone *= step(0.0, c) * step(0.35, h1 * 0.55 + h3 * 0.25 + 0.5 * zone);
+    float sizePx = rad / CELLS / px;
+    float dd = length(cf - centre) / rad;
+    float visible = smoothstep(0.55, 1.4, sizePx) * uClose;
+    pore = (1.0 - smoothstep(0.55, 1.0 + 0.6 / max(sizePx, 0.25), dd)) * zone * visible;
     // what can't be resolved still darkens the band a touch
-    albedo *= 1.0 - 0.07 * zone * (1.0 - visible);
+    albedo *= 1.0 - 0.05 * zone * (1.0 - visible);
   }
   // rays: fine radial flecks, a little paler and glossier
   {
@@ -404,7 +420,7 @@ void main() {
     float width = mix(0.0006, 0.0014, hash2(ivec2(int(bi), int(seg) + 911)));
     float across = abs(fract(b) - 0.5) * (TAU / bins) * r;
     float wpx = width / px;
-    ray = present * (1.0 - smoothstep(0.5, 1.0, across / width)) * smoothstep(0.5, 1.6, wpx) * step(0.0, c);
+    ray = present * (1.0 - smoothstep(0.5, 1.0, across / width)) * smoothstep(0.5, 1.4, wpx) * step(0.0, c) * uClose;
   }
   albedo = mix(albedo, albedo * vec3(0.38, 0.33, 0.3), pore * 0.9);
   albedo = mix(albedo, albedo * 1.1 + vec3(0.02, 0.016, 0.01), ray * 0.55);
@@ -439,19 +455,20 @@ void main() {
   float diffuse = mix(ndl, stepLit, stepLine * 0.35) * vis;
   // a little wrap: end grain scatters light under its surface
   diffuse = mix(diffuse, 0.25 + 0.75 * diffuse, 0.25);
-  vec3 col = albedo * (uSun * diffuse + uSky * (0.62 + 0.38 * nrm.y) * (1.0 - 0.12 * stepShadow));
+  vec3 sun = uSun * lampFall(vPos, uLamp);
+  vec3 col = albedo * (sun * diffuse + uSky * (0.62 + 0.38 * nrm.y) * (1.0 - 0.12 * stepShadow));
   // oil: a broad, soft sheen and a faint tighter coat
   float rough = mix(0.62, 0.5, lm);
   float spec = ggx(nrm, V, L, rough, 0.03) * vis * (1.0 - pore);
   float coat = ggx(normalize(vec3(-gh.x * 0.25, 1.0, -gh.y * 0.25)), V, L, 0.3, 0.025) * vis * (1.0 - 0.7 * pore);
-  col += uSun * (spec * 0.35 + coat * 0.16 + ray * spec * 0.4);
+  col += sun * (spec * 0.2 + coat * 0.09 + ray * spec * 0.3);
 
   // a knock: a ring of light running out through the grain
   if (uKnock.w > 0.001) {
     float dist = length(xz - uKnock.xy);
     float front = uKnock.z * 1.35;
     float wave = exp(-pow((dist - front) / 0.045, 2.0)) * uKnock.w;
-    col += uSun * wave * (0.04 + 0.18 * lm) * (0.6 + 0.4 * ndl);
+    col += sun * wave * (0.04 + 0.18 * lm) * (0.6 + 0.4 * ndl);
   }
 
   vec3 outc = toSRGB(tonemap(col * uExposure));
@@ -474,6 +491,7 @@ uniform vec3 uSky;
 uniform vec3 uEye;
 uniform float uExposure;
 uniform float uBump;
+uniform vec4 uLamp;
 in vec3 vPos;
 in vec3 vNrm;
 in vec2 vUv;
@@ -530,8 +548,9 @@ void main() {
   float ndl = max(dot(N, L), 0.0);
   // the floor occludes the foot of the side
   float ao = mix(0.45, 1.0, smoothstep(0.0, 0.06, vPos.y)) * (0.75 + 0.25 * height);
-  vec3 col = albedo * (uSun * ndl + uSky * (0.55 + 0.45 * N.y) * ao);
-  col += uSun * ggx(N, V, L, 0.7, 0.03) * 0.25;
+  vec3 sun = uSun * lampFall(vPos, uLamp);
+  vec3 col = albedo * (sun * ndl + uSky * (0.55 + 0.45 * N.y) * ao);
+  col += sun * ggx(N, V, L, 0.7, 0.03) * 0.25;
   outColor = vec4(toSRGB(tonemap(col * uExposure)), 1.0);
 }
 `;

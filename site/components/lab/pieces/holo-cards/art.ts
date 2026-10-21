@@ -66,6 +66,17 @@ export function fontReady(): Promise<void> {
   }
 }
 
+/** True when Geist is already loaded (a face painted now has its real type). */
+export function fontLoaded(): boolean {
+  try {
+    const family = getComputedStyle(document.documentElement).getPropertyValue("--font-geist-sans").trim();
+    if (!family || !document.fonts) return true;
+    return document.fonts.check(`600 20px ${family}`) && document.fonts.check(`500 20px ${family}`);
+  } catch {
+    return true;
+  }
+}
+
 function canvas(width: number, height: number): HTMLCanvasElement {
   const c = document.createElement("canvas");
   c.width = width;
@@ -185,7 +196,7 @@ export class CardArt {
             // a ripple spreading from a drop: crests closer and lower as they travel
             const wave = 0.5 + 0.5 * Math.cos(Math.pow(d - 6.2, 0.86) * 3.1);
             const fade = Math.exp(-(d - 6.2) / 15) * Math.min(1, (d - 6.2) / 1.2) * Math.min(1, Math.max(0, (32 - my) / 3));
-            height = Math.min(255, height + wave * fade * 60 * (r[i] / 255));
+            height = Math.min(255, height + wave * fade * 30 * (r[i] / 255));
           }
         }
         out[i] = r[i];

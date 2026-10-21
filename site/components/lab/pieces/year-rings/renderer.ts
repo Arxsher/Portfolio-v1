@@ -59,6 +59,8 @@ export type Frame = {
   selA: Float32Array;
   selB: Float32Array;
   knock: Float32Array;
+  /** The lamp: position (world) and how much its distance matters (0 = a far sun). */
+  lamp: Float32Array;
   loupe: Loupe;
 };
 
@@ -246,7 +248,7 @@ export class RingRenderer {
     this.loupeSize = 0;
   }
 
-  private drawScene(f: Frame, vp: Mat4, inv: Mat4, dotScale: number) {
+  private drawScene(f: Frame, vp: Mat4, inv: Mat4, dotScale: number, close: number) {
     const gl = this.gl;
     gl.clear(gl.DEPTH_BUFFER_BIT);
 
@@ -265,6 +267,7 @@ export class RingRenderer {
     gl.uniform1f(uF("uDialR"), f.dialR);
     gl.uniform4fv(uF("uDialCol"), f.dial);
     gl.uniform1f(uF("uDpr"), dotScale);
+    gl.uniform4fv(uF("uLamp"), f.lamp);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.outlineTex);
     gl.uniform1i(uF("uOutline"), 0);
@@ -291,6 +294,8 @@ export class RingRenderer {
     gl.uniform4fv(uA("uSelB"), f.selB);
     gl.uniform3fv(uA("uLineCol"), f.line);
     gl.uniform4fv(uA("uKnock"), f.knock);
+    gl.uniform4fv(uA("uLamp"), f.lamp);
+    gl.uniform1f(uA("uClose"), close);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.fieldTex);
     gl.uniform1i(uA("uField"), 0);
@@ -309,6 +314,7 @@ export class RingRenderer {
     gl.uniform3fv(uB("uEye"), f.eye);
     gl.uniform1f(uB("uExposure"), f.exposure);
     gl.uniform1f(uB("uBump"), f.bump);
+    gl.uniform4fv(uB("uLamp"), f.lamp);
     gl.bindVertexArray(this.barkVao);
     gl.drawElements(gl.TRIANGLES, this.mesh.barkIndex.length, gl.UNSIGNED_SHORT, 0);
     gl.bindVertexArray(null);
@@ -320,7 +326,7 @@ export class RingRenderer {
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, width, height);
     gl.disable(gl.BLEND);
-    this.drawScene(f, f.vp, f.inv, f.dpr);
+    this.drawScene(f, f.vp, f.inv, f.dpr, 0);
 
     const lo = f.loupe;
     if (!this.loupe || !this.uL || lo.show < 0.01 || lo.radius < 2) return;
@@ -329,7 +335,7 @@ export class RingRenderer {
     this.ensureLoupeTarget(size);
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.msFbo);
     gl.viewport(0, 0, size, size);
-    this.drawScene(f, lo.vp, lo.inv, f.dpr * lo.mag);
+    this.drawScene(f, lo.vp, lo.inv, f.dpr * lo.mag, 1);
     gl.bindFramebuffer(gl.READ_FRAMEBUFFER, this.msFbo);
     gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, this.resolveFbo);
     gl.blitFramebuffer(0, 0, size, size, 0, 0, size, size, gl.COLOR_BUFFER_BIT, gl.NEAREST);

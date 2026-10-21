@@ -104,7 +104,6 @@ uniform vec3 uCardC[3];
 uniform vec3 uCardX[3];
 uniform vec3 uCardY[3];
 uniform vec3 uCardN[3];
-uniform int uDebug;
 
 ${COMMON}
 
@@ -168,7 +167,7 @@ float cardShadow(vec3 p, vec3 dir, float maxT, float soft0, float softK, float s
     vec2 q = vec2(dot(h, uCardX[i]), dot(h, uCardY[i]));
     float d = sdCard(q, uHalf, uRadius);
     float w = soft0 + softK * t;
-    lit *= 1.0 - strength * (1.0 - smoothstep(-w, w, d));
+    lit *= 1.0 - strength * (1.0 - smoothstep(-w, w, d)) * smoothstep(0.04, 0.35, abs(denom));
   }
   return lit;
 }
@@ -268,7 +267,7 @@ void main() {
       float a = 0.9 * sin(c.x * 5.0 + 0.6) + 0.7 * sin(c.y * 4.0 - 0.3) + (hash12(cell) - 0.5) * 0.7;
       g2 = vec2(cos(a), sin(a));
       period = 900.0 * (0.9 + 0.2 * hash12(cell + 17.0));
-      sigma = 0.26;
+      sigma = 0.24;
     } else if (pattern == 2) {
       float a = 0.6 + 0.5 * sin(lp.y * 8.0 + 2.3 * sin(lp.x * 5.5 + lp.y * 2.0));
       g2 = vec2(cos(a), sin(a));
@@ -287,7 +286,7 @@ void main() {
     rainbow += grating(sky + V, g, t, period, 0.34) * uSky * contact * uFoilGain;
     // the softbox diffracts too: colour fringes round its reflection
     rainbow += grating(SOFTBOX + V, g, t, period, 0.3) * uEnvTop * 0.45 * contact * uFoilGain;
-    vec3 metal = env * 0.55 * contact + key * ggx(ndh, 0.08) * 0.14;
+    vec3 metal = env * 0.55 * contact + key * ggx(ndh, 0.1) * 0.06;
     vec3 foil = (metal + rainbow) * print;
 
     // micro-facets glinting as the angle passes
@@ -312,10 +311,6 @@ void main() {
   float edge = 1.0 - smoothstep(0.0, 2.2 * aa, -dist);
   col += edge * (uAmbient * 0.06 + key * 0.1 * (0.3 + 0.7 * ndl));
 
-  if (uDebug == 1) col = print;
-  if (uDebug == 2) col = paper;
-  if (uDebug == 3) col = vec3(foilAmt);
-  if (uDebug == 4) col = key * ndl;
   // a soft filmic shoulder, then sRGB
   vec3 x = max(col, 0.0);
   vec3 over = max(x - 0.72, 0.0);
@@ -362,8 +357,9 @@ float shadowOf(int i, vec3 p, vec3 dir, float soft0, float softK) {
   vec2 q = vec2(dot(h, uCardX[i]), dot(h, uCardY[i]));
   float d = sdCard(q, uHalf, uRadius);
   float w = soft0 + softK * t;
-  // lighter the further the card floats
-  return (1.0 - smoothstep(-w, w, d)) / (1.0 + 1.6 * t);
+  // lighter the further the card floats, and a card edge-on to the light
+  // (turning over) throws only a faint sliver
+  return (1.0 - smoothstep(-w, w, d)) / (1.0 + 1.6 * t) * smoothstep(0.04, 0.35, abs(denom));
 }
 
 void main() {

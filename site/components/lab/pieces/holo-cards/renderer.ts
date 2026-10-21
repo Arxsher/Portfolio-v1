@@ -241,10 +241,11 @@ export class HoloRenderer {
     for (let i = 0; i < COUNT; i++) {
       const c = cards[i];
       const a = c.axes;
-      this.sc[i * 3] = c.x;
-      this.sc[i * 3 + 1] = c.y;
-      // the bow pushes the middle of the card back a little
-      this.sc[i * 3 + 2] = c.z + c.p[BEND] * CARD_W * CARD_W * (1 / 12);
+      // the bow moves the card's mean plane along its normal a little
+      const bow = c.p[BEND] * CARD_W * CARD_W * (1 / 12);
+      this.sc[i * 3] = c.x + a[6] * bow;
+      this.sc[i * 3 + 1] = c.y + a[7] * bow;
+      this.sc[i * 3 + 2] = c.z + a[8] * bow;
       for (let k = 0; k < 3; k++) {
         this.sx[i * 3 + k] = a[k];
         this.sy[i * 3 + k] = a[3 + k];
@@ -292,7 +293,6 @@ export class HoloRenderer {
     gl.uniform3fv(uc("uSky"), look.sky);
     gl.uniform1f(uc("uFoilGain"), look.foilGain);
     gl.uniform1f(uc("uSparkle"), frame.sparkle);
-    gl.uniform1i(uc("uDebug"), (globalThis as unknown as { __holoDebug?: number }).__holoDebug ?? 0);
     // the emboss reads the same at any texture size
     gl.uniform1f(uc("uEmboss"), 2.2 * (this.texW / 640));
     gl.uniform2f(uc("uHalf"), CARD_W / 2, CARD_H / 2);

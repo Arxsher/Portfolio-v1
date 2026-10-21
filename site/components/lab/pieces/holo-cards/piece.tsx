@@ -77,7 +77,7 @@ import { ensureAudio } from "../../audio";
 import { clamp, damp, useFinePointer, useFrame, useWebGL2 } from "../../hooks";
 import type { PieceProps, PieceTheme } from "../../types";
 import { IconButton, MuteButton, Segmented, StageControls, StageHint, Tray, TrayDivider, TrayRow } from "../../ui";
-import { CARD_LOOK, CardArt, fontReady, LAYERS } from "./art";
+import { CARD_LOOK, CardArt, fontLoaded, fontReady, LAYERS } from "./art";
 import {
   CARD_H,
   CARD_W,
@@ -91,8 +91,6 @@ import {
   EV_STEP,
   EV_THROW,
   FLY,
-  HELD,
-  REST,
 } from "./deck";
 import { FanIcon, FlipIcon, NextIcon, StackIcon } from "./icons";
 import { blankLook, HoloRenderer, mixLook, type Frame } from "./renderer";
@@ -135,9 +133,6 @@ type Drag = {
   range: number;
 };
 
-const isTypingTarget = (target: EventTarget | null) =>
-  target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
-
 function makeLive(theme: PieceTheme, reduced: boolean) {
   const rest = LIGHT_REST[theme];
   return {
@@ -169,7 +164,6 @@ function makeLive(theme: PieceTheme, reduced: boolean) {
     /** Smoothed pointer velocity, CSS px / s. */
     pvx: 0,
     pvy: 0,
-    lastMove: 0,
     /** The usable part of the stage (CSS px): x0, y0, x1, y1. */
     rect: new Float64Array(4),
     fitDirty: true,
@@ -186,6 +180,8 @@ function makeLive(theme: PieceTheme, reduced: boolean) {
     audio: false,
     /** Next throw from the keyboard goes this way. */
     throwDir: 1,
+    /** When the last pointer press began (a click that follows it is not assistive tech). */
+    pressedAt: -Infinity,
     /** DOM stand-ins: last transforms written. */
     placed: ["", "", "", ""],
     placedZ: [-1, -1, -1],
@@ -209,9 +205,9 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
   const [view] = useState(() => new View());
   const [L] = useState(() => makeLive(theme, reducedMotion));
   const rendererRef = useRef<HoloRenderer | null>(null);
-  // DEBUG-HOLO
-  if (typeof window !== "undefined" && mode === "stage") (window as unknown as { __holo: unknown }).__holo = { deck, view, L };
   const artRef = useRef<CardArt | null>(null);
+  /** The faces were last painted with Geist loaded (no repaint needed when it arrives). */
+  const paintedWithFont = useRef(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const controlsRef = useRef<HTMLDivElement>(null);
   const overlayRefs = useRef<Array<HTMLDivElement | null>>([]);
@@ -296,11 +292,14 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
     const cy = (r[1] + r[3]) / 2;
     view.set(width, height, cx, cy, scale, midY);
     // a thrown card's centre may go this far before the soft walls push back
+    // (a tile keeps its toss mostly in frame)
     const b = deck.bounds;
-    b[0] = -cx / scale + 0.2;
-    b[1] = (width - cx) / scale - 0.2;
-    b[2] = midY + (cy - height) / scale + 0.3;
-    b[3] = midY + cy / scale - 0.3;
+    const ix = stage ? 0.2 : 0.3;
+    const iy = stage ? 0.3 : 0.42;
+    b[0] = -cx / scale + ix;
+    b[1] = (width - cx) / scale - ix;
+    b[2] = midY + (cy - height) / scale + iy;
+    b[3] = midY + cy / scale - iy;
   };
 
   /* -------------------------------------------------------------------- */
@@ -367,8 +366,8 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
       g[2] = 1.75;
       stiff = 140;
     } else if (L.keyAim) {
-      g[0] = L.kx * 0.9;
-      g[1] = L.ky * 0.75 + 0.15;
+      g[0] = L.kx * 1.5;
+      g[1] = L.ky * 1.1 + 0.15;
       g[2] = 1.75;
       stiff = 120;
     } else if (L.orient.has) {
@@ -559,6 +558,12 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
     if (drag?.kind === "card") {
       const card = deck.cards[drag.card];
       const i = (L.sn - 1) & 15;
+      // a finger that has stopped sends no events: let its speed die away
+      if (now - L.st[i] > 0.045) {
+        const k = Math.exp(-dt / 0.035);
+        L.pvx *= k;
+        L.pvy *= k;
+      }
       const w = toWorld(L.sx[i], L.sy[i], card.z);
       const k = (view.depth - card.z) / (view.scale * view.depth);
       deck.drag(w[0], w[1], L.pvx * k, -L.pvy * k);
@@ -592,14 +597,13 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wake]);
 
-  const glRef = useRef<WebGL2RenderingContext | null>(null);
-
   /** Paint the faces into the textures (again once Geist has loaded). */
   const paintArt = useCallback(() => {
     const renderer = rendererRef.current;
     if (!renderer) return;
     if (!artRef.current) artRef.current = new CardArt(stage ? 640 : 320);
     const art = artRef.current;
+    paintedWithFont.current = fontLoaded();
     try {
       renderer.allocate(art.width, art.height);
       for (let layer = 0; layer < LAYERS; layer++) {
@@ -625,7 +629,6 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
         return;
       }
       rendererRef.current = renderer;
-      glRef.current = gl;
       paintArt();
       L.frame = {
         view,
@@ -654,7 +657,7 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
   useEffect(() => {
     let alive = true;
     void fontReady().then(() => {
-      if (!alive) return;
+      if (!alive || paintedWithFont.current) return;
       paintArt();
       wake();
     });
@@ -822,6 +825,7 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
     if ((event.target as Element).closest("[data-lab-controls]")) return;
     ensureAudio();
     L.audio = true;
+    L.pressedAt = performance.now();
     const [x, y] = local(event);
     L.sn = 0;
     L.pvx = L.pvy = 0;
@@ -842,10 +846,8 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
       pickSound(clamp(card.x / 1.4, -1, 1));
     } else {
       const { width } = sizeRef.current;
-      const centre = view.cx;
-      const side = x < centre - 24 ? -1 : x > centre + 24 ? 1 : 0;
       deck.holdFan();
-      L.drag = { ...base, kind: "fan", card: -1, front: false, fan0: deck.fan, side, range: Math.max(120, width * 0.3) };
+      L.drag = { ...base, kind: "fan", card: -1, front: false, fan0: deck.fan, side: 0, range: Math.max(110, width * 0.28) };
     }
     touch();
     nudge();
@@ -883,7 +885,8 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
       const dx = x - drag.startX;
       if (!drag.side) {
         if (Math.abs(dx) < 8) return;
-        // from the middle: any outward drag opens a closed fan, closes an open one
+        // whichever way the hand first goes spreads a stack, or gathers a fan
+        // (a phone's table has no room to swipe outward from its edge)
         drag.side = drag.fan0 >= 0.5 ? -Math.sign(dx) : Math.sign(dx);
       }
       const raw = drag.fan0 + (dx * drag.side) / drag.range;
@@ -910,7 +913,7 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
       return;
     }
     const card = deck.cards[drag.card];
-    const quick = event.timeStamp / 1000 - drag.startT < 0.35;
+    const quick = event.timeStamp / 1000 - drag.startT < 0.45;
     if (!drag.moved && quick && !cancelled) {
       // a tap: the front card turns over, any other comes to the front
       deck.release(0, 0);
@@ -1104,8 +1107,8 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
         }}
         onKeyDown={onDeckKey}
         onClick={(event) => {
-          // assistive tech "clicks" without pointer events
-          if (event.detail === 0) sendBack();
+          // assistive tech "clicks" without pointer events (a tap's own click follows a press)
+          if (event.detail === 0 && performance.now() - L.pressedAt > 800) sendBack();
         }}
         className="absolute top-0 left-0 z-[5] origin-top-left cursor-grab rounded-[4%] outline-none [touch-action:none]"
         style={{ width: CARD_W * BOX, height: CARD_H * BOX, transform: "scale(0)" }}

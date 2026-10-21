@@ -2,9 +2,9 @@
 
 // The theme button in the header and its small menu.
 //
-//   mouse click             flips light <-> the last dark palette (Red
-//                           Dragon until AMOLED is picked)
-//   mouse hover             shows the menu: Light, Red Dragon, AMOLED, each
+//   mouse click             flips light <-> the last dark palette (AMOLED,
+//                           the main one, until Red Dragon is picked)
+//   mouse hover             shows the menu: Light, AMOLED, Red Dragon, each
 //                           a swatch row with a check on the one on screen
 //   Enter / Space / ↓ / ↑   (keyboard and screen readers) open the menu, as
 //                           a menu button does, with focus on the checked

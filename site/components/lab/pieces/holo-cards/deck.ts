@@ -481,7 +481,7 @@ export class Deck {
     card.mode = FLY;
     card.v[X] = dir * 3.3;
     card.v[Y] = 1.05;
-    card.v[RZ] = -dir * 3.4;
+    card.v[RZ] = -dir * 2.6;
     card.v[BEND] = dir * 1.6;
     this.launch(card, 3.4);
   }

@@ -6,7 +6,7 @@ import { Footer } from "@/components/footer";
 import { Header } from "@/components/header";
 import { pieces } from "@/components/lab/registry";
 import { ScrollTop } from "@/components/scroll-top";
-import { StarIntro } from "@/components/star-intro";
+import { StarIntro, StarIntroScript } from "@/components/star-intro";
 import { projects, site } from "@/content/site";
 import { themeScript } from "@/lib/theme-script";
 import "./globals.css";
@@ -73,6 +73,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         {/* Applies the saved theme and palette (class="dark",
             data-palette) before first paint (see lib/theme.ts). */}
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+        {/* Decides whether the first-load star intro plays and, if so,
+            veils the page before first paint (components/star-intro.tsx). */}
+        <StarIntroScript />
       </head>
       <body className="flex min-h-full flex-col">
         <StarIntro />

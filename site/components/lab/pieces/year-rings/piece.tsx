@@ -119,7 +119,7 @@ const TILE_HOVER_EL = 12 * DEG;
 const INTRO_SWING = 150 * DEG;
 const DIAL_R = 1.2;
 const STAGE_FIT = 1.27;
-const TILE_FIT = 1.07;
+const TILE_FIT = 1.2;
 const GROW_TIME = 3.9;
 const TILE_GROW_TIME = 3.2;
 const REWIND_TIME = 0.85;
@@ -131,7 +131,7 @@ const KEYS = { k: 70, c: 2 * Math.sqrt(70) };
 const INTRO = { k: 5.5, c: 2 * Math.sqrt(5.5) };
 const TILE_ORBIT = 0.42;
 const TILE_HOVER_ORBIT = 0.95;
-const LOUPE_MAG = 2.5;
+const LOUPE_MAG = 2.8;
 /** If a machine can't hold the frame rate, the stage renders at these DPR caps in turn. */
 const DPR_STEPS = [2, 1.5, 1.25, 1] as const;
 
@@ -156,9 +156,9 @@ const LOOKS: Record<PieceTheme, Look> = {
     exposure: 1,
   },
   dark: {
-    sun: [3.5, 2.5, 1.55],
+    sun: [2.7, 1.86, 1.12],
     sky: [0.05, 0.042, 0.04],
-    pool: [0.052, 0.03, 0.014],
+    pool: [0.034, 0.019, 0.008],
     line: [1, 0.86, 0.55],
     shadowK: 0.7,
     dialA: 0.3,
@@ -227,6 +227,8 @@ type Live = {
   loupeUntil: number;
   loupeR: number;
   loupeRing: number;
+  /** Space kept clear at the top of the stage (the phone legend). */
+  topSafe: number;
   // selection
   hoverDay: Day | null;
   pinned: Day | null;
@@ -259,6 +261,8 @@ type Live = {
 const scratchPoint = { x: 0, y: 0, depth: 0 };
 const scratchPlane = { x: 0, z: 0, ok: false };
 const scratchCentre = { x: 0, z: 0, r: 0, theta: 0 };
+type Probe = { day: Day | null; onSlice: boolean; r: number; px: number; pz: number };
+const probeResult: Probe = { day: null, onSlice: false, r: 0, px: 0, pz: 0 };
 
 function makeLive(theme: PieceTheme, reduced: boolean, stage: boolean): Live {
   const rings = getRings();
@@ -286,6 +290,7 @@ function makeLive(theme: PieceTheme, reduced: boolean, stage: boolean): Live {
     selA: new Float32Array(4),
     selB: new Float32Array(4),
     knock: new Float32Array(4),
+    lamp: new Float32Array(4),
     loupe: {
       show: 0,
       x: 0,
@@ -328,6 +333,7 @@ function makeLive(theme: PieceTheme, reduced: boolean, stage: boolean): Live {
     loupeUntil: 0,
     loupeR: 64,
     loupeRing: NaN,
+    topSafe: 0,
     hoverDay: null,
     pinned: null,
     shown: null,
@@ -403,6 +409,9 @@ function YearRings({ mode, active, reducedMotion, theme }: PieceProps) {
   const [keyFocus, setKeyFocus] = useState(false);
   const [narrow, setNarrow] = useState(false);
   const [dprStep, setDprStep] = useState(0);
+  /** A touch held still on the wood brings the loupe out above the finger. */
+  const holdTimer = useRef(0);
+  const lastPointer = useRef("mouse");
 
   /* -------------------------------------------------------------------- */
   /* sizes                                                                 */
@@ -414,6 +423,8 @@ function YearRings({ mode, active, reducedMotion, theme }: PieceProps) {
     const small = width < 560;
     if (stage) {
       frameCamera(L.cam, width, height, { top: small ? 66 : 22, bottom: small ? 100 : 96, side: small ? 14 : 24 }, STAGE_FIT);
+      // phones carry the legend at the top: the loupe and its readout stay below it
+      L.topSafe = small ? 60 : 0;
       L.loupeR = small ? 54 : Math.round(clamp(width * 0.055, 58, 72));
     } else {
       frameCamera(L.cam, width, height, { top: 4, bottom: 4, side: 4 }, TILE_FIT);
@@ -497,6 +508,11 @@ function YearRings({ mode, active, reducedMotion, theme }: PieceProps) {
     f.inv.set(cam.inv);
     f.eye.set(cam.eye);
     lightDirection(L.az, L.el.value, f.light);
+    // after dark the light is a lamp close by: it falls off across the slice
+    f.lamp[0] = f.light[0] * 2.4;
+    f.lamp[1] = f.light[1] * 2.4;
+    f.lamp[2] = f.light[2] * 2.4;
+    f.lamp[3] = L.dark * 0.9;
     for (let i = 0; i < 3; i++) {
       f.sun[i] = lerp(other.sun[i], look.sun[i], t);
       f.sky[i] = lerp(other.sky[i], look.sky[i], t);
@@ -622,9 +638,11 @@ function YearRings({ mode, active, reducedMotion, theme }: PieceProps) {
       if (on && (tx !== dom.tx || ty !== dom.ty)) {
         dom.tx = tx;
         dom.ty = ty;
-        const below = ty < 46;
+        // too close to the top: under the loupe (or the segment) instead
+        const below = ty < 46 + L.topSafe;
+        const drop = L.loupeShow.value > 0.5 ? 2 * L.loupeR + 26 : 30;
         tip.style.transform = below
-          ? `translate3d(${tx}px, ${ty + 2 * L.loupeR + 26}px, 0) translate(-50%, 0)`
+          ? `translate3d(${tx}px, ${ty + drop}px, 0) translate(-50%, 0)`
           : `translate3d(${tx}px, ${ty}px, 0) translate(-50%, -100%)`;
       }
       if (on !== dom.tipOn) {
@@ -638,10 +656,13 @@ function YearRings({ mode, active, reducedMotion, theme }: PieceProps) {
   /* picking                                                               */
   /* -------------------------------------------------------------------- */
 
-  /** What is at CSS px (x, y) on the slice's face: the day, and whether it is over the slice at all. */
-  const probe = (x: number, y: number) => {
+  /** What is at CSS px (x, y) on the slice's face: the day, and whether it is over the slice at all (one shared result). */
+  const probe = (x: number, y: number): Probe => {
+    const out = probeResult;
     castToPlane(L.cam, x, y, THICKNESS, scratchPlane);
-    if (!scratchPlane.ok) return { day: null as Day | null, onSlice: false, r: 0, px: 0, pz: 0 };
+    out.day = null;
+    out.onSlice = false;
+    if (!scratchPlane.ok) return out;
     const px = scratchPlane.x;
     const pz = scratchPlane.z;
     const r = Math.hypot(px, pz);
@@ -653,8 +674,12 @@ function YearRings({ mode, active, reducedMotion, theme }: PieceProps) {
       const i1 = (i0 + 1) % SEG;
       outer = lerp(outline[i0], outline[i1], s - Math.floor(s));
     }
-    const day = dayAt(rings, px, pz, L.grown);
-    return { day, onSlice: r < outer + 0.015, r, px, pz };
+    out.day = dayAt(rings, px, pz, L.grown);
+    out.onSlice = r < outer + 0.015;
+    out.r = r;
+    out.px = px;
+    out.pz = pz;
+    return out;
   };
 
   /* -------------------------------------------------------------------- */
@@ -804,6 +829,11 @@ function YearRings({ mode, active, reducedMotion, theme }: PieceProps) {
         L.loupeY.set(L.loupeAimY);
       }
       L.loupeShow.to(want ? 1 : 0);
+      // keep the glass on the stage (a finger near the top edge pushes it up)
+      const { height } = sizeRef.current;
+      const edge = L.loupeR + 6;
+      L.loupeAimX = clamp(L.loupeAimX, edge, Math.max(edge, width - edge));
+      L.loupeAimY = clamp(L.loupeAimY, edge + L.topSafe, Math.max(edge + L.topSafe, height - edge));
       L.loupeX.to(L.loupeAimX);
       L.loupeY.to(L.loupeAimY);
       if (reduced) {
@@ -1061,9 +1091,17 @@ function YearRings({ mode, active, reducedMotion, theme }: PieceProps) {
       L.loupeWant = false;
       if (rootRef.current) rootRef.current.style.cursor = "grabbing";
     }
-    if (drag.type !== "mouse") {
+    lastPointer.current = drag.type;
+    window.clearTimeout(holdTimer.current);
+    if (drag.type !== "mouse" && drag.kind === "pending" && hit.onSlice) {
       L.loupeAimX = x;
       L.loupeAimY = y - L.loupeR - 34;
+      holdTimer.current = window.setTimeout(() => {
+        const held = L.drag;
+        if (!held || held !== drag || held.kind !== "pending" || held.moved) return;
+        held.kind = "loupe";
+        latestWake.current();
+      }, 260);
     }
     record(drag, event.timeStamp);
     if (!touched) setTouched(true);
@@ -1133,6 +1171,7 @@ function YearRings({ mode, active, reducedMotion, theme }: PieceProps) {
     const drag = L.drag;
     if (!drag || event.pointerId !== drag.id) return;
     L.drag = null;
+    window.clearTimeout(holdTimer.current);
     try {
       rootRef.current?.releasePointerCapture(event.pointerId);
     } catch {}
@@ -1182,32 +1221,19 @@ function YearRings({ mode, active, reducedMotion, theme }: PieceProps) {
     noteInput();
   };
 
-  // a touch held still on the wood brings the loupe out above the finger
+  // once the loupe is out (or the light is in hand), a finger moves it instead of scrolling the page
   useEffect(() => {
     if (!stage) return;
     const root = rootRef.current;
     if (!root) return;
-    let raf = 0;
-    const check = () => {
-      raf = requestAnimationFrame(check);
-      const drag = L.drag;
-      if (!drag || drag.kind !== "pending" || drag.type === "mouse" || drag.moved) return;
-      if (performance.now() / 1000 - drag.t0 < 0.26) return;
-      drag.kind = "loupe";
-      L.loupeAimX = drag.x0;
-      L.loupeAimY = drag.y0 - L.loupeR - 34;
-      latestWake.current();
-    };
-    raf = requestAnimationFrame(check);
-    // once the loupe is out, the finger moves it instead of scrolling the page
     const onTouchMove = (event: TouchEvent) => {
       const kind = L.drag?.kind;
       if ((kind === "loupe" || kind === "spin" || kind === "grab") && event.cancelable) event.preventDefault();
     };
     root.addEventListener("touchmove", onTouchMove, { passive: false });
     return () => {
-      cancelAnimationFrame(raf);
       root.removeEventListener("touchmove", onTouchMove);
+      window.clearTimeout(holdTimer.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage]);
@@ -1407,7 +1433,9 @@ function YearRings({ mode, active, reducedMotion, theme }: PieceProps) {
       : "← → walk the days · ↑ ↓ the rings · Enter knocks · Q E swing the light"
     : fine
       ? "Move over the wood to look closer · Drag to swing the light round · Click to knock"
-      : "Tap a ring for its day · Hold to look closer · Swipe sideways to swing the light";
+      : narrow
+        ? "Tap a ring · Hold for the loupe · Swipe to turn the light"
+        : "Tap a ring for its day · Hold to look closer · Swipe sideways to swing the light";
   const hintHidden = !fine && !keyFocus && touched;
 
   return (
@@ -1421,8 +1449,8 @@ function YearRings({ mode, active, reducedMotion, theme }: PieceProps) {
       onPointerCancel={(event) => endDrag(event, true)}
       onPointerLeave={onPointerLeave}
       onContextMenu={(event) => {
-        if (event.nativeEvent instanceof PointerEvent && event.nativeEvent.pointerType === "mouse") return;
-        event.preventDefault();
+        // a long press on a touch screen holds the loupe, not the page's menu
+        if (lastPointer.current !== "mouse") event.preventDefault();
       }}
     >
       <canvas ref={canvasRef} aria-hidden="true" className="absolute inset-0 block size-full" />

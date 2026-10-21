@@ -129,7 +129,7 @@ export const VIEWS: Record<PanelView, ViewInfo> = {
   },
   theme: {
     title: "Theme",
-    description: "Light, Red Dragon or AMOLED black, or follow your system.",
+    description: "Light, AMOLED black or Red Dragon, or follow your system.",
     icon: "moon",
     input: "theme",
     aliases: [
@@ -141,12 +141,12 @@ export const VIEWS: Record<PanelView, ViewInfo> = {
       "dark mode",
       "light mode",
       "appearance",
-      "red dragon",
       "amoled",
       "oled",
       "black",
+      "red dragon",
     ],
-    keywords: ["dark", "light", "system", "mode", "appearance", "colour", "color", "red", "dragon", "amoled", "oled", "black", "palette"],
+    keywords: ["dark", "light", "system", "mode", "appearance", "colour", "color", "amoled", "oled", "black", "red", "dragon", "palette"],
   },
   github: {
     title: "GitHub",

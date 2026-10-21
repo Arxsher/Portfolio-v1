@@ -1,11 +1,11 @@
 // Theme state lives on <html>: `class="dark"` for either dark palette,
-// `data-palette="light" | "red-dragon" | "amoled"` for which one, and an
+// `data-palette="light" | "amoled" | "red-dragon"` for which one, and an
 // inline `style="color-scheme: …"`. The choice is stored in localStorage
-// under THEME_KEY (absent = follow the OS: light, or Red Dragon on a dark
-// OS); the last dark palette used is kept under DARK_PALETTE_KEY so the
-// light/dark toggle comes back to it. The inline script in app/layout.tsx
-// applies it before first paint; everything after that goes through this
-// module.
+// under THEME_KEY (absent = follow the OS: light, or AMOLED on a dark OS);
+// the last dark palette used is kept under DARK_PALETTE_KEY so the
+// light/dark toggle comes back to it (AMOLED until Red Dragon is picked).
+// The inline script in app/layout.tsx applies it before first paint;
+// everything after that goes through this module.
 //
 // Backward compatible: setTheme("dark") still works (it picks the last
 // dark palette), getResolvedTheme()/useResolvedTheme() still answer
@@ -14,10 +14,10 @@
 import { useSyncExternalStore } from "react";
 import { DARK_PALETTE_KEY, DEFAULT_DARK_PALETTE, PALETTE_BACKGROUND, THEME_KEY } from "./theme-script";
 
-export { DARK_PALETTE_KEY, THEME_KEY, themeScript } from "./theme-script";
+export { DARK_PALETTE_KEY, DEFAULT_DARK_PALETTE, THEME_KEY, themeScript } from "./theme-script";
 
-/** The two dark palettes. */
-export type DarkPalette = "red-dragon" | "amoled";
+/** The two dark palettes: AMOLED (the main one) and Red Dragon. */
+export type DarkPalette = "amoled" | "red-dragon";
 /** What is on screen: light or one of the dark palettes. */
 export type Palette = "light" | DarkPalette;
 /** What can be picked and stored ("system" follows the OS). */
@@ -27,9 +27,9 @@ export type Theme = ThemeChoice | "dark";
 /** Light or dark, whichever palette. */
 export type ResolvedTheme = "light" | "dark";
 
-/** Names and preview colours for menus (header theme menu, command panel).
-    `bg` is the page, `tile` a card on it, `main` the accent and `text` the
-    main text colour. */
+/** Names and preview colours for menus (header theme menu, command panel),
+    in menu order: Light, AMOLED, Red Dragon. `bg` is the page, `tile` a
+    card on it, `main` the accent and `text` the main text colour. */
 export const PALETTES: ReadonlyArray<{
   id: Palette;
   label: string;
@@ -41,14 +41,14 @@ export const PALETTES: ReadonlyArray<{
     swatch: { bg: PALETTE_BACKGROUND.light, tile: "#f2f2f2", main: "#171717", text: "#6e6e6e", line: "#e4e4e4" },
   },
   {
-    id: "red-dragon",
-    label: "Red Dragon",
-    swatch: { bg: PALETTE_BACKGROUND["red-dragon"], tile: "#0e0506", main: "#ff3a32", text: "#e2a528", line: "#5a3a1c" },
-  },
-  {
     id: "amoled",
     label: "AMOLED",
     swatch: { bg: PALETTE_BACKGROUND.amoled, tile: "#171717", main: "#eeeeee", text: "#8f8f8f", line: "#2a2a2a" },
+  },
+  {
+    id: "red-dragon",
+    label: "Red Dragon",
+    swatch: { bg: PALETTE_BACKGROUND["red-dragon"], tile: "#0e0506", main: "#ff3a32", text: "#e2a528", line: "#5a3a1c" },
   },
 ];
 
@@ -58,7 +58,7 @@ const DARK_QUERY = "(prefers-color-scheme: dark)";
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 
 const isBrowser = () => typeof window !== "undefined";
-const isDarkPalette = (value: unknown): value is DarkPalette => value === "red-dragon" || value === "amoled";
+const isDarkPalette = (value: unknown): value is DarkPalette => value === "amoled" || value === "red-dragon";
 const isPalette = (value: unknown): value is Palette => value === "light" || isDarkPalette(value);
 
 /* ---------------------------------------------------------------------- */
