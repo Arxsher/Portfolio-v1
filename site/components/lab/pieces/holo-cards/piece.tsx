@@ -95,7 +95,7 @@ import {
   EV_THROW,
   FLY,
 } from "./deck";
-import { FanIcon, FlipIcon, NextIcon, StackIcon, TiltIcon } from "./icons";
+import { FanIcon, FlipIcon, NextIcon, StackIcon } from "./icons";
 import { blankLook, HoloRenderer, mixLook, type Frame } from "./renderer";
 import { flap, land, pick as pickSound, riffle, slide, snap, whoosh } from "./sound";
 import { cardDistance, cardOutline, cardTransform, View } from "./view";
@@ -231,9 +231,6 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
   const [touched, setTouched] = useState(false);
   const [dprStep, setDprStep] = useState(0);
   const [orientOK, setOrientOK] = useState(false);
-  /** The phone's tilt steers the deck (the tray's tilt button turns it off). */
-  const [gyro, setGyro] = useState(true);
-  const [canTilt, setCanTilt] = useState(false);
 
   /* -------------------------------------------------------------------- */
   /* layout                                                                */
@@ -756,37 +753,23 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
     if (typeof DeviceOrientationEvent === "undefined") return;
     // iOS asks first (from a tap: see askOrientation); elsewhere just listen
     if (motionGranted || !needsPermission()) setOrientOK(true);
-    // the tray's tilt button, on touch screens
-    if (stage && !window.matchMedia("(pointer: fine)").matches) setCanTilt(true);
-  }, [stage]);
+  }, []);
 
-  /** On iOS, ask for motion access (from a tap; resolves true once granted). */
+  /** On iOS, ask for motion access (from a tap on the cards or the table). */
   const askOrientation = () => {
-    if (orientOK || !needsPermission()) return Promise.resolve(orientOK);
+    if (orientOK || !needsPermission()) return;
     const request = (DeviceOrientationEvent as unknown as { requestPermission: () => Promise<string> }).requestPermission;
-    return request()
+    request()
       .then((answer) => {
-        if (answer !== "granted") return false;
+        if (answer !== "granted") return;
         motionGranted = true;
         setOrientOK(true);
-        return true;
       })
-      .catch(() => false);
-  };
-
-  const toggleTilt = () => {
-    if (!orientOK) {
-      void askOrientation().then((granted) => {
-        if (granted) setGyro(true);
-      });
-      return;
-    }
-    setGyro((on) => !on);
-    nudge();
+      .catch(() => {});
   };
 
   useEffect(() => {
-    if (!active || !orientOK || !gyro) return;
+    if (!active || !orientOK) return;
     const o = L.orient;
     const screenAngle = () => {
       const angle = screen.orientation?.angle ?? (window as { orientation?: number }).orientation ?? 0;
@@ -826,7 +809,7 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
       nudge();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, orientOK, gyro, nudge]);
+  }, [active, orientOK, nudge]);
 
   /* -------------------------------------------------------------------- */
   /* input                                                                 */
@@ -1209,11 +1192,6 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
               <IconButton label="Turn the front card over" onClick={flipFront}>
                 <FlipIcon size={15} />
               </IconButton>
-              {canTilt ? (
-                <IconButton label="Tilt your phone to tilt the cards" pressed={orientOK && gyro} onClick={toggleTilt}>
-                  <TiltIcon size={15} />
-                </IconButton>
-              ) : null}
               <TrayDivider />
               <MuteButton />
             </Tray>

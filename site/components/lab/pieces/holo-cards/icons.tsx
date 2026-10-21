@@ -65,15 +65,3 @@ export function FlipIcon(props: IconProps) {
     </Svg>
   );
 }
-
-/** A phone rocking side to side (the gyroscope steers the cards). */
-export function TiltIcon(props: IconProps) {
-  return (
-    <Svg {...props}>
-      <rect x="5" y="2" width="6" height="12" rx="1.5" />
-      <path d="M7.25 11.75h1.5" />
-      <path d="M2.5 6a5 5 0 0 0 0 4" />
-      <path d="M13.5 6a5 5 0 0 1 0 4" />
-    </Svg>
-  );
-}
