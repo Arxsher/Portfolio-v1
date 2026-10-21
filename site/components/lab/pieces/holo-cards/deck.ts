@@ -277,6 +277,8 @@ export class Deck {
   aimY = 0;
   aimOn = false;
   aimAmt = 0;
+  /** The aim leans every card (the phone's tilt) instead of the one under the pointer. */
+  aimAll = false;
   /** Tilt added to every resting card (keyboard aim, phone tilt, the tile's sway). */
   extraTx = 0;
   extraTy = 0;
@@ -650,14 +652,13 @@ export class Deck {
           g[Y] += symY * k;
         }
         let weight = 0;
-        if (this.aimCard >= 0) {
-          const stackWeight = card.rank === 0 ? 1 : card.rank === 1 ? 0.85 : 0.72;
-          weight = card.id === this.aimCard ? 1 : stackish * stackWeight;
-        }
+        const stackWeight = card.rank === 0 ? 1 : card.rank === 1 ? 0.85 : 0.72;
+        if (this.aimAll) weight = stackWeight;
+        else if (this.aimCard >= 0) weight = card.id === this.aimCard ? 1 : stackish * stackWeight;
         const aim = this.aimAmt * weight;
         g[TX] = -this.aimY * MAX_TILT * aim + this.extraTx;
         g[TY] = this.aimX * MAX_TILT * aim + this.extraTy;
-        g[Z] += HOVER_Z * this.aimAmt * (card.id === this.aimCard ? 1 : 0.4 * stackish);
+        if (!this.aimAll) g[Z] += HOVER_Z * this.aimAmt * (card.id === this.aimCard ? 1 : 0.4 * stackish);
         g[BEND] = 0;
       }
       // a card turning over lifts clear of its neighbours

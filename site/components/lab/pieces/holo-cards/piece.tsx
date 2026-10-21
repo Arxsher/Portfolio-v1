@@ -23,7 +23,10 @@
 // - Hover: the card under the pointer tilts toward it on an under-damped
 //   spring (the stacked cards tilt together, a fanned card on its own),
 //   and the light follows the pointer like a lamp in your hand, so the
-//   colours slide across the foil. On a phone, tilting it moves the light.
+//   colours slide across the foil. On a phone the gyroscope stands in for
+//   the pointer: tilt it and the whole deck leans with it while the light
+//   slides across the foil (measured from a baseline that slowly follows
+//   the way the phone is held, so any grip is level).
 // - Grab: the card lifts toward you and hangs off the point you took it
 //   by: a stiff spring pulls that point to your finger while the card's
 //   centre feels a drag of its own, so a card held by a corner swings round
@@ -92,13 +95,17 @@ import {
   EV_THROW,
   FLY,
 } from "./deck";
-import { FanIcon, FlipIcon, NextIcon, StackIcon } from "./icons";
+import { FanIcon, FlipIcon, NextIcon, StackIcon, TiltIcon } from "./icons";
 import { blankLook, HoloRenderer, mixLook, type Frame } from "./renderer";
 import { flap, land, pick as pickSound, riffle, slide, snap, whoosh } from "./sound";
 import { cardDistance, cardOutline, cardTransform, View } from "./view";
 
 /** Pixel-ratio caps the stage steps through if frames run slow. */
 const DPR_STEPS = [2, 1.5, 1.2] as const;
+/** Degrees of phone tilt (from the way it is held) for the full lean. */
+const GYRO_RANGE = 18;
+/** iOS granted motion access this visit (the tiles can listen too, then). */
+let motionGranted = false;
 /** Seconds of quiet before the idle light stops drifting and the stage sleeps. */
 const DRIFT_FOR = 14;
 /** The light's resting place, relative to the deck (world units), by theme. */
@@ -153,8 +160,9 @@ function makeLive(theme: PieceTheme, reduced: boolean) {
     keyAim: false,
     kx: 0,
     ky: 0,
-    /** Phone tilt (degrees from a slowly re-centring baseline). */
-    orient: { has: false, beta: 0, gamma: 0, baseB: 0, baseG: 0, lastX: 0, lastY: 0 },
+    /** Phone tilt: the raw angles (degrees), their slowly re-centring
+        baseline, the screen's rotation, and the lean on screen (x, y: -1…1, y up). */
+    orient: { has: false, beta: 0, gamma: 0, baseB: 0, baseG: 0, lastX: 0, lastY: 0, angle: 0, x: 0, y: 0 },
     drag: null as Drag | null,
     /** Recent pointer samples for release speed (CSS px, seconds). */
     st: new Float64Array(16),
@@ -223,6 +231,9 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
   const [touched, setTouched] = useState(false);
   const [dprStep, setDprStep] = useState(0);
   const [orientOK, setOrientOK] = useState(false);
+  /** The phone's tilt steers the deck (the tray's tilt button turns it off). */
+  const [gyro, setGyro] = useState(true);
+  const [canTilt, setCanTilt] = useState(false);
 
   /* -------------------------------------------------------------------- */
   /* layout                                                                */
@@ -371,13 +382,9 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
       g[2] = 1.75;
       stiff = 120;
     } else if (L.orient.has) {
-      const o = L.orient;
-      // drift the baseline toward the way the phone is held now
-      const k = 1 - Math.exp(-dt / 6);
-      o.baseB += (o.beta - o.baseB) * k;
-      o.baseG += (o.gamma - o.baseG) * k;
-      g[0] = rest[0] * 0.4 + clamp((o.gamma - o.baseG) / 22, -1.3, 1.3) * 1.1;
-      g[1] = rest[1] * 0.6 + clamp((o.beta - o.baseB) / 22, -1.3, 1.3) * -0.9;
+      // the phone's tilt: the lamp swings the way the phone leans
+      g[0] = rest[0] * 0.4 + L.orient.x * 1.45;
+      g[1] = rest[1] * 0.6 + L.orient.y * 1.15;
       stiff = 90;
     } else if (!reduced && L.drift > 0) {
       const t = L.time;
@@ -527,17 +534,46 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
     L.drift = reduced ? 0 : damp(L.drift, driftGoal, driftGoal ? 2 : 0.6, dt);
     if (Math.abs(L.drift - driftGoal) < 0.003) L.drift = driftGoal;
 
-    // the hover: which card is under the mouse (or the keyboard's aim)
+    // the phone's tilt, from a baseline that slowly follows the way it is held
+    const o = L.orient;
+    if (o.has) {
+      const k = 1 - Math.exp(-dt / 6);
+      o.baseB += (o.beta - o.baseB) * k;
+      o.baseG += (o.gamma - o.baseG) * k;
+      // well past the range the baseline gives way at once (lying down, a new grip)
+      o.baseB = clamp(o.baseB, o.beta - 2 * GYRO_RANGE, o.beta + 2 * GYRO_RANGE);
+      o.baseG = clamp(o.baseG, o.gamma - 2 * GYRO_RANGE, o.gamma + 2 * GYRO_RANGE);
+      // lower the right edge and the lean goes right; lower the bottom and it goes down
+      const px = clamp((o.gamma - o.baseG) / GYRO_RANGE, -1, 1);
+      const py = clamp((o.baseB - o.beta) / GYRO_RANGE, -1, 1);
+      // from the phone's axes to the screen's (landscape turns them)
+      const a = (o.angle * Math.PI) / 180;
+      const c = Math.cos(a);
+      const s = Math.sin(a);
+      o.x = px * c - py * s;
+      o.y = px * s + py * c;
+    }
+
+    // the hover: which card is under the mouse (or the keyboard's aim, or the phone's tilt)
     if (!reduced && !L.drag && L.hover) {
       const id = pickCard(L.hx, L.hy);
+      deck.aimAll = false;
       deck.aimCard = id;
       deck.aimOn = id >= 0;
       if (id >= 0) aimAt(id, L.hx, L.hy);
     } else if (!reduced && !L.drag && L.keyAim) {
+      deck.aimAll = false;
       deck.aimCard = deck.order[0];
       deck.aimOn = true;
       deck.aimX = L.kx;
       deck.aimY = L.ky;
+    } else if (!reduced && !L.drag && o.has) {
+      // the whole deck leans with the phone, the front card the most
+      deck.aimAll = true;
+      deck.aimCard = deck.order[0];
+      deck.aimOn = true;
+      deck.aimX = o.x;
+      deck.aimY = o.y;
     } else deck.aimOn = false;
 
     if (!stage) {
@@ -547,10 +583,6 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
         deck.extraTx = 0.06 * Math.sin(L.time * 0.33 + 0.6);
         deck.auto(dt);
       }
-    } else if (L.orient.has && !reduced) {
-      // a phone held at an angle tips the cards a hair, for parallax
-      deck.extraTy = clamp((L.orient.gamma - L.orient.baseG) / 22, -1, 1) * 0.05;
-      deck.extraTx = clamp((L.orient.beta - L.orient.baseB) / 22, -1, 1) * 0.04;
     } else deck.extraTx = deck.extraTy = 0;
 
     // the held card follows the finger
@@ -721,28 +753,58 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
     typeof (DeviceOrientationEvent as unknown as { requestPermission?: () => Promise<string> }).requestPermission === "function";
 
   useEffect(() => {
-    if (!stage || typeof DeviceOrientationEvent === "undefined") return;
+    if (typeof DeviceOrientationEvent === "undefined") return;
     // iOS asks first (from a tap: see askOrientation); elsewhere just listen
-    if (!needsPermission()) setOrientOK(true);
+    if (motionGranted || !needsPermission()) setOrientOK(true);
+    // the tray's tilt button, on touch screens
+    if (stage && !window.matchMedia("(pointer: fine)").matches) setCanTilt(true);
   }, [stage]);
 
+  /** On iOS, ask for motion access (from a tap; resolves true once granted). */
   const askOrientation = () => {
-    if (orientOK || !needsPermission()) return;
+    if (orientOK || !needsPermission()) return Promise.resolve(orientOK);
     const request = (DeviceOrientationEvent as unknown as { requestPermission: () => Promise<string> }).requestPermission;
-    request()
+    return request()
       .then((answer) => {
-        if (answer === "granted") setOrientOK(true);
+        if (answer !== "granted") return false;
+        motionGranted = true;
+        setOrientOK(true);
+        return true;
       })
-      .catch(() => {});
+      .catch(() => false);
+  };
+
+  const toggleTilt = () => {
+    if (!orientOK) {
+      void askOrientation().then((granted) => {
+        if (granted) setGyro(true);
+      });
+      return;
+    }
+    setGyro((on) => !on);
+    nudge();
   };
 
   useEffect(() => {
-    if (!stage || !active || !orientOK || reducedMotion) return;
+    if (!active || !orientOK || !gyro) return;
     const o = L.orient;
+    const screenAngle = () => {
+      const angle = screen.orientation?.angle ?? (window as { orientation?: number }).orientation ?? 0;
+      return ((angle % 360) + 360) % 360;
+    };
     const onOrient = (event: DeviceOrientationEvent) => {
       if (event.beta == null || event.gamma == null) return;
-      if (!o.has) {
+      const angle = screenAngle();
+      // the first reading, a turn to landscape, or a jump in the angles (the
+      // phone passing upright or onto its side): level from here
+      if (
+        !o.has ||
+        angle !== o.angle ||
+        Math.abs(event.beta - o.beta) > 90 ||
+        Math.abs(event.gamma - o.gamma) > 90
+      ) {
         o.has = true;
+        o.angle = angle;
         o.baseB = event.beta;
         o.baseG = event.gamma;
       }
@@ -760,9 +822,11 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
     return () => {
       window.removeEventListener("deviceorientation", onOrient);
       o.has = false;
+      o.x = o.y = 0;
+      nudge();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stage, active, orientOK, reducedMotion, nudge]);
+  }, [active, orientOK, gyro, nudge]);
 
   /* -------------------------------------------------------------------- */
   /* input                                                                 */
@@ -909,6 +973,7 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
     else releaseSpeed(speed);
     if (drag.kind === "fan") {
       deck.releaseFan(drag.side ? (speed[0] * drag.side) / drag.range : 0);
+      askOrientation();
       nudge();
       return;
     }
@@ -1125,7 +1190,7 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
         Three holographic cards. Space or Enter sends the front card to the back, F turns it over, S fans the cards out
         or stacks them, and the arrow keys tilt the front card in the light. With a pointer: drag a card and flick it to
         send it to the back, tap the front card to turn it over, tap another card to bring it to the front, and drag the
-        table sideways to fan the cards.
+        table sideways to fan the cards. On a phone, tilting it tilts the cards.
       </p>
       <p className="sr-only" aria-live="polite">
         {announce}
@@ -1144,6 +1209,11 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
               <IconButton label="Turn the front card over" onClick={flipFront}>
                 <FlipIcon size={15} />
               </IconButton>
+              {canTilt ? (
+                <IconButton label="Tilt your phone to tilt the cards" pressed={orientOK && gyro} onClick={toggleTilt}>
+                  <TiltIcon size={15} />
+                </IconButton>
+              ) : null}
               <TrayDivider />
               <MuteButton />
             </Tray>
@@ -1151,7 +1221,7 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
           <StageHint className={touched ? "opacity-0 transition-opacity duration-700" : "transition-opacity duration-700"}>
             {fine
               ? "Flick a card to the back · tap to turn it over · drag the table to fan"
-              : "Flick a card to the back · tap to turn it over · swipe the table to fan"}
+              : "Tilt your phone · flick a card to the back · tap to turn it over · swipe the table to fan"}
           </StageHint>
         </StageControls>
       </div>
