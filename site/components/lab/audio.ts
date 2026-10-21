@@ -14,6 +14,14 @@
 // Never call ensureAudio() outside a gesture (autoplay rules); elsewhere use
 // getAudio(), which returns null until a gesture has created the context.
 // When the tab is hidden the context is suspended, and resumed on return.
+//
+// Phones only let audio start from a finished gesture: a finger's
+// pointerdown doesn't count, its pointerup / touchend / click does. So on
+// pages that make sound, every such gesture also unlocks the context (and
+// plays one silent sample, which older iOS needs). On iOS the context uses
+// the "playback" audio session, so the lab is heard with the silent switch
+// on too; muting suspends the context and hands the speaker back (other
+// apps' audio isn't held while the lab is quiet).
 
 import { useSyncExternalStore } from "react";
 
@@ -32,7 +40,36 @@ let kit: AudioKit | null = null;
 let muted = false;
 let loaded = false;
 let resumeOnShow = false;
+let suspendTimer = 0;
 const listeners = new Set<() => void>();
+
+type AudioSessionNavigator = Navigator & { audioSession?: { type: string } };
+
+/** iOS (Safari 16.4+): "playback" plays through the silent switch, "auto" gives the speaker back. */
+function setSession(playing: boolean) {
+  const session = (navigator as AudioSessionNavigator).audioSession;
+  if (!session) return;
+  try {
+    session.type = playing ? "playback" : "auto";
+  } catch {}
+}
+
+/** From a gesture the browser counts: start (or restart) the context on pages that make sound. */
+function unlock() {
+  // a piece has made the context, or a mute button is on screen
+  if (!kit && listeners.size === 0) return;
+  if (muted || document.visibilityState === "hidden") return;
+  if (kit && kit.ctx.state === "running") return;
+  const audio = ensureAudio();
+  if (!audio) return;
+  try {
+    const { ctx } = audio;
+    const blip = ctx.createBufferSource();
+    blip.buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
+    blip.connect(ctx.destination);
+    blip.start();
+  } catch {}
+}
 
 function readStored(): boolean {
   try {
@@ -46,6 +83,10 @@ function load() {
   if (loaded || typeof window === "undefined") return;
   loaded = true;
   muted = readStored();
+  const options = { capture: true, passive: true } as const;
+  for (const type of ["pointerup", "touchend", "click", "keydown"] as const) {
+    window.addEventListener(type, unlock, options);
+  }
   window.addEventListener("storage", (event) => {
     if (event.key !== STORAGE_KEY) return;
     applyMuted(readStored(), false);
@@ -59,7 +100,7 @@ function load() {
       }
     } else if (resumeOnShow) {
       resumeOnShow = false;
-      void kit.ctx.resume().catch(() => {});
+      if (!muted) void kit.ctx.resume().catch(() => {});
     }
   });
 }
@@ -80,6 +121,19 @@ function applyMuted(value: boolean, persist: boolean) {
     const { ctx, master } = kit;
     master.gain.cancelScheduledValues(ctx.currentTime);
     master.gain.setTargetAtTime(value ? 0 : VOLUME, ctx.currentTime, 0.015);
+    window.clearTimeout(suspendTimer);
+    if (value) {
+      // once the fade is done, let go of the speaker
+      suspendTimer = window.setTimeout(() => {
+        if (!muted || !kit) return;
+        void kit.ctx.suspend().catch(() => {});
+        setSession(false);
+      }, 150);
+    } else if (ctx.state !== "running" && ctx.state !== "closed" && document.visibilityState !== "hidden") {
+      // unmuting is a click: start again right away
+      setSession(true);
+      void ctx.resume().catch(() => {});
+    }
   }
   notify();
 }
@@ -101,6 +155,7 @@ export function ensureAudio(): AudioKit | null {
       window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!Ctor) return null;
     try {
+      if (!muted) setSession(true);
       const ctx = new Ctor({ latencyHint: "interactive" });
       const master = ctx.createGain();
       master.gain.value = muted ? 0 : VOLUME;
@@ -116,7 +171,10 @@ export function ensureAudio(): AudioKit | null {
       return null;
     }
   }
-  if (kit.ctx.state === "suspended" && document.visibilityState !== "hidden") {
+  // suspended, or interrupted (iOS: a call, another app took the speaker)
+  const state = kit.ctx.state as string;
+  if (!muted && state !== "running" && state !== "closed" && document.visibilityState !== "hidden") {
+    setSession(true);
     void kit.ctx.resume().catch(() => {});
   }
   return kit;
