@@ -6,7 +6,7 @@
 // data) or to plain <a> / <img> / fetch paths. Run those through
 // withBasePath:
 //
-//   images: [{ url: withBasePath("/lab/og/zellige.png") }]
+//   images: [{ url: withBasePath("/lab/og/macropad.png") }]
 //
 // Used by the lab pages (app/lab/**), so it lives in the lab folder.
 // Server code only (metadata, server components): the variable isn't

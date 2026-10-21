@@ -10,6 +10,10 @@
 //   gulls   now and then, while there is light, a distant call: a few
 //           falling "kyow"s, a sawtooth through a formant band, panned out
 //           to one side and softened with a little echo.
+//   bell    after dark, a bell buoy far out rings once or twice as it rocks:
+//           a handful of inharmonic partials with long, uneven decays.
+//   lamp    when the lighthouse strikes: a relay's low thunk, the tick of
+//           each flicker (timed to the picture's), and a faint glassy ring.
 
 import { noiseBuffer, type AudioKit } from "../../audio";
 
@@ -33,9 +37,13 @@ export class Shore {
   private timer = 0;
   private nextSwell = 0;
   private nextGull = 0;
+  private nextBell = 0;
   private side = 0;
+  private buffer: AudioBuffer | null = null;
   /** 0..1: how much daylight is left for gulls. */
   daylight = 1;
+  /** 0..1: how dark it is (the bell buoy only rings at night). */
+  night = 0;
 
   get playing(): boolean {
     return Boolean(this.out);
@@ -69,6 +77,7 @@ export class Shore {
     this.echo = { delay, feedback, wet };
 
     const buffer = noiseBuffer(ctx, 4);
+    this.buffer = buffer;
     this.sides = [-0.55, 0.55].map((pan, i) => {
       const source = ctx.createBufferSource();
       source.buffer = buffer;
@@ -101,6 +110,7 @@ export class Shore {
 
     this.nextSwell = now + FADE_IN * 0.5;
     this.nextGull = now + 4 + Math.random() * 6;
+    this.nextBell = now + 2.5 + Math.random() * 4;
     this.tick();
   }
 
@@ -115,6 +125,10 @@ export class Shore {
     if (now > this.nextGull) {
       if (this.daylight > 0.25 && Math.random() < 0.8) this.gull(now + 0.05, this.daylight);
       this.nextGull = now + 9 + Math.random() * 13;
+    }
+    if (now > this.nextBell) {
+      if (this.night > 0.5 && Math.random() < 0.75) this.bell(now + 0.05, this.night);
+      this.nextBell = now + 10 + Math.random() * 12;
     }
     this.timer = window.setTimeout(this.tick, 400);
   };
@@ -185,6 +199,115 @@ export class Shore {
     }
   }
 
+  /** A bell buoy far out, rocked by the swell: one strike, sometimes a second, softer. */
+  private bell(at: number, level: number) {
+    const kit = this.kit;
+    const out = this.out;
+    if (!kit || !out || !this.echo) return;
+    const { ctx } = kit;
+    let dest: AudioNode = out;
+    if (typeof ctx.createStereoPanner === "function") {
+      const panner = ctx.createStereoPanner();
+      panner.pan.value = (Math.random() < 0.5 ? -1 : 1) * (0.2 + Math.random() * 0.4);
+      panner.connect(out);
+      panner.connect(this.echo.delay);
+      dest = panner;
+    }
+    const soft = ctx.createBiquadFilter();
+    soft.type = "lowpass";
+    soft.frequency.value = 2600;
+    soft.connect(dest);
+    const f0 = 410 + Math.random() * 40;
+    // partial ratio, level, decay (s): a hum, the strike note, a minor third, a fifth, the octave, a high shimmer
+    const partials = [
+      [0.5, 0.45, 3.4],
+      [1, 1, 2.6],
+      [1.19, 0.4, 2.1],
+      [1.5, 0.32, 1.7],
+      [2, 0.28, 1.3],
+      [2.74, 0.14, 0.8],
+    ] as const;
+    const strikes = Math.random() < 0.55 ? 2 : 1;
+    for (let k = 0; k < strikes; k++) {
+      const t = at + k * (0.5 + Math.random() * 0.35);
+      const amp = 0.016 * level * (k ? 0.55 : 1);
+      for (const [ratio, gain, decay] of partials) {
+        const osc = ctx.createOscillator();
+        osc.frequency.value = f0 * ratio * (1 + (Math.random() - 0.5) * 0.002);
+        const env = ctx.createGain();
+        env.gain.setValueAtTime(0, t);
+        env.gain.linearRampToValueAtTime(amp * gain, t + 0.004);
+        env.gain.setTargetAtTime(0, t + 0.006, decay / 3);
+        osc.connect(env).connect(soft);
+        osc.start(t);
+        osc.stop(t + decay * 1.6);
+      }
+    }
+  }
+
+  /**
+   * The lamp striking (call it as the picture's lamp comes on): a relay's
+   * low thunk, a tick for each flicker of the picture's ignition curve and
+   * a faint ring of glass. Only while the sea is playing; mute applies.
+   */
+  strike() {
+    const kit = this.kit;
+    if (!kit || !this.out || !this.buffer) return;
+    const { ctx, output } = kit;
+    const t = ctx.currentTime + 0.005;
+    const bus = ctx.createGain();
+    bus.gain.value = 0.9;
+    bus.connect(output);
+    // the thunk
+    const osc = ctx.createOscillator();
+    osc.frequency.setValueAtTime(150, t);
+    osc.frequency.exponentialRampToValueAtTime(52, t + 0.13);
+    const thunk = ctx.createGain();
+    thunk.gain.setValueAtTime(0, t);
+    thunk.gain.linearRampToValueAtTime(0.13, t + 0.005);
+    thunk.gain.setTargetAtTime(0, t + 0.02, 0.045);
+    osc.connect(thunk).connect(bus);
+    osc.start(t);
+    osc.stop(t + 0.4);
+    // the ticks, on the flickers of look.ts's ignition(): 0, 0.11 and 0.24 s
+    for (const [dt, level] of [
+      [0, 1],
+      [0.11, 0.55],
+      [0.24, 0.4],
+    ] as const) {
+      const src = ctx.createBufferSource();
+      src.buffer = this.buffer;
+      const band = ctx.createBiquadFilter();
+      band.type = "bandpass";
+      band.frequency.value = 2600 + Math.random() * 900;
+      band.Q.value = 1.4;
+      const env = ctx.createGain();
+      const at = t + dt;
+      env.gain.setValueAtTime(0, at);
+      env.gain.linearRampToValueAtTime(0.11 * level, at + 0.0015);
+      env.gain.setTargetAtTime(0, at + 0.003, 0.006);
+      src.connect(band).connect(env).connect(bus);
+      src.start(at, Math.random() * 3, 0.06);
+    }
+    // the glass, ringing faintly as the lamp warms
+    for (const [freq, level] of [
+      [2793, 1],
+      [4186, 0.5],
+    ] as const) {
+      const ring = ctx.createOscillator();
+      ring.frequency.value = freq;
+      const env = ctx.createGain();
+      const at = t + 0.26;
+      env.gain.setValueAtTime(0, at);
+      env.gain.linearRampToValueAtTime(0.006 * level, at + 0.01);
+      env.gain.setTargetAtTime(0, at + 0.02, 0.35);
+      ring.connect(env).connect(bus);
+      ring.start(at);
+      ring.stop(at + 1.6);
+    }
+    window.setTimeout(() => bus.disconnect(), 2200);
+  }
+
   /** Fade out and release everything. */
   stop() {
     const kit = this.kit;
@@ -197,6 +320,7 @@ export class Shore {
     this.out = null;
     this.sides = [];
     this.echo = null;
+    this.buffer = null;
     const now = kit.ctx.currentTime;
     // from wherever the fade-in had got to, without a jump
     if (typeof out.gain.cancelAndHoldAtTime === "function") {

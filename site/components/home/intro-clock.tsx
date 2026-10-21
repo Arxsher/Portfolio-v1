@@ -2,7 +2,7 @@
 
 // Zakaria's local time for the status line at the top of the home page:
 //
-//   <LocalClock timeZone="Africa/Casablanca" zoneFallback="GMT+1" />  →  18:53 GMT+1
+//   <LocalClock timeZone={site.status.timeZone} zoneFallback="GMT+1" />  →  18:53 GMT+1
 //
 // 24-hour clock, the short zone name after it. The time only exists in the
 // browser (the server snapshot is null), so the static HTML never carries a

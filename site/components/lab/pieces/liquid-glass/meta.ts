@@ -12,7 +12,7 @@ export const meta: PieceMeta = {
     "The droplet chases your pointer on a spring and stretches along its own velocity; let go after a fast drag and the stretch overshoots, so it wobbles like jelly. Bridging onto the bar or pinching off sends a ripple through the glass, with a small synthesised sound for each: a plip when you pick the droplet up, a round blob as it merges, a pop as it comes free, a glass tap for the tabs. The material is shared with Liquid Glass, a website in the work list that is still being built.",
   ],
   uses: ["WebGL2", "GLSL", "Signed distance fields", "Springs", "Web Audio"],
-  category: "components",
+  category: "interactions",
   inspiredBy: "Liquid glass interfaces and drops of water",
   // 204 × 248
   tile: { aspect: 204 / 248 },

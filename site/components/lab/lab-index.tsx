@@ -3,12 +3,14 @@
 // The lab index (/lab/): filter tabs with counts, a search box and a
 // grid / list switch above the pieces.
 //
-//   [All 9 | Components 4 | Objects 2 | Generative 3]      [⌕ Search 9 pieces] [▦ ☰]
+//   [All 19 | Interactions 11 | Objects 4 | Data 2 | Scenes 2]   [⌕ Search 19 pieces] [▦ ☰]
 //
+// The tabs and their counts come from the pieces' categories (registry.ts).
 // Grid: the live tiles in a masonry of four columns (three on tablets, two
-// on phones). List: an index of huge numbered titles with the category and
-// tech on the right; with a mouse, a small live preview of the piece
-// follows the cursor over the rows.
+// on phones) whose columns end level for any number of tiles, so every
+// filter and search result sits square. List: an index of huge numbered
+// titles with the category and tech on the right; with a mouse, a small
+// live preview of the piece follows the cursor over the rows.
 //
 // The category is mirrored in the URL (?c=objects) so a filtered view can
 // be shared; the chosen view is remembered per browser.
@@ -127,6 +129,7 @@ export function LabIndex() {
             max={4}
             gap={{ 2: 8, 3: 12, 4: 12 }}
             rows={[]}
+            level
             animate={animate}
             label="Lab pieces"
             items={shown.map((piece) => ({
@@ -163,8 +166,12 @@ function FilterTabs({
   onChange: (value: CategoryFilter) => void;
 }) {
   const refs = useRef<Array<HTMLButtonElement | null>>([]);
+  const listRef = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState<{ left: number; width: number } | null>(null);
   const [ready, setReady] = useState(false);
+  // On narrow phones the tabs can be wider than the row: it scrolls, and
+  // the side with more tabs past it fades out.
+  const [edges, setEdges] = useState({ start: false, end: false });
   const selected = Math.max(
     0,
     categories.findIndex((category) => category.id === value),
@@ -180,21 +187,47 @@ function FilterTabs({
     );
   }, [selected]);
 
+  const measureEdges = useCallback(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const start = list.scrollLeft > 1;
+    const end = list.scrollLeft + list.clientWidth < list.scrollWidth - 1;
+    setEdges((prev) => (prev.start === start && prev.end === end ? prev : { start, end }));
+  }, []);
+
   useLayoutEffect(() => {
     measure();
   }, [measure]);
 
   useEffect(() => {
-    const list = refs.current[0]?.parentElement;
+    const list = listRef.current;
     if (!list) return;
-    const observer = new ResizeObserver(() => measure());
+    const observer = new ResizeObserver(() => {
+      measure();
+      measureEdges();
+    });
     observer.observe(list);
     const frame = requestAnimationFrame(() => setReady(true));
     return () => {
       observer.disconnect();
       cancelAnimationFrame(frame);
     };
-  }, [measure]);
+  }, [measure, measureEdges]);
+
+  // Keep the chosen tab in view when the row scrolls (only the row moves,
+  // never the page).
+  useEffect(() => {
+    const list = listRef.current;
+    const tab = refs.current[selected];
+    if (!list || !tab || list.scrollWidth <= list.clientWidth + 1) return;
+    const margin = 24;
+    const left = tab.offsetLeft - margin;
+    const right = tab.offsetLeft + tab.offsetWidth + margin - list.clientWidth;
+    const target = list.scrollLeft > left ? left : list.scrollLeft < right ? right : list.scrollLeft;
+    if (Math.abs(target - list.scrollLeft) < 1) return;
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    list.scrollTo({ left: target, behavior: reduced ? "auto" : "smooth" });
+  }, [selected]);
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const count = categories.length;
@@ -213,10 +246,14 @@ function FilterTabs({
 
   return (
     <div
+      ref={listRef}
       role="tablist"
       aria-label="Filter by category"
       onKeyDown={onKeyDown}
-      className="no-scrollbar relative flex h-9 max-w-full shrink-0 items-center overflow-x-auto rounded-[12px] bg-well p-[3px]"
+      onScroll={measureEdges}
+      data-fade-start={edges.start ? "" : undefined}
+      data-fade-end={edges.end ? "" : undefined}
+      className="no-scrollbar relative flex h-9 max-w-full shrink-0 items-center overflow-x-auto rounded-[12px] bg-well p-[3px] [--fs:0px] [--fe:0px] [mask-image:linear-gradient(to_right,transparent,#000_var(--fs),#000_calc(100%_-_var(--fe)),transparent)] data-fade-end:[--fe:28px] data-fade-start:[--fs:28px] max-sm:w-full"
     >
       {box ? (
         <span
@@ -244,7 +281,7 @@ function FilterTabs({
             tabIndex={active ? 0 : -1}
             onClick={() => onChange(category.id)}
             className={cn(
-              "relative flex h-[30px] shrink-0 cursor-pointer items-center gap-1.5 rounded-[9px] px-2.5 text-[13px] whitespace-nowrap outline-none transition-[color] duration-150 ease-out focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary",
+              "relative flex h-[30px] shrink-0 cursor-pointer items-center justify-center gap-1 rounded-[9px] px-1.5 text-[13px] whitespace-nowrap max-sm:flex-auto sm:gap-1.5 sm:px-2.5 outline-none transition-[color] duration-150 ease-out focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary",
               active ? "text-primary" : "text-secondary hover:text-primary",
               !box && active && "bg-float shadow-lift",
             )}
@@ -442,7 +479,7 @@ function PieceList({ items }: { items: readonly PieceMeta[] }) {
               <span aria-hidden="true" className="w-6 shrink-0 pb-[0.45em] font-mono text-[12px] text-tertiary tabular-nums sm:w-8">
                 {pad(pieceNumber(piece.slug))}
               </span>
-              <span className="min-w-0 flex-1 truncate text-[34px]/[1.1] font-medium tracking-[-0.035em] text-primary sm:text-[48px]/[1.08] lg:text-[56px]/[1.06]">
+              <span className="min-w-0 flex-1 text-[32px]/[1.08] font-medium tracking-[-0.035em] text-balance text-primary sm:truncate sm:text-[48px]/[1.08] lg:text-[56px]/[1.06]">
                 {piece.title}
               </span>
               <span className="hidden shrink-0 flex-col items-end pb-[0.5em] text-end font-mono text-[12px] leading-[1.6] text-tertiary sm:flex">

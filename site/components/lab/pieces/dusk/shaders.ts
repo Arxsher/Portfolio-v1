@@ -1,15 +1,22 @@
-// GLSL for the dusk picture, in two passes.
+// GLSL for the picture, in two passes.
 //
 // 1. SCENE: one fragment per dot (the dot grid, not the screen). It paints
 //    the scene as a single tone, 0 (shadow) … 1 (the sun): a sky that
 //    depends on the sun's height, its glow along the horizon, thin cloud
-//    streaks lit from below, stars after dark, the sun's disc (squashed a
-//    little near the sea), gulls, and a low shore with houses and a
-//    minaret whose windows light up one by one as the sun goes down. The
-//    sea is a perspective plane with layered waves; each dot reflects the
-//    sky (or the shore) through its wave normal, Fresnel-weighted, and the
-//    sun's glitter path comes from a slope distribution around the waves,
-//    with a discrete twinkle per dot.
+//    streaks lit from below, and after dark the stars, a shooting star now
+//    and then, and the moon (a lit sphere whose bright side faces wherever
+//    the sun is, already in the sky by day as a pale disc). On the right a
+//    headland with rocks off its point, a keeper's cottage, a shed and
+//    a tapered lighthouse: gallery, lantern, dome and vent, its white paint
+//    shaded as a cylinder so the sun-side edge catches the low light. At
+//    dusk the cottage windows come on one by one and the lamp turns its two
+//    beams, drawn as cones of lit air in perspective (each converges toward
+//    the horizon as it swings away and widens and flares as it turns toward
+//    you). A small sailboat drifts on the horizon with a masthead light.
+//    The sea is a perspective plane with layered waves; each dot reflects
+//    the sky, the headland and its lights through its wave normal,
+//    Fresnel-weighted, and three glitter paths (sun, moon, lamp) come from
+//    a slope distribution around the waves, with a discrete twinkle per dot.
 // 2. DITHER: one fragment per device pixel. It finds the dot it belongs to,
 //    reads its tone and picks a palette colour with an 8×8 Bayer threshold,
 //    so a gradient becomes the familiar crosshatch of an ordered dither.
@@ -18,7 +25,7 @@
 //    one than four inks). Palette and dot-size changes come in dot by dot
 //    in Bayer order, from the top down.
 
-import { FOCAL, HORIZON, STILL_TIME } from "./look";
+import { FOCAL, HEADLAND_X, HORIZON, LIGHT_X, MOON_X, STILL_TIME } from "./look";
 
 const f = (n: number) => n.toFixed(4);
 
@@ -32,6 +39,8 @@ uniform float uTime;     // scene clock (stops while motion is off)
 uniform vec2 uSun;       // x across the picture (0..1), elevation (degrees)
 uniform float uTile;     // 1 on the small tile: fewer details
 uniform float uZoom;     // > 1 looks closer (tiles)
+uniform float uLamp;     // the lighthouse lamp, 0 (out) … 1 (the JS side runs its strike)
+uniform float uBeam;     // the lamp's turn (radians)
 
 out vec4 outColor;
 
@@ -39,11 +48,25 @@ const float HORIZON = ${f(HORIZON)};
 const float FOCAL = ${f(FOCAL)};
 const float CAM_H = 2.4;   // camera height above the water (m)
 const float STILL = ${f(STILL_TIME)}; // the reduced-motion still's clock
+const float PI = 3.14159265;
 
-float gElev, gDay, gGlow, gVis, gSunUp, gLights, gPx, gTime, gHigh, gSil;
-float gX0, gMx;
-vec2 gSunP;
-vec3 gSunDir;
+// the lighthouse: tower height, half widths at the foot and the top
+const float TH = 0.182;
+const float TBW = 0.0235;
+const float TTW = 0.0152;
+// the lantern: its height and half width, and where it sits over the gallery
+const float LH = 0.034;
+const float LW = 0.0118;
+const float LDY = 0.0085;
+// the moon's radius and the angle between it and the sun as seen from here
+// (72°: a fat crescent, its bright side toward the sun)
+const float MOON_R = 0.043;
+const float MOON_ELONG = 1.26;
+
+float gElev, gDay, gGlow, gVis, gSunUp, gLights, gPx, gTime, gNight, gDark, gFlash;
+float gX0, gLx, gGround, gCotX, gCotG, gShedX, gShedG, gStackX;
+vec2 gSunP, gMoonP, gMoonL, gLamp;
+vec3 gSunDir, gMoonDir, gLampDir;
 
 /* ---------------------------------------------------------------- noise */
 
@@ -94,6 +117,27 @@ float sdSeg(vec2 p, vec2 a, vec2 b) {
   float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
   return length(pa - ba * h);
 }
+/** Signed distance to the triangle a, b, c. */
+float sdTri(vec2 p, vec2 a, vec2 b, vec2 c) {
+  vec2 e0 = b - a, e1 = c - b, e2 = a - c;
+  vec2 v0 = p - a, v1 = p - b, v2 = p - c;
+  vec2 pq0 = v0 - e0 * clamp(dot(v0, e0) / dot(e0, e0), 0.0, 1.0);
+  vec2 pq1 = v1 - e1 * clamp(dot(v1, e1) / dot(e1, e1), 0.0, 1.0);
+  vec2 pq2 = v2 - e2 * clamp(dot(v2, e2) / dot(e2, e2), 0.0, 1.0);
+  float s = sign(e0.x * e2.y - e0.y * e2.x);
+  vec2 d = min(min(vec2(dot(pq0, pq0), s * (v0.x * e0.y - v0.y * e0.x)),
+                   vec2(dot(pq1, pq1), s * (v1.x * e1.y - v1.y * e1.x))),
+                   vec2(dot(pq2, pq2), s * (v2.x * e2.y - v2.y * e2.x)));
+  return -sqrt(d.x) * sign(d.y);
+}
+float cover(float d, float aa) {
+  return 1.0 - smoothstep(-aa * 0.5, aa * 0.5, d);
+}
+
+/** The height up the picture of something at this elevation (degrees). */
+float heightAt(float e) {
+  return HORIZON + tan(radians(e)) * FOCAL;
+}
 
 /* ------------------------------------------------------------------ sky */
 
@@ -104,7 +148,7 @@ float knee(float t) {
   return t < K ? t : K + R * (1.0 - exp(-(t - K) / R));
 }
 
-/** The clear sky (gradient + the sun's glow), no clouds, no disc. */
+/** The clear sky (gradient, the sun's glow, the moon's halo), no clouds, no discs. */
 float skyBase(vec2 P) {
   float h = clamp((P.y - HORIZON) / (1.0 - HORIZON), 0.0, 1.0);
   float top = mix(0.025, 0.56, pow(gDay, 1.45));
@@ -118,10 +162,13 @@ float skyBase(vec2 P) {
   t += exp(-h * 7.5) * exp(-abs(d.x) * 1.15) * 0.36 * gGlow * gVis;
   // the afterglow: a warm low band that lingers once the sun has gone
   t += exp(-h * 4.5) * 0.11 * smoothstep(-11.0, -1.0, gElev) * (1.0 - smoothstep(-1.0, 4.0, gElev));
+  // the moon's halo, once the sky is dark enough to show it
+  float m = length(P - gMoonP);
+  t += (exp(-m * 7.5) * 0.09 + exp(-m * m * 240.0) * 0.12) * gNight;
   return knee(t);
 }
 
-/** Thin streaks of altostratus, lit from below near the sun at dusk. */
+/** Thin streaks of altostratus, lit from below near the sun at dusk and silvered near the moon at night. */
 float withClouds(vec2 P, float base) {
   float h = (P.y - HORIZON) / (1.0 - HORIZON);
   float shape = smoothstep(0.08, 0.18, h) * smoothstep(0.6, 0.34, h);
@@ -143,9 +190,22 @@ float withClouds(vec2 P, float base) {
   // by day: a little brighter than the sky
   float day = min(0.84, base + 0.1);
   float tone = mix(dusk, day, smoothstep(7.0, 16.0, gElev));
-  // after dark: just a shade darker than the sky
-  tone = mix(base * 0.75, tone, smoothstep(-9.0, -2.5, gElev));
+  // after dark: a shade darker than the sky, silver at the edges near the moon
+  float nearMoon = exp(-length((P - gMoonP) * vec2(0.55, 1.5)) * 2.6);
+  float night = mix(base * 0.75, 0.42, clamp(nearMoon * (0.25 + 0.75 * under) * 1.3, 0.0, 1.0) * gNight);
+  tone = mix(night, tone, smoothstep(-9.0, -2.5, gElev));
   return mix(base, tone, cover);
+}
+
+float starLayer(vec2 P, float grid, float keep, float seed, float level) {
+  vec2 id = floor(P * grid);
+  float r = hash12(id + seed);
+  if (r < keep) return 0.0;
+  vec2 sp = (id + 0.2 + 0.6 * hash22(id + seed + 3.1)) / grid;
+  vec2 q = abs(P - sp) / gPx;
+  if (max(q.x, q.y) > 0.5) return 0.0;
+  float twinkle = 0.7 + 0.3 * sin(gTime * (1.3 + 3.0 * r) + r * 40.0);
+  return level * twinkle;
 }
 
 float stars(vec2 P) {
@@ -153,15 +213,35 @@ float stars(vec2 P) {
   if (vis <= 0.0) return 0.0;
   float h = (P.y - HORIZON) / (1.0 - HORIZON);
   vis *= smoothstep(0.14, 0.5, h);
-  const float GRID = 21.0;
-  vec2 id = floor(P * GRID);
-  float r = hash12(id + 7.7);
-  if (r < 0.8) return 0.0;
-  vec2 sp = (id + 0.2 + 0.6 * hash22(id + 3.1)) / GRID;
-  vec2 q = abs(P - sp) / gPx;
-  if (max(q.x, q.y) > 0.5) return 0.0;
-  float twinkle = 0.7 + 0.3 * sin(gTime * (1.3 + 3.0 * r) + r * 40.0);
-  return vis * twinkle;
+  // the moon washes out the stars around it
+  vis *= smoothstep(MOON_R * 1.3, MOON_R * 3.6, length(P - gMoonP));
+  if (vis <= 0.0) return 0.0;
+  float s = starLayer(P, 21.0, 0.8, 7.7, 1.0);
+  // fainter ones fill in later, as the night deepens
+  if (uTile < 0.5) s = max(s, starLayer(P, 37.0, 0.86, 1.9, 0.62) * smoothstep(-6.0, -11.0, gElev));
+  return vis * s;
+}
+
+/** A shooting star now and then, once it is properly dark (stage only). */
+float meteor(vec2 P) {
+  if (uTile > 0.5 || gNight <= 0.05) return 0.0;
+  const float PERIOD = 6.5;
+  const float LIFE = 0.85;
+  float k = floor(gTime / PERIOD);
+  float ph = gTime - k * PERIOD;
+  if (ph > LIFE || hash11(k * 1.37 + 0.21) > 0.6) return 0.0;
+  float A = uAspect;
+  vec2 start = vec2((0.12 + 0.62 * hash11(k * 2.11 + 3.0)) * A, 0.74 + 0.2 * hash11(k * 5.3 + 1.0));
+  float side = hash11(k * 7.7 + 0.5) < 0.5 ? -1.0 : 1.0;
+  vec2 dir = normalize(vec2(side * (0.75 + 0.5 * hash11(k * 3.3 + 2.0)), -0.42));
+  vec2 head = start + dir * ph * 0.62;
+  const float TAIL = 0.1;
+  vec2 pa = P - (head - dir * TAIL);
+  float h = clamp(dot(pa, dir) / TAIL, 0.0, 1.0);
+  float d = length(pa - dir * TAIL * h);
+  float core = 1.0 - smoothstep(gPx * 0.35, gPx * 0.9, d);
+  float fade = sin(PI * clamp(ph / LIFE, 0.0, 1.0));
+  return core * h * h * fade * gNight * 0.9;
 }
 
 /** Coverage of the sun's disc (it squashes a little as it meets the sea). */
@@ -171,6 +251,30 @@ float sunDisc(vec2 P) {
   vec2 q = (P - gSunP) / vec2(1.0, squash);
   float d = length(q) - R;
   return 1.0 - smoothstep(-gPx * 0.6, gPx * 0.6, d);
+}
+
+/**
+ * The moon over the sky tone underneath: a sphere lit from the sun's side
+ * (its bright limb turns as the sun moves), a few darker seas, earthshine on
+ * the night side. By day it is a pale disc, a little brighter than the sky.
+ */
+float withMoon(vec2 P, float sky) {
+  vec2 q = (P - gMoonP) / MOON_R;
+  float r = length(q);
+  float aa = gPx / MOON_R;
+  float edge = 1.0 - smoothstep(1.0 - aa * 0.6, 1.0 + aa * 0.6, r);
+  float show = smoothstep(7.0, -1.0, gElev);
+  if (edge <= 0.0 || show <= 0.0) return sky;
+  vec3 n = vec3(q, sqrt(max(0.0, 1.0 - r * r)));
+  vec3 toSun = vec3(gMoonL * sin(MOON_ELONG), -cos(MOON_ELONG));
+  float lit = smoothstep(-0.05, 0.14, dot(n, toSun));
+  float seas = smoothstep(0.52, 0.72, vnoise(q * 2.2 + vec2(4.1, 1.3))) * 0.2
+             + smoothstep(0.6, 0.8, vnoise(q * 4.6 + vec2(9.0, 2.0))) * 0.1;
+  // the limb is a touch darker than the middle
+  float face = (0.92 - seas) * (0.86 + 0.14 * n.z);
+  float night = mix(0.06, face, lit);
+  float day = sky + lit * (0.1 - seas * 0.2);
+  return mix(sky, mix(day, max(sky, night), gNight), edge * show);
 }
 
 /* ---------------------------------------------------------------- gulls */
@@ -221,118 +325,204 @@ float gulls(vec2 P) {
   return cov * vis;
 }
 
-/* ---------------------------------------------------------------- shore */
+/* ----------------------------------------------------------------- boat */
 
-/** The top of the low shore at x (it rises out of the sea at gX0). */
-float groundTop(float x) {
-  float rise = smoothstep(gX0, gX0 + 0.09, x);
-  return HORIZON - 0.003 + rise * (0.019 + 0.0024 * sin(x * 31.0) + 0.0016 * sin(x * 77.0 + 1.0));
+float boatX() {
+  float A = uAspect;
+  return mod(0.44 * A - 0.0014 * (gTime - STILL) + 0.06, A + 0.12) - 0.06;
 }
 
 /**
- * The shore, houses, mosque and minaret: x = coverage, y = 1 on a lit
- * window. lightR is a lit window's half size (one dot is 0.5 × gPx).
+ * A small sailboat on the horizon (stage only): x = coverage, y = its
+ * masthead light, lit at dusk. lightR is the light's half size.
  */
-vec2 shore(vec2 P, float aa, float lightR) {
-  if (P.x < gX0 - 0.02) return vec2(0.0);
-  float d = P.y - groundTop(P.x);
+vec2 boat(vec2 P, float aa, float lightR) {
+  if (uTile > 0.5) return vec2(0.0);
+  float bx = boatX();
+  if (abs(P.x - bx) > 0.04 || P.y > HORIZON + 0.06 || P.y < HORIZON - 0.005) return vec2(0.0);
+  const float K = 1.35;   // its size
+  float b = HORIZON + 0.0004;
+  // the hull: a low wedge, longer at the deck than at the waterline
+  float hull = sdTri(P, vec2(bx - 0.0125 * K, b + 0.0042 * K), vec2(bx + 0.0125 * K, b + 0.0042 * K), vec2(bx - 0.006 * K, b - 0.002 * K));
+  hull = min(hull, sdBox(P, vec2(bx + 0.001 * K, b + 0.0018 * K), vec2(0.0085 * K, 0.0024 * K)));
+  float mx = bx + 0.0015 * K;
+  float d = min(hull, sdBox(P, vec2(mx, b + 0.022 * K), vec2(0.0008, 0.018 * K)));
+  // the mainsail aft of the mast, the jib before it
+  d = min(d, sdTri(P, vec2(mx - 0.0006, b + 0.039 * K), vec2(mx - 0.0006, b + 0.0062 * K), vec2(mx - 0.0125 * K, b + 0.0062 * K)));
+  d = min(d, sdTri(P, vec2(mx + 0.0012, b + 0.034 * K), vec2(mx + 0.0012, b + 0.0062 * K), vec2(mx + 0.0105 * K, b + 0.0062 * K)));
+  float cov = cover(d, aa);
+  vec2 q = abs(P - vec2(mx, b + 0.041 * K));
+  float light = max(q.x, q.y) < lightR ? smoothstep(0.25, 0.6, gLights) : 0.0;
+  return vec2(cov, light);
+}
+
+/* ------------------------------------------------------------- headland */
+
+/** The top of the headland at x: a steep face from the point, a rounded brow, the plateau climbing inland. */
+float groundTop(float x) {
+  float t = (x - gX0) / max(uAspect - gX0, 1e-3);
+  float rise = smoothstep(0.0, 0.2, t);
+  float face = rise * (1.0 - rise) * 4.0;
+  float h = 0.062 * rise + 0.014 * smoothstep(0.15, 1.0, t);
+  h += rise * (0.0021 * sin(x * 47.0) + 0.0013 * sin(x * 121.0 + 1.3));
+  h += face * 0.006 * (vnoise(vec2(x * 90.0, 0.5)) - 0.5);
+  return HORIZON - 0.003 + h;
+}
+
+float landTone() {
+  return 0.012 + 0.11 * smoothstep(9.0, 26.0, gElev);
+}
+
+/**
+ * Light on a white vertical cylinder of half width hw at offset u across
+ * it (-1 … 1): sky light from the front, the sun wrapped round its side.
+ */
+float paint(float u) {
+  float z = sqrt(max(0.0, 1.0 - u * u));
+  // toward the camera is -z in the scene; the sun is far ahead of us
+  float lam = (u * gSunDir.x - z * gSunDir.z * 0.35 + gSunDir.y * 0.4 + 0.22) / 1.22;
+  float sun = max(0.0, lam) * gSunUp * (0.42 + 0.3 * gGlow);
+  float sky = 0.01 + 0.33 * gDay * gDay * (0.75 + 0.25 * z);
+  return landTone() + sky + sun + 0.02 * gNight * z;
+}
+
+/**
+ * The headland, the rocks off its point, the shed, the keeper's cottage and the
+ * lighthouse: x = coverage, y = 1 on a lit window or the lamp, z = the
+ * tone of whatever is there. lightR is a lit window's half size.
+ */
+vec3 headland(vec2 P, float aa, float lightR) {
+  if (P.x < gStackX - 0.02 || P.y > gGround + TH + LDY + LH + 0.045) return vec3(0.0);
+  float land = landTone();
+
+  // the ground (cliff and plateau) and the rocks off the point
+  float dGround = P.y - groundTop(P.x);
+  float dStack = (length((P - vec2(gX0 - 0.004, HORIZON - 0.001)) / vec2(0.019, 0.0125)) - 1.0) * 0.0125;
+  dStack = min(dStack, (length((P - vec2(gStackX, HORIZON - 0.001)) / vec2(0.0085, 0.0072)) - 1.0) * 0.0072);
+  dStack += 0.0012 * (vnoise(P * 520.0) - 0.5);
+  float d = min(dGround, dStack);
+  float shade = land;
+  // the low sun grazes the brow of the headland and the tops of the rocks
+  float brow = (1.0 - smoothstep(0.0, gPx * 1.6, -min(dGround, dStack))) * step(min(dGround, dStack), 0.0);
+  shade += brow * (0.22 * gGlow * gSunUp + 0.08 * smoothstep(6.0, 20.0, gElev));
+  // strata in the rock face by day
+  if (dGround < 0.0 && gDay > 0.01) shade += 0.05 * gDay * (fbm(P * vec2(80.0, 34.0)) - 0.5);
+
   float lit = 0.0;
 
-  // houses: low cubes along the shore, shoulder to shoulder
-  float bw = 0.028;
-  float start = gX0 + 0.04;
-  float fi = floor((P.x - start) / bw);
-  for (int k = -1; k <= 1; k++) {
-    float i = fi + float(k);
-    if (i < 0.0) continue;
-    float cx = start + (i + 0.5) * bw;
-    if (abs(cx - (gMx - 0.05)) < 0.105) continue; // the mosque's plot
-    float r1 = hash11(i * 7.31 + 1.7);
-    float r2 = hash11(i * 3.17 + 5.3);
-    if (r1 < 0.08) continue;
-    float hw = bw * (0.42 + 0.2 * r2);
-    float hh = 0.007 + 0.016 * r1 * r1 + 0.006 * smoothstep(0.7, 0.95, r2);
-    float base = groundTop(cx) - 0.002;
-    vec2 c = vec2(cx + (r2 - 0.5) * bw * 0.2, base + hh * 0.5);
-    d = min(d, sdBox(P, c, vec2(hw, hh * 0.5)));
-    // a stair tower on some roofs
-    if (r2 > 0.72) d = min(d, sdBox(P, c + vec2(hw * 0.45, hh * 0.5 + 0.003), vec2(hw * 0.22, 0.003)));
-    for (int j = 0; j < 2; j++) {
-      float fj = float(j);
-      float rj = hash11(i * 11.1 + fj * 4.7 + 0.3);
-      if (rj > gLights * 1.15 - 0.06) continue;
-      vec2 wp = c + vec2((hash11(i * 5.9 + fj * 2.2) - 0.5) * hw * 1.3, (hash11(i * 2.3 + fj * 9.1) - 0.5) * hh * 0.5);
-      vec2 q = abs(P - wp);
-      if (max(q.x, q.y) < lightR) lit = 1.0;
+  // the shed: a small block with a lean-to roof
+  float dShed = sdBox(P, vec2(gShedX, gShedG + 0.006), vec2(0.0095, 0.0075));
+  dShed = min(dShed, max(P.y - (gShedG + 0.0145 - (P.x - gShedX) * 0.22), max(abs(P.x - gShedX) - 0.0108, gShedG - P.y)));
+  if (dShed < d) shade = mix(shade, paint(0.4) * 0.8, cover(dShed, aa));
+  d = min(d, dShed);
+
+  // the keeper's cottage: white walls under a gabled roof, a chimney, two windows
+  float g = gCotG;
+  float cx = gCotX;
+  float dWall = sdBox(P, vec2(cx, g + 0.0095), vec2(0.022, 0.0105));
+  float dRoof = max(max((P.y - (g + 0.035 - 0.58 * abs(P.x - cx))) * 0.86, g + 0.019 - P.y), abs(P.x - cx) - 0.0255);
+  dRoof = min(dRoof, sdBox(P, vec2(cx + 0.012, g + 0.033), vec2(0.0024, 0.0055)));
+  float dHouse = min(dWall, dRoof);
+  // the windows: dark panes by day, lit one by one at dusk
+  bool pane = false;
+  for (int j = 0; j < 2; j++) {
+    float fj = float(j);
+    vec2 q = abs(P - vec2(cx + (j == 0 ? -0.0105 : 0.0085), g + 0.0105));
+    if (max(q.x, q.y * 0.8) < max(lightR, 0.0034)) {
+      pane = true;
+      if (hash11(fj * 4.7 + 0.3) <= gLights * 1.15 - 0.04) lit = 1.0;
     }
   }
-
-  // the mosque: a low hall under two pyramid roofs, beside its minaret
-  float W = 0.05;
-  float base = groundTop(gMx) - 0.002;
-  float hallTop = base + 0.024;
-  d = min(d, sdBox(P, vec2(gMx - 0.085, base + 0.012), vec2(0.07, 0.012)));
-  for (int k = 0; k < 2; k++) {
-    float rc = gMx - 0.05 - float(k) * 0.07;
-    float hw = 0.034;
-    float rh = 0.011;
-    float roof = (P.y - (hallTop + rh * (1.0 - abs(P.x - rc) / hw))) * 0.95;
-    roof = max(roof, abs(P.x - rc) - hw);
-    roof = max(roof, hallTop - 0.001 - P.y);
-    d = min(d, roof);
+  if (dHouse < d) {
+    float wall = pane ? land + 0.015 : paint(clamp((P.x - cx) / 0.03, -1.0, 1.0) * 0.6) * 0.92;
+    shade = mix(shade, dWall < dRoof ? wall : land + 0.03 * gDay, cover(dHouse, aa));
   }
+  d = min(d, dHouse);
 
-  // the minaret: a square tower, a crenellated top, the lantern, its dome
-  // and a finial of three spheres
-  float H = 0.3;
-  d = min(d, sdBox(P, vec2(gMx, base + H * 0.5), vec2(W * 0.5, H * 0.5)));
-  d = min(d, sdBox(P, vec2(gMx, base + H - 0.006), vec2(W * 0.5 + 0.0032, 0.0045)));
-  for (int k = -1; k <= 1; k++) {
-    float cx = gMx + float(k) * W * 0.4;
-    d = min(d, sdBox(P, vec2(cx, base + H + 0.0065), vec2(W * 0.1, 0.0065)));
-    d = min(d, sdBox(P, vec2(cx, base + H + 0.0155), vec2(W * 0.05, 0.004)));
-  }
-  float lb = base + H;
-  float LW = W * 0.42;
-  float LH = 0.07;
-  d = min(d, sdBox(P, vec2(gMx, lb + LH * 0.5), vec2(LW * 0.5, LH * 0.5)));
-  d = min(d, sdBox(P, vec2(gMx, lb + LH - 0.003), vec2(LW * 0.5 + 0.0028, 0.003)));
-  float dr = LW * 0.4;
-  vec2 dc = vec2(gMx, lb + LH);
-  d = min(d, max(length(P - dc) - dr, dc.y - P.y));
-  float ft = lb + LH + dr;
-  d = min(d, sdBox(P, vec2(gMx, ft + 0.022), vec2(0.0017, 0.022)));
-  d = min(d, length(P - vec2(gMx, ft + 0.01)) - 0.006);
-  d = min(d, length(P - vec2(gMx, ft + 0.023)) - 0.0048);
-  d = min(d, length(P - vec2(gMx, ft + 0.034)) - 0.0036);
-
-  float cov = 1.0 - smoothstep(-aa * 0.5, aa * 0.5, d);
-
-  // the minaret's windows: small arches up the shaft and two in the
-  // lantern, lit in turn as dusk deepens
-  if (abs(P.x - gMx) < W * 0.5 && P.y > base && P.y < lb + LH) {
-    float wd = 1e3;
-    for (int k = 0; k < 4; k++) {
-      float fk = float(k);
-      if (hash11(fk * 3.3 + 0.7) > gLights * 1.25) continue;
-      float wy = base + H * (0.2 + 0.24 * fk);
-      float wx = gMx + (mod(fk, 2.0) < 0.5 ? -1.0 : 1.0) * W * 0.16;
-      float aw = W * 0.09;
-      float ah = 0.011;
-      float a = min(sdBox(P, vec2(wx, wy), vec2(aw, ah)), length(P - vec2(wx, wy + ah)) - aw);
-      wd = min(wd, a);
+  // the lighthouse: a tapered white tower with two painted bands
+  float ty = clamp((P.y - gGround) / TH, 0.0, 1.0);
+  float hw = mix(TBW, TTW, ty);
+  float dTower = max(abs(P.x - gLx) - hw, max(gGround - 0.012 - P.y, P.y - (gGround + TH)));
+  float gy = gGround + TH;
+  // the gallery round the top, then the lantern, its dome and the vent
+  float dGallery = sdBox(P, vec2(gLx, gy + 0.004), vec2(TTW + 0.0068, 0.0041));
+  float dRail = sdBox(P, vec2(gLx, gy + 0.0102), vec2(TTW + 0.0054, 0.0012));
+  float ly = gy + LDY;
+  float dLantern = sdBox(P, vec2(gLx, ly + LH * 0.5), vec2(LW, LH * 0.5));
+  float dDome = max(length((P - vec2(gLx, ly + LH)) * vec2(1.0, 1.15)) - LW * 1.18, ly + LH - 0.001 - P.y);
+  float dVent = length(P - vec2(gLx, ly + LH + 0.0148)) - 0.0036;
+  dVent = min(dVent, sdBox(P, vec2(gLx, ly + LH + 0.0215), vec2(0.0008, 0.0045)));
+  float dIron = min(min(dGallery, dRail), min(dDome, dVent));
+  float dLight = min(min(dTower, dLantern), dIron);
+  if (dLight < d) {
+    float tone;
+    if (dTower <= min(dLantern, dIron)) {
+      float bands = step(0.34, ty) * step(ty, 0.47) + step(0.66, ty) * step(ty, 0.79);
+      float white = paint(clamp((P.x - gLx) / hw, -1.0, 1.0));
+      tone = mix(white, land + (white - land) * 0.42, bands);
+    } else {
+      // black iron, and the glazing: a little sky in it by day
+      tone = land + 0.025 * gDay;
+      vec2 gq = abs(P - vec2(gLx, ly + LH * 0.5)) - vec2(LW - 0.0024, LH * 0.5 - 0.004);
+      if (max(gq.x, gq.y) < 0.0) tone = land + 0.1 + 0.36 * gDay;
     }
-    if (gLights > 0.08) {
-      for (int k = -1; k <= 1; k += 2) {
-        float wx = gMx + float(k) * LW * 0.2;
-        float a = min(sdBox(P, vec2(wx, lb + LH * 0.48), vec2(LW * 0.11, 0.011)), length(P - vec2(wx, lb + LH * 0.48 + 0.011)) - LW * 0.11);
-        wd = min(wd, a);
-      }
-    }
-    float wcov = 1.0 - smoothstep(-aa * 0.5, aa * 0.5, wd);
-    lit = max(lit, wcov * 0.9);
+    shade = mix(shade, tone, cover(dLight, aa));
   }
-  return vec2(cov, lit * cov);
+  d = min(d, dLight);
+
+  float cov = cover(d, aa);
+  // the lamp behind the glazing
+  if (uLamp > 0.0) {
+    vec2 gq = abs(P - vec2(gLx, ly + LH * 0.5)) - vec2(LW - 0.002, LH * 0.5 - 0.0035);
+    float glass = cover(max(gq.x, gq.y), aa);
+    lit = max(lit, glass * uLamp * 1.04);
+  }
+  return vec3(cov, min(lit, 1.0) * cov, shade);
+}
+
+/* ---------------------------------------------------------------- beams */
+
+/**
+ * One beam turned to angle th about the tower (cos: across the picture,
+ * sin: into it). Seen in perspective its axis leaves the lamp toward the
+ * point on the horizon it is heading for (away from you it narrows and
+ * runs down toward the line; across, it is long and level; toward you it
+ * shortens, widens and flares).
+ */
+float beamOne(vec2 P, float th) {
+  float cx = cos(th);
+  float cz = sin(th);
+  vec2 o = vec2((gLamp.x - 0.5 * uAspect) / FOCAL, (gLamp.y - HORIZON) / FOCAL);
+  vec2 dr = vec2(cx - o.x * cz, -o.y * cz);
+  float sp = length(dr);
+  float toward = smoothstep(0.25, -0.95, cz);
+  // a beam coming toward you climbs out of the frame in a true projection;
+  // held flatter it reads as the sweep it is
+  vec2 dir = normalize(vec2(dr.x, dr.y * mix(1.0, 0.3, step(cz, 0.0))) + 1e-5);
+  vec2 q = P - gLamp;
+  float a = dot(q, dir);
+  if (a <= 0.0) return 0.0;
+  float perp = abs(q.x * dir.y - q.y * dir.x);
+  float w = 0.0035 + a * (0.055 + 0.22 * toward);
+  float fall = exp(-a / ((0.05 + 0.95 * sp) * mix(1.0, 0.5, toward))) * smoothstep(0.0, 0.014, a);
+  // a beam heading away ends where it meets the horizon
+  if (cz > 0.0) fall *= 1.0 - smoothstep(0.55, 1.0, a * cz / (FOCAL * sp + 1e-4));
+  return exp(-(perp * perp) / (w * w)) * fall * mix(0.34, 1.0, toward);
+}
+
+float beams(vec2 P) {
+  if (uLamp <= 0.0 || gDark <= 0.0) return 0.0;
+  // a touch bolder on the small tile, where the beams are only a few dots wide
+  return (beamOne(P, uBeam) + beamOne(P, uBeam + PI)) * gDark * uLamp * mix(0.62, 0.8, uTile);
+}
+
+/** The lamp's own glow, and the flash as a beam swings through you. */
+float lampGlow(vec2 P) {
+  if (uLamp <= 0.0) return 0.0;
+  float r = length((P - gLamp) * vec2(1.0, 1.1));
+  float halo = exp(-r * 44.0) * (0.05 + 0.16 * gDark) + exp(-r * r * 5200.0) * 0.4;
+  float flash = gFlash * (exp(-r * 10.0) * 0.22 * (0.35 + 0.65 * gDark) + exp(-r * r * 700.0) * 0.5);
+  return uLamp * (halo + flash);
 }
 
 /* ------------------------------------------------------------------ sea */
@@ -373,8 +563,28 @@ vec2 waveGrad(vec2 w, float time, float foot, out vec2 dropped) {
   return g;
 }
 
-float landTone() {
-  return 0.012 + 0.11 * smoothstep(9.0, 26.0, gElev);
+/**
+ * A glitter path toward the light in direction L: how likely a wavelet
+ * here is tilted to throw that light at the camera, around the slope of
+ * the waves underneath, plus a discrete twinkle per dot.
+ */
+float glitter(vec3 ray, vec2 g, vec2 dropped, vec3 L, vec2 cell, float base, float seed, float sparkles) {
+  vec3 hv = normalize(-ray + L);
+  vec2 need = hv.xz / max(hv.y, 1e-3);
+  vec2 dev = need + g;
+  // the waves left out at this distance still tilt the facets: their slope
+  // variance widens the spread (as in LEAN / Toksvig mapping), so the path
+  // stays whole into the distance instead of breaking into clumps. It is
+  // mostly variance along z, which lengthens the path, not widens it.
+  vec2 s2 = vec2(base * base) + dropped * 0.85;
+  float p = exp(-0.5 * (dev.x * dev.x / s2.x + dev.y * dev.y / s2.y));
+  // the same light spread over more slopes is dimmer per facet
+  float spread = base * base * inversesqrt(s2.x * s2.y);
+  float frame = floor(gTime * 7.0);
+  float tw = hash12(cell * 1.37 + vec2(frame * 13.1 + seed, frame * 7.7 - seed));
+  // far off, fewer and finer sparkles: a shimmer rather than a glare
+  float sparkle = step(tw, p * 1.25 * mix(1.0, spread, 0.75)) * smoothstep(0.015, 0.12, p);
+  return 0.5 * p * mix(1.0, spread, 0.4) + 0.8 * sparkle * sparkles;
 }
 
 float sea(vec2 P, vec2 cell) {
@@ -388,51 +598,45 @@ float sea(vec2 P, vec2 cell) {
   vec2 g = waveGrad(w, gTime, foot, dropped);
   vec3 n = normalize(vec3(-g.x, 1.0, -g.y));
 
-  // what the water mirrors: the sky, or the shore and its lights
+  // what the water mirrors: the sky, or the headland and its lights
   vec3 nr = normalize(vec3(-g.x * 0.55, 1.0, -g.y * 0.55));
   vec3 r = reflect(ray, nr);
   r.y = max(r.y, 0.0015);
   r.z = max(r.z, 0.05);
   vec2 Pr = vec2(0.5 * A + r.x / r.z * FOCAL, HORIZON + r.y / r.z * FOCAL);
   float refl = withClouds(Pr, skyBase(Pr));
-  vec2 L = shore(Pr, gPx * 1.6, gPx * 1.7);
-  float mirror = 1.0 - smoothstep(0.03, 0.17, v);
-  refl = mix(refl, landTone(), L.x * mirror);
+  float mirror = 1.0 - smoothstep(0.1, 0.3, v);
+  refl += beams(Pr) * 0.5 * mirror;
+  vec3 L = headland(Pr, gPx * 1.6, gPx * 1.7);
+  refl = mix(refl, L.z, L.x * mirror);
   refl = max(refl, L.y * 0.95 * mirror);
+  vec2 B = boat(Pr, gPx * 1.6, gPx * 1.4);
+  refl = mix(refl, landTone(), B.x * mirror);
+  refl = max(refl, B.y * 0.8 * mirror);
 
   float cosT = clamp(dot(-ray, n), 0.0, 1.0);
   float F = 0.02 + 0.98 * pow(1.0 - cosT, 5.0);
   float body = 0.02 + 0.15 * gDay + 0.05 * gGlow;
   float tone = mix(body, refl, F);
 
-  // the sun's glitter: how likely a wavelet here is tilted to throw the
-  // sun at the camera, around the slope of the waves underneath
+  // the three glitter paths: the sun, the moon, the lamp
   if (gSunUp > 0.0) {
-    vec3 hv = normalize(-ray + gSunDir);
-    vec2 need = hv.xz / max(hv.y, 1e-3);
-    vec2 dev = need + g;
     float base = 0.07 + 0.03 * smoothstep(12.0, 25.0, gElev);
-    // the waves left out at this distance still tilt the facets: their slope
-    // variance widens the spread (as in LEAN / Toksvig mapping), so the path
-    // stays whole into the distance instead of breaking into clumps. It is
-    // mostly variance along z, which lengthens the path, not widens it.
-    vec2 s2 = vec2(base * base) + dropped * 0.85;
-    float p = exp(-0.5 * (dev.x * dev.x / s2.x + dev.y * dev.y / s2.y));
-    // the same light spread over more slopes is dimmer per facet
-    float spread = base * base * inversesqrt(s2.x * s2.y);
-    float frame = floor(gTime * 7.0);
-    float tw = hash12(cell * 1.37 + vec2(frame * 13.1, frame * 7.7));
-    // far off, fewer and finer sparkles: a shimmer rather than a glare
-    float sparkle = step(tw, p * 1.25 * mix(1.0, spread, 0.75)) * smoothstep(0.015, 0.12, p);
-    float glit = 0.5 * p * mix(1.0, spread, 0.4) + 0.8 * sparkle;
-    tone += glit * gSunUp * (0.75 + 0.25 * gGlow);
+    tone += glitter(ray, g, dropped, gSunDir, cell, base, 0.0, 1.0) * gSunUp * (0.75 + 0.25 * gGlow);
+  }
+  if (gNight > 0.0) {
+    tone += glitter(ray, g, dropped, gMoonDir, cell, 0.06, 17.0, 0.7) * gNight * 0.42;
+  }
+  if (uLamp * gDark > 0.0) {
+    tone += glitter(ray, g, dropped, gLampDir, cell, 0.05, 31.0, 0.7) * uLamp * gDark * (0.26 + 0.5 * gFlash);
   }
 
-  // foam where the swell meets the shore
-  if (P.x > gX0 + 0.012 && v < 0.0075) {
+  // foam where the swell meets the cliff and the rocks
+  bool rock = P.x > gX0 - 0.022 || abs(P.x - gStackX) < 0.009;
+  if (rock && v < 0.0075) {
     float surge = vnoise(vec2(P.x * 95.0 + gTime * 0.45, gTime * 0.32));
-    float foam = smoothstep(0.55, 0.72, surge) * (1.0 - smoothstep(0.003, 0.0075, v));
-    tone = mix(tone, 0.35 + 0.5 * gDay, foam * 0.85);
+    float foam = smoothstep(0.58, 0.76, surge) * (1.0 - smoothstep(0.003, 0.0075, v));
+    tone = mix(tone, 0.32 + 0.42 * gDay, foam * 0.75);
   }
   return tone;
 }
@@ -451,7 +655,7 @@ void main() {
   gPx = 1.0 / (uCells.y * uZoom);
   gTime = uTime;
   gElev = uSun.y;
-  gSunP = vec2(uSun.x * A, HORIZON + tan(radians(gElev)) * FOCAL);
+  gSunP = vec2(uSun.x * A, heightAt(gElev));
   gSunDir = normalize(vec3(gSunP.x - 0.5 * A, gSunP.y - HORIZON, FOCAL));
   gDay = smoothstep(-9.0, 15.0, gElev);
   gGlow = exp(-pow((gElev - 1.0) / 8.0, 2.0));
@@ -459,13 +663,34 @@ void main() {
   gSunUp = smoothstep(-1.2, 0.8, gElev);
   // the first windows come on while the sun is still touching the sea
   gLights = smoothstep(2.5, -7.5, gElev);
-  gX0 = 0.6 * A;
-  gMx = 0.775 * A;
+  gNight = smoothstep(-1.5, -9.0, gElev);
+  // how much the air shows the beams
+  gDark = smoothstep(1.0, -5.5, gElev);
+  // a beam swinging through the line of sight
+  gFlash = pow(abs(sin(uBeam)), 16.0);
+
+  // the moon climbs a little as the night deepens; its lit side faces the sun
+  gMoonP = vec2(${f(MOON_X)} * A, heightAt(mix(12.5, 19.0, smoothstep(2.0, -12.0, gElev))));
+  gMoonL = normalize(gSunP - gMoonP);
+  gMoonDir = normalize(vec3(gMoonP.x - 0.5 * A, gMoonP.y - HORIZON, FOCAL));
+
+  gX0 = ${f(HEADLAND_X)} * A;
+  gLx = ${f(LIGHT_X)} * A;
+  gGround = groundTop(gLx);
+  gCotX = gLx + 0.074;
+  gCotG = groundTop(gCotX) - 0.002;
+  gShedX = gLx - 0.046;
+  gShedG = groundTop(gShedX) - 0.002;
+  gStackX = gX0 - 0.036;
+  gLamp = vec2(gLx, gGround + TH + LDY + LH * 0.5);
+  gLampDir = normalize(vec3(gLamp.x - 0.5 * A, gLamp.y - HORIZON, FOCAL));
 
   float tone;
   if (P.y >= HORIZON) {
     tone = withClouds(P, skyBase(P));
     tone = max(tone, stars(P));
+    tone = withMoon(P, tone);
+    tone = max(tone, meteor(P));
     float disc = sunDisc(P);
     if (disc > 0.0) {
       // the low sun is a touch dimmer at its foot, seen through more air,
@@ -475,11 +700,16 @@ void main() {
       float sunTone = mix(0.93, 1.0, max(foot, smoothstep(2.0, 8.0, gElev)));
       tone = mix(tone, max(tone, sunTone), disc);
     }
-    float g = gulls(P);
-    tone = mix(tone, landTone() + 0.02, g);
-    vec2 L = shore(P, gPx, gPx * 0.5);
-    tone = mix(tone, landTone(), L.x);
+    tone += beams(P);
+    float gl = gulls(P);
+    tone = mix(tone, landTone() + 0.02, gl);
+    vec2 B = boat(P, gPx, gPx * 0.5);
+    tone = mix(tone, landTone() + 0.01, B.x);
+    tone = max(tone, B.y * 0.85);
+    vec3 L = headland(P, gPx, gPx * 0.5);
+    tone = mix(tone, L.z, L.x);
     tone = max(tone, L.y);
+    tone += lampGlow(P);
   } else {
     tone = sea(P, cell);
   }

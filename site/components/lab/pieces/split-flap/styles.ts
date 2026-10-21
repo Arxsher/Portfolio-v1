@@ -12,8 +12,8 @@
 //            hairline rim where it meets the housing.
 //   housing  satin white enamel in light mode, graphite in dark, with a soft
 //            object shadow on the stage; four steel screws; the legend
-//            printed on it in Geist: the mark, "Départs" / DEPARTURES, the
-//            Casablanca clock in its own small bay.
+//            printed on it in Geist: the mark, "Departures" and the day, the
+//            local-time clock in its own small bay under its GMT offset.
 //   lamps    one per row: green steady (on time), amber breathing
 //            (boarding), dark glass when off.
 //
@@ -298,10 +298,15 @@ export const css = `
 .sf-title .sf-caps { align-self: flex-end; padding-bottom: calc(var(--u) * 0.12); margin-inline-start: calc(var(--u) * 0.08); }
 .sf-clock { display: flex; align-items: center; gap: calc(var(--u) * 0.42); }
 .sf-place { display: flex; flex-direction: column; align-items: flex-end; gap: calc(var(--u) * 0.16); }
-.sf-arabic {
+.sf-zone {
+  font-family: var(--font-sans);
+  font-weight: 500;
   font-size: calc(var(--u) * 0.44);
   line-height: 1;
+  letter-spacing: 0.01em;
+  font-variant-numeric: tabular-nums;
   color: var(--sf-label);
+  white-space: nowrap;
 }
 .sf-clockbay { display: flex; align-items: center; gap: var(--gx); padding: calc(var(--u) * 0.16); border-radius: calc(var(--u) * 0.16); }
 .sf-colon {

@@ -4,8 +4,9 @@
 //
 // Look. An object on the stage, not a screen: a housing in satin white
 // enamel (graphite in dark mode) held by four steel screws, a recessed bay
-// of charcoal flaps with white letters in Geist, a Casablanca clock in its
-// own little bay and a lamp at the end of every row. One light from above
+// of charcoal flaps with white letters in Geist, Zakaria's local time in
+// its own little bay (labelled with the day and the GMT offset, read from
+// the browser's time-zone data) and a lamp at the end of every row. One light from above
 // does all the shading (see engine.ts): falling fronts darken, landing
 // backs catch a glint, the half underneath sits in the flap's shadow.
 // Colour is kept for meaning: remarks and lamps in the site's green and
@@ -34,7 +35,7 @@
 // (it slides); adding rows past that shrinks it to fit.
 //
 // Tile: the same object in miniature on the tile's own ground: the housing,
-// two rows of eight turning between "CASA / BLANCA" and a few departures,
+// two rows of eight turning between "WELCOME / ABOARD" and a few departures,
 // the legend and one lamp lit for the remark; a hover moves it on. Reduced
 // motion: still boards, changes land at once.
 
@@ -66,7 +67,7 @@ import {
   TrayDivider,
   TrayRow,
 } from "../../ui";
-import { casaTime } from "./clock";
+import { localTime } from "./clock";
 import {
   CLOCK_DRUMS,
   MESSAGES,
@@ -218,6 +219,9 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
   const [message, setMessage] = useState<Message | null>(null);
   const [offset, setOffset] = useState(0);
   const [time, setTime] = useState<string | null>(null);
+  /** The legend beside the clock: the zone ("GMT+1") and the day ("Tue 20 Oct"). */
+  const [zone, setZone] = useState("");
+  const [day, setDay] = useState("");
   const [announce, setAnnounce] = useState("");
   const glyphOffset = useGlyphOffset();
   const id = useId();
@@ -385,7 +389,7 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
     if (!active) return;
     let idle = 0;
     const tick = () => {
-      const now = casaTime(Math.floor(Date.now() / 1000));
+      const now = localTime(Math.floor(Date.now() / 1000));
       if (!now) return;
       const digits = now.hh + now.mm;
       clockRef.current.forEach((cell, index) => {
@@ -395,6 +399,8 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
         else engine.set(cell, glyph, 0.35 + index * 0.06);
       });
       setTime(`${now.hh}:${now.mm}`);
+      setZone(now.zone);
+      setDay(now.day);
       wake();
       // While you are turning flaps by hand the timetable holds still.
       if (performance.now() - touched.current > 8000) idle += 1;
@@ -629,7 +635,7 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
   const capacity = Math.max(16, (rows || 6) * (cols || 26));
   const description = message
     ? `It reads: ${message.text.toLowerCase()}.`
-    : `${time ? `${time} in Casablanca. ` : ""}${shown
+    : `${time ? `Local time ${time}${zone ? ` ${zone}` : ""}. ` : ""}${shown
         .filter((flight): flight is Flight => Boolean(flight))
         .map((flight) => `${flight.name.toLowerCase()}, ${flight.remark.toLowerCase()}`)
         .join("; ")}.`;
@@ -654,17 +660,13 @@ function Stage({ active, reducedMotion, theme }: PieceProps) {
           <div className="sf-head" aria-hidden="true">
             <div className="sf-title">
               <Logo size={14} />
-              <span className="sf-departs">Départs</span>
-              {wide ? <span className="sf-caps">Departures</span> : null}
+              <span className="sf-departs">Departures</span>
+              {wide && day ? <span className="sf-caps">{day}</span> : null}
             </div>
             <div className="sf-clock">
               <div className="sf-place">
-                {wide ? (
-                  <span className="sf-arabic" lang="ar" dir="rtl">
-                    الدار البيضاء
-                  </span>
-                ) : null}
-                <span className="sf-caps">Casablanca</span>
+                {zone ? <span className="sf-zone">{zone}</span> : null}
+                <span className="sf-caps">Local time</span>
               </div>
               <div ref={clockHostRef} className="sf-bay sf-clockbay" />
             </div>

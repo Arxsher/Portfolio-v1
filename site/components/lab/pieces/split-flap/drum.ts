@@ -167,8 +167,8 @@ export function flightRow(flight: Flight | undefined, cols: number): Glyph[] {
 
 /** Lines the board can be asked for by the shuffle button: short, ours. */
 export const MESSAGES: readonly string[] = [
-  "Marhaba, welcome aboard",
-  "Made in Morocco",
+  "Welcome aboard",
+  "Delayed by one more feature",
   "Zero room for jank",
   "Resident tinkerer",
   "Every flap drawn in code",
@@ -178,7 +178,7 @@ export const MESSAGES: readonly string[] = [
 /** The small board on the home and lab tiles: two rows, eight cells. */
 export const TILE_COLS = 8;
 export const TILE_BOARDS: ReadonlyArray<{ rows: [string, string]; tone: Tone; lamp: Tone | null }> = [
-  { rows: ["CASA", "BLANCA"], tone: "ink", lamp: null },
+  { rows: ["WELCOME", "ABOARD"], tone: "ink", lamp: null },
   ...FLIGHTS.filter((flight) => flight.name.length <= TILE_COLS)
     .slice(0, 4)
     .map((flight) => ({ rows: [flight.name, flight.remark] as [string, string], tone: flight.tone, lamp: flight.tone })),

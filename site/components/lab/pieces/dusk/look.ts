@@ -17,6 +17,38 @@ export const STILL_TIME = 31.4;
 export const ELEV_MIN = -13;
 export const ELEV_MAX = 27;
 
+/** Where the headland rises out of the sea, as a share of the picture's width. */
+export const HEADLAND_X = 0.6;
+/** The lighthouse on it (share of the width). */
+export const LIGHT_X = 0.78;
+/** The moon, already in the sky by day, shows as the light goes (share of the width). */
+export const MOON_X = 0.34;
+
+/**
+ * The lamp strikes once the sun is this low (degrees) and goes out again
+ * above LAMP_OFF, so a sun resting near the line never flickers it.
+ */
+export const LAMP_ON = 1.5;
+export const LAMP_OFF = 3;
+/** Seconds for the lamp's two beams to make one turn. */
+export const BEAM_TURN = 9;
+/** The still frame's beam (radians): reaching left, a little toward you. */
+export const STILL_BEAM = 3.5;
+
+/**
+ * The lamp's brightness `t` seconds after it strikes: two quick flickers,
+ * then a warm rise to full (a discharge lamp warming up), so the light
+ * comes on as an event rather than a fade.
+ */
+export function ignition(t: number): number {
+  if (t < 0.05) return 0.75;
+  if (t < 0.11) return 0.08;
+  if (t < 0.17) return 0.55;
+  if (t < 0.24) return 0.14;
+  const k = Math.min(1, (t - 0.24) / 0.75);
+  return 0.38 + 0.62 * (1 - (1 - k) * (1 - k) * (1 - k));
+}
+
 /** Elevation (degrees) for a height across the picture (0 bottom … 1 top). */
 export function elevationAt(v: number): number {
   return (Math.atan((v - HORIZON) / FOCAL) * 180) / Math.PI;
@@ -93,7 +125,8 @@ export function phaseFor(elevation: number): string {
   if (elevation >= -0.8) return "Sunset";
   if (elevation >= -4.5) return "Dusk";
   if (elevation >= -8) return "Blue hour";
-  return "Nightfall";
+  if (elevation >= -11) return "Nightfall";
+  return "Night";
 }
 
 /** "4°", "−3°" (a real minus sign). */

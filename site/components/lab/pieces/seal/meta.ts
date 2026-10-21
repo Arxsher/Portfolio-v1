@@ -13,7 +13,7 @@ export const meta: PieceMeta = {
     "Break the seal and cracks run from where you struck it, along the flap's edge first, where the paper pulls the wax apart. The half on the flap goes up with it as it swings open on its hinge, the half on the pocket stays where it was, a few crumbs pop off and skitter across the paper, the letter slides out and the view pulls back to fit it. The countdown is kept in this browser, and at zero the seal opens on its own, a nod to sealed., one of the projects in the work list, where confessions can open themselves after a day.",
   ],
   uses: ["Canvas 2D", "Height-field shading", "Springs", "Web Audio"],
-  category: "components",
+  category: "interactions",
   inspiredBy: "Wax letter seals and brass seal stamps",
   // 204 × 200
   tile: { aspect: 204 / 200 },

@@ -12,7 +12,7 @@ export const meta: PieceMeta = {
     "The transcript follows the run with an eased scroll and lets go as soon as you scroll or open something; a run you leave alone settles back on the graph when it is done. The ticks and the closing chime are synthesised in Web Audio and only play after you have touched the stage.",
   ],
   uses: ["React", "SVG", "CSS animations", "Web Audio"],
-  category: "components",
+  category: "interactions",
   inspiredBy: "Run views in agent tools",
   // 204 × 252
   tile: { aspect: 204 / 252 },

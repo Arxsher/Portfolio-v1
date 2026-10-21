@@ -1,4 +1,4 @@
-// WebGL2 plumbing for the dusk picture: the scene pass draws one texel per
+// WebGL2 plumbing for the picture: the scene pass draws one texel per
 // dot into a small texture, the dither pass maps it onto the canvas with
 // whole-pixel dots. Two scene textures take turns so a dot-size change can
 // dissolve from the old grid into the new one. Nothing here knows React,
@@ -28,6 +28,9 @@ export type DuskFrame = {
   /** sun x across the picture (0..1) and elevation (degrees) */
   sunX: number;
   elevation: number;
+  /** the lighthouse lamp, 0 (out) … 1, and its beams' turn (radians) */
+  lamp: number;
+  beam: number;
   tile: boolean;
   palette: PaletteRGB;
   previousPalette: PaletteRGB;
@@ -152,6 +155,8 @@ export class DuskRenderer {
     gl.uniform1f(us("uAspect"), (grid.cols * grid.cellPx) / (grid.rows * grid.cellPx));
     gl.uniform1f(us("uTime"), frame.time);
     gl.uniform2f(us("uSun"), frame.sunX, frame.elevation);
+    gl.uniform1f(us("uLamp"), frame.lamp);
+    gl.uniform1f(us("uBeam"), frame.beam);
     gl.uniform1f(us("uTile"), frame.tile ? 1 : 0);
     gl.uniform1f(us("uZoom"), frame.tile ? 1.28 : 1);
     drawFullscreen(gl);
@@ -174,14 +179,22 @@ export class DuskRenderer {
     gl.uniform1f(ud("uPrevCellPx"), (previous ?? grid).cellPx);
     gl.uniform2f(ud("uPrevOffset"), (previous ?? grid).ox, (previous ?? grid).oy);
     gl.uniform1f(ud("uDotMix"), previous ? frame.dotMix : 1);
+    // One ink on paper keeps its darker curve by day, but at night it would
+    // swallow everything but the lamp: the curve opens up as the dark comes
+    // on, so the beams, the moon's path and the sky still read in dots.
+    const e = frame.elevation;
+    const n = Math.min(1, Math.max(0, (-1.5 - e) / 7.5));
+    const night = n * n * (3 - 2 * n);
+    const L = frame.levels;
+    const lift = frame.palette.length <= 2 ? night : 0;
     gl.uniform3fv(ud("uPal"), flat(frame.palette, this.pal));
     gl.uniform1i(ud("uCount"), Math.min(4, frame.palette.length));
-    const L = frame.levels;
-    gl.uniform4f(ud("uLevels"), L[0], L[1], L[2], L[3]);
+    gl.uniform4f(ud("uLevels"), L[0] - 0.07 * lift, L[1], L[2] + (1 - L[2]) * 0.7 * lift, L[3]);
+    const P = frame.previousLevels;
+    const prevLift = frame.previousPalette.length <= 2 ? night : 0;
     gl.uniform3fv(ud("uPrevPal"), flat(frame.previousPalette, this.prevPal));
     gl.uniform1i(ud("uPrevCount"), Math.min(4, frame.previousPalette.length));
-    const P = frame.previousLevels;
-    gl.uniform4f(ud("uPrevLevels"), P[0], P[1], P[2], P[3]);
+    gl.uniform4f(ud("uPrevLevels"), P[0] - 0.07 * prevLift, P[1], P[2] + (1 - P[2]) * 0.7 * prevLift, P[3]);
     gl.uniform1f(ud("uPalMix"), frame.paletteMix);
     gl.uniform1f(ud("uDim"), frame.dim);
     drawFullscreen(gl);

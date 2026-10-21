@@ -1,6 +1,7 @@
 "use client";
 
-// Casablanca at dusk: a small dithered print of the Atlantic at sunset.
+// Last light: a small dithered print of a lighthouse on a headland, from
+// afternoon to night under the sun you move.
 //
 // The look (what each part is for)
 // - Object: a print in a mat, hung on the grey stage like the other
@@ -12,12 +13,20 @@
 // - Picture: drawn by a shader as one tone per dot, then ordered-dithered
 //   (8×8 Bayer) into two to four colours. The sky follows the sun's height
 //   (pale afternoon, a hot band along the horizon at golden hour, an
-//   afterglow and then stars), clouds are thin streaks lit from below, the
-//   sea mirrors all of it through layered waves, and the sun lays a
-//   glitter path that twinkles dot by dot. On the shore: low houses, a
-//   mosque and a square Maghrebi minaret (crenellated top, lantern, dome,
-//   three-sphere finial) whose windows and the town's lights come on one
-//   by one as the sun goes down.
+//   afterglow, then stars, a shooting star now and then, and the moon,
+//   which was a pale disc in the sky all along and is lit from wherever the
+//   sun is), clouds are thin streaks lit from below, the sea mirrors all of
+//   it through layered waves, and the sun, the moon and the lamp each lay a
+//   glitter path that twinkles dot by dot. On the right: a headland with
+//   rocks off its point, a keeper's cottage, a shed and a white,
+//   banded lighthouse shaded as a cylinder (its sun-side edge catches the
+//   low light). The cottage windows come on one by one as the sun goes.
+// - The lamp: it strikes once the sun is under LAMP_ON (and goes out above
+//   LAMP_OFF, so a sun resting on the line never flickers it) with two
+//   quick flickers and a warm rise (look.ts ignition()), run here from the
+//   frame clock. Its two beams then turn, drawn in perspective in the
+//   shader: long and level across the picture, narrowing toward the
+//   horizon as they swing away, flaring as one swings through you.
 // - Crispness: dots are whole device pixels at any DPR and the scene is
 //   evaluated once per dot, so a 6 px dot costs a 36th of a 1 px one.
 // - Motion: the sun follows a resting mouse over the sky on a heavy,
@@ -26,31 +35,38 @@
 //   on the horizon, and sets only if the pointer rests there, so reaching
 //   past the picture for the controls never drops the scene into night (a
 //   quick pass, the first moments over the picture and its bottom edge are
-//   ignored too). A press or drag reaches the whole range. On touch, a tap
-//   places the sun and a sideways drag runs the clock along its real path
-//   (it sets toward the north, at 90° minus Casablanca's latitude), while
-//   vertical swipes scroll the page. Waves roll toward the viewer, gulls
-//   flap in bouts and glide, clouds creep. Palette and dot-size changes
-//   come in dot by dot in Bayer order, like a print being pulled.
+//   ignored too). A press or drag reaches the whole range: drag the sun
+//   down into the sea and the day runs into night under your hand, and
+//   back. On touch, a tap places the sun and a sideways drag runs the clock
+//   along a sun path at a middle latitude (it sets a little to the right),
+//   while vertical swipes scroll the page. Waves roll toward the viewer,
+//   gulls flap in bouts and glide, clouds creep, a boat drifts on the
+//   horizon. Palette and dot-size changes come in dot by dot in Bayer
+//   order, like a print being pulled. The site theme sets where the sun
+//   rests: golden hour in the light theme, blue hour with the lamp turning
+//   in the dark one, so switching themes plays the evening through.
 // - Keyboard: the picture is a vertical slider for the sun's elevation
 //   (↑ ↓, Page Up / Down, Home = lowest, End = highest); ← → move it along
 //   the horizon.
 // - Sound (stage, from a press or a key on the picture only, never from the
 //   trays; lab mute respected): a stereo surf that rolls in over about
-//   three seconds, with swells and, while there is light, a distant gull
-//   now and then. The first time it starts, the caption says so and the
-//   speaker button glows, so the source is obvious and one tap away.
-// - Tile: the same print, smaller, at golden hour with slow waves; the
-//   sun dips a little toward the sea under the mouse. Half frame rate.
+//   three seconds, with swells; a distant gull now and then while there is
+//   light, a bell buoy after dark, and the lamp's thunk and ticks as it
+//   strikes. The first time it starts, the caption says so and the speaker
+//   button glows, so the source is obvious and one tap away.
+// - Tile: the same print, smaller, at golden hour (blue hour in the dark
+//   theme) with slow waves; under the mouse the sun dips toward the sea and
+//   the lamp strikes. Half frame rate.
 // - Lifetime: the frame loop allocates nothing; the page-pixel snap is
 //   re-measured on layout events, not polled; the WebGL context is handed
 //   back when the piece really unmounts (browsers keep only ~16 alive).
-// - Reduced motion: one composed still (golden hour, gulls placed, a
-//   frozen sparkle on the water); the sun still moves when asked, without
-//   easing.
+// - Reduced motion: one composed still (golden hour, or blue hour with a
+//   beam reaching left; gulls placed, a frozen sparkle on the water); the
+//   sun still moves when asked, without easing, and the lamp switches
+//   without its flicker.
 //
-// Files: look.ts (palettes, geometry constants, time-of-day names),
-// shaders.ts + renderer.ts (WebGL2), sound.ts (Web Audio).
+// Files: look.ts (palettes, geometry constants, the lamp's strike, times of
+// day), shaders.ts + renderer.ts (WebGL2), sound.ts (Web Audio).
 
 import {
   useCallback,
@@ -81,16 +97,21 @@ import {
 import type { PieceMode, PieceProps, PieceTheme } from "../../types";
 import { MuteButton, StageControls, StageHint, Stepper, Swatches, Toggle, Tray, TrayDivider, TrayRow } from "../../ui";
 import {
+  BEAM_TURN,
   ELEV_MAX,
   ELEV_MIN,
   elevationAt,
   formatElevation,
   heightOf,
   HORIZON,
+  ignition,
+  LAMP_OFF,
+  LAMP_ON,
   PALETTES,
   paletteById,
   phaseFor,
   rgb01,
+  STILL_BEAM,
   STILL_TIME,
   swatchFor,
   type PaletteId,
@@ -210,13 +231,14 @@ type Sun = { x: number; e: number };
 type Probe = Sun & { v: number };
 
 /**
- * Where the sun rests until it is moved: golden hour by day; by night the
- * moment itself, the disc half sunk on the horizon and the first windows
- * coming on.
+ * Where the sun rests until it is moved: golden hour in the light theme;
+ * in the dark one, the lamp turning and the cottage lit (on the stage
+ * blue hour, the moon bright and the first stars; on the small tile a
+ * little earlier, while the afterglow still shows the scene).
  */
 const REST: Record<PieceMode, Record<PieceTheme, Readonly<Sun>>> = {
-  tile: { light: { x: 0.3, e: 4.6 }, dark: { x: 0.3, e: 1.4 } },
-  stage: { light: { x: 0.3, e: 4.2 }, dark: { x: 0.31, e: 0.2 } },
+  tile: { light: { x: 0.3, e: 4.6 }, dark: { x: 0.3, e: -4.2 } },
+  stage: { light: { x: 0.3, e: 4.2 }, dark: { x: 0.31, e: -6 } },
 };
 
 const SUN_SPRING = { stiffness: 34, damping: 11.7 };
@@ -241,8 +263,11 @@ const HOVER = {
 
 /** A sideways drag on a touch screen: degrees of elevation per picture width (right is later). */
 const SCRUB_DEG = 30;
-/** The sun's path meets the horizon at 90° minus the latitude (Casablanca, 33.6° N): it sets toward the north, to the right. */
-const PATH_SLOPE = Math.tan(((90 - 33.6) * Math.PI) / 180);
+/**
+ * The sun's path meets the horizon at 90° minus the latitude; at a middle
+ * latitude (36°) it sets a little to the right, toward the pole.
+ */
+const PATH_SLOPE = Math.tan(((90 - 36) * Math.PI) / 180);
 
 /** A touch on the picture: none, pressed (a tap, a sideways drag or a scroll?), or scrubbing the clock. */
 const TOUCH_NONE = 0;
@@ -493,10 +518,13 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
     const rest = REST[mode][theme];
     const colors = toRGB("sunset");
     const levels = paletteById("sunset").levels;
+    const lampOn = rest.e < LAMP_ON;
     const frame: DuskFrame = {
       time: STILL_TIME,
       sunX: rest.x,
       elevation: rest.e,
+      lamp: lampOn ? 1 : 0,
+      beam: STILL_BEAM,
       tile: mode === "tile",
       palette: colors,
       previousPalette: colors,
@@ -539,6 +567,13 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
       dotMix: 1,
       dotChanged: false,
       dim: theme === "dark" ? 0.86 : 1,
+      /** the lamp: whether it is on, its brightness, seconds since it last switched, and its level then */
+      lampOn,
+      lamp: lampOn ? 1 : 0,
+      lampT: 10,
+      lampFrom: 0,
+      /** the beams' turn (radians) */
+      beam: STILL_BEAM,
       /** what the caption shows: the rounded elevation and the phase */
       capE: NaN,
       capPhase: "",
@@ -679,6 +714,28 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
     }
 
     if (s.motion) S.clock += dt * (s.mode === "stage" ? 1 : 0.6);
+
+    // the lamp: strikes below LAMP_ON, goes out above LAMP_OFF
+    const lampWanted = S.lampOn ? S.e.value < LAMP_OFF : S.e.value < LAMP_ON;
+    if (lampWanted !== S.lampOn) {
+      S.lampOn = lampWanted;
+      S.lampFrom = S.lamp;
+      S.lampT = 0;
+      if (lampWanted && s.mode === "stage" && !s.reducedMotion) shoreRef.current?.strike();
+    }
+    S.lampT += dt;
+    if (s.reducedMotion) {
+      S.lamp = S.lampOn ? 1 : 0;
+    } else {
+      // from wherever it was, without a jump: a lamp struck again while it
+      // is still dimming flickers back from that level
+      const left = S.lampFrom * Math.exp(-S.lampT * 7);
+      S.lamp = S.lampOn ? Math.max(ignition(S.lampT), left) : left < 0.002 ? 0 : left;
+    }
+    if (s.motion) S.beam = (S.beam + (dt * 2 * Math.PI) / BEAM_TURN) % (2 * Math.PI);
+    else if (s.reducedMotion) S.beam = STILL_BEAM;
+    const lampSettled = S.lampOn ? S.lampT > 1.1 || s.reducedMotion : S.lamp === 0;
+
     const fade = s.reducedMotion ? 1 : dt;
     S.paletteMix = Math.min(1, S.paletteMix + fade / 0.6);
     S.dotMix = Math.min(1, S.dotMix + fade / 0.55);
@@ -690,6 +747,8 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
     f.time = S.clock;
     f.sunX = S.x.value;
     f.elevation = S.e.value;
+    f.lamp = S.lamp;
+    f.beam = S.beam;
     f.tile = s.mode === "tile";
     f.palette = S.colors;
     f.previousPalette = S.previous;
@@ -716,12 +775,15 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
         caption.textContent = `${phase} · sun ${formatElevation(e)}`;
       }
     }
-    if (shoreRef.current) shoreRef.current.daylight = smoothstep(-6, 2, S.e.value);
+    if (shoreRef.current) {
+      shoreRef.current.daylight = smoothstep(-6, 2, S.e.value);
+      shoreRef.current.night = smoothstep(-3, -9, S.e.value);
+    }
 
     // sleep once nothing moves
     const settled =
       S.x.settled && S.e.settled && S.paletteMix >= 1 && S.dotMix >= 1 && Math.abs(S.dim - dimTarget) < 0.002;
-    if (!s.motion && settled && !p.pressed && !S.pending) return false;
+    if (!s.motion && settled && lampSettled && !p.pressed && !S.pending) return false;
   });
 
   const { canvasRef, glRef, sizeRef, supported } = useWebGL2({
@@ -1068,7 +1130,7 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
             height: l.caption,
           }}
         >
-          <span>{l.card.w < 440 ? "Casablanca" : "Casablanca, the Atlantic"}</span>
+          <span>{l.card.w < 440 ? "Last light" : "Last light, the lighthouse on the point"}</span>
           {/* written by the frame loop (no re-render per frame); the still states its own */}
           <span ref={captionRef} className="tabular-nums">
             {fallback ? `${phaseFor(4)} · sun ${formatElevation(4)}` : null}
@@ -1104,8 +1166,8 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
     : noted
       ? "Sound on: the surf · the speaker mutes it"
       : fine
-        ? "Move over the sky to move the sun · rest on the sea to let it set · click to keep it"
-        : "Tap to place the sun · drag sideways to change the hour";
+        ? "Move over the sky to move the sun · drag it down into the sea for night · click to keep it"
+        : "Tap to place the sun · drag sideways to run the day into night";
 
   return (
     <div ref={rootRef} className="absolute inset-0 select-none">
@@ -1114,10 +1176,10 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
         ref={surfaceRef}
         tabIndex={fallback ? undefined : 0}
         {...(fallback
-          ? { role: "img", "aria-label": "Casablanca at dusk: the sun over the Atlantic, a minaret on the shore" }
+          ? { role: "img", "aria-label": "Last light: the sun low over the sea, a lighthouse on the headland" }
           : {
               role: "slider",
-              "aria-label": "Time of day: the sun over the Atlantic at Casablanca",
+              "aria-label": "Time of day: the sun over the sea by the lighthouse",
               "aria-orientation": "vertical" as const,
               "aria-valuemin": ELEV_MIN,
               "aria-valuemax": ELEV_MAX,
@@ -1135,10 +1197,12 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
       </div>
 
       <p id={hintId} className="sr-only">
-        A dithered print of the Atlantic at Casablanca, a minaret on the shore. The up and down arrows raise and lower
-        the sun, Page Up and Page Down by five degrees, Home and End take it to the lowest and the highest. The left and
-        right arrows move it along the horizon. With a mouse, move over the sky to move the sun and click to keep it
-        there; on a touch screen, tap to place it and drag sideways to change the hour.
+        A dithered print of the sea with a lighthouse on a headland. Lower the sun past the horizon and night falls:
+        the lamp comes on and turns its beams, the cottage windows light up, the moon and the stars come out. The up
+        and down arrows raise and lower the sun, Page Up and Page Down by five degrees, Home and End take it to the
+        lowest and the highest. The left and right arrows move it along the horizon. With a mouse, move over the sky to
+        move the sun, drag it into the sea for night, and click to keep it there; on a touch screen, tap to place it
+        and drag sideways to change the hour.
       </p>
       <p className="sr-only" aria-live="polite">
         {announce}
@@ -1181,9 +1245,10 @@ export default function Piece({ mode, active, reducedMotion, theme }: PieceProps
 /* ---------------------------------------------------------------------- */
 
 /**
- * A flat, screen-printed version of the view for browsers without WebGL2:
- * bands of the palette for the sky and sea, the sun, the shore and the
- * minaret.
+ * A flat, screen-printed version of the view for browsers without WebGL2
+ * (and for the moment before the first frame): bands of the palette for the
+ * sky and sea, the sun and its path, the headland with its rocks,
+ * cottage and lighthouse, in the shader's proportions.
  */
 function FallbackArt({ palette }: { palette: PaletteId }) {
   const c = paletteById(palette).colors;
@@ -1193,6 +1258,8 @@ function FallbackArt({ palette }: { palette: PaletteId }) {
   const sky = n > 2 ? [c[1], c[n - 2], c[n - 2]] : [dark, dark, light];
   const H = (1 - HORIZON) * 100; // the horizon, from the top
   const sunY = (1 - heightOf(4)) * 100;
+  // the headland's brow and the ground under the lighthouse (100 units = the picture's height)
+  const g = H - 7.3;
   return (
     <svg aria-hidden="true" className="absolute inset-0 size-full" viewBox="0 0 160 100" preserveAspectRatio="xMidYMid slice">
       <rect width="160" height={H} fill={sky[0]} />
@@ -1203,18 +1270,17 @@ function FallbackArt({ palette }: { palette: PaletteId }) {
       <rect x="45" y={H + 1.5} width="6" height="1.4" fill={light} />
       <rect x="46" y={H + 5} width="4" height="1.2" fill={light} />
       <rect x="44" y={H + 9.5} width="8" height="1.4" fill={light} />
-      {/* the shore, the hall and the minaret: shaft, crenellations, lantern, dome, finial */}
-      <path fill={dark} d={`M96 ${H} q6 -3 12 -3 h52 v3 Z`} />
-      <path fill={dark} d={`M109 ${H - 2.6} h10 v-2.4 l-5 -1.8 l-5 1.8 Z`} />
-      <rect x="119.5" y={H - 31} width="4" height="28.6" fill={dark} />
-      <rect x="119.2" y={H - 32.2} width="0.9" height="1.4" fill={dark} />
-      <rect x="121.05" y={H - 32.2} width="0.9" height="1.4" fill={dark} />
-      <rect x="122.9" y={H - 32.2} width="0.9" height="1.4" fill={dark} />
-      <rect x="120.65" y={H - 37.5} width="1.7" height="6.6" fill={dark} />
-      <circle cx="121.5" cy={H - 37.4} r="0.75" fill={dark} />
-      <rect x="121.35" y={H - 41.5} width="0.3" height="4" fill={dark} />
-      <circle cx="121.5" cy={H - 39} r="0.45" fill={dark} />
-      <circle cx="121.5" cy={H - 40.3} r="0.35" fill={dark} />
+      {/* the rocks, the headland, the shed and the cottage */}
+      <path fill={dark} d={`M91.55 ${H} q0.85 -1.45 1.7 0 Z M93.7 ${H} q1.9 -2.5 3.8 0 Z`} />
+      <path fill={dark} d={`M95.6 ${H} C99 ${H} 101 ${H - 6} 108.5 ${H - 6.4} L160 ${H - 7.7} V${H} Z`} />
+      <path fill={dark} d={`M119.3 ${g + 0.4} v-1.6 h2.1 v1.2 Z`} />
+      <path fill={dark} d={`M130 ${g + 0.4} v-2 l-0.35 0 l2.55 -1.6 l2.55 1.6 l-0.35 0 v2 Z`} />
+      {/* the lighthouse: tapered tower, gallery, lantern, dome and vent */}
+      <path fill={dark} d={`M122.9 ${g + 0.6} L123.58 ${g - 17} h2.44 L126.7 ${g + 0.6} Z`} />
+      <rect x="122.98" y={g - 17.72} width="3.64" height="0.72" fill={dark} />
+      <rect x="123.84" y={g - 20.75} width="1.92" height="3.05" fill={dark} />
+      <path fill={dark} d={`M123.67 ${g - 20.7} a1.13 1 0 0 1 2.26 0 Z`} />
+      <circle cx="124.8" cy={g - 22.1} r="0.31" fill={dark} />
     </svg>
   );
 }

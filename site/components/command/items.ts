@@ -112,7 +112,7 @@ export const VIEWS: Record<PanelView, ViewInfo> = {
     icon: "sparkle",
     input: "lab",
     aliases: ["lab", "the lab", "playground", "pieces"],
-    keywords: ["playground", "pieces", "interactive", "components", "generative", "canvas", "webgl", "demos"],
+    keywords: ["playground", "pieces", "interactive", "interactions", "objects", "data", "scenes", "canvas", "webgl", "demos"],
   },
   theme: {
     title: "Theme",

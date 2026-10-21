@@ -8,7 +8,7 @@ import { site } from "@/content/site";
 import { withBasePath } from "@/components/lab/base-path";
 
 const intro =
-  "Small interactive pieces: components, objects and generative scenes, all drawn in code and running live in your browser.";
+  "Small interactive pieces: interactions, objects, data and scenes, all drawn in code and running live in your browser.";
 
 export const metadata: Metadata = {
   title: "Lab",

@@ -3,7 +3,14 @@
 // `PieceProps`. See registry.ts for the ordered list and load-piece.tsx for
 // how the components are loaded.
 
-export type Category = "components" | "objects" | "generative";
+/**
+ * What kind of piece it is (the filters on /lab/ and the "Category" row):
+ * - interactions: small UI moments (a switch, a tab bar, a slider, a seal)
+ * - objects: things you handle (a macropad, a turntable, cards)
+ * - data: real data drawn as something (GitHub contributions)
+ * - scenes: places with light and time of day
+ */
+export type Category = "interactions" | "objects" | "data" | "scenes";
 
 /** Where a piece is mounted: a small self-running tile, or the full stage. */
 export type PieceMode = "tile" | "stage";
@@ -57,15 +64,18 @@ export type PieceMeta = {
   sound?: boolean;
 };
 
+/** Filter order on /lab/ follows this object's key order. */
 export const CATEGORY_LABELS: Record<Category, string> = {
-  components: "Components",
+  interactions: "Interactions",
   objects: "Objects",
-  generative: "Generative",
+  data: "Data",
+  scenes: "Scenes",
 };
 
-/** Singular label for one piece ("Component", "Object", "Generative"). */
+/** Singular label for one piece ("Interaction", "Object", "Data", "Scene"). */
 export const CATEGORY_SINGULAR: Record<Category, string> = {
-  components: "Component",
+  interactions: "Interaction",
   objects: "Object",
-  generative: "Generative",
+  data: "Data",
+  scenes: "Scene",
 };

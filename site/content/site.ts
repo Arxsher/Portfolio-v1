@@ -22,12 +22,14 @@ export const site = {
   ogImage: "/og.png",
   ogImageSize: { width: 1200, height: 630 },
 
-  // The line above the name on the home page, with the live local time.
+  // The line above the name on the home page, with the live local time
+  // ("18:53 GMT+1"). The time zone is an IANA name for the browser's clock
+  // (it also drives the lab's departures board); only the time and the
+  // GMT offset are ever shown, never the zone's city.
   status: {
     label: "Available for work",
     timeZone: "Africa/Casablanca",
   },
-  location: { city: "Casablanca", country: "Morocco" },
 
   // "Now" and "Focus" rows of the facts list under the intro on the home page.
   now: {

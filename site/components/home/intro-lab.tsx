@@ -7,7 +7,7 @@
 //   │                     (live piece)                        │
 //   │ [Open in the lab ›]                                     │
 //   └────────────────────────────────────────────────────────┘
-//   Casablanca at dusk                         ━━━ ── ── ──   ‹  ‖  ›
+//   Last light                                 ━━━ ── ── ──   ‹  ‖  ›
 //   From the lab · Generative
 //
 // - Each piece stays for DWELL_MS, then the next one crossfades in. The

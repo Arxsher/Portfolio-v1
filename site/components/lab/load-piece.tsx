@@ -6,7 +6,7 @@
 // motion are read here and passed down, so callers only say where the
 // piece is (`mode`) and whether it should run (`active`).
 //
-//   <div className="relative aspect-square"><LoadPiece slug="zellige" mode="tile" active={inView} /></div>
+//   <div className="relative aspect-square"><LoadPiece slug="macropad" mode="tile" active={inView} /></div>
 //
 // The piece fills the nearest positioned ancestor. A piece that throws is
 // caught and replaced by a short note instead of taking the page down.
@@ -37,15 +37,25 @@ function arrive(Piece: ComponentType<PieceProps>): ComponentType<PieceProps> {
 
 // One literal import per piece, so the bundler gives each its own chunk.
 const PIECES: Record<string, ComponentType<PieceProps>> = {
-  zellige: dynamic(() => import("./pieces/zellige/piece").then((mod) => arrive(mod.default)), { ssr: false, loading: Loading }),
-  "split-flap": dynamic(() => import("./pieces/split-flap/piece").then((mod) => arrive(mod.default)), { ssr: false, loading: Loading }),
-  seal: dynamic(() => import("./pieces/seal/piece").then((mod) => arrive(mod.default)), { ssr: false, loading: Loading }),
+  daylight: dynamic(() => import("./pieces/daylight/piece").then((mod) => arrive(mod.default)), { ssr: false, loading: Loading }),
+  "golden-room": dynamic(() => import("./pieces/golden-room/piece").then((mod) => arrive(mod.default)), { ssr: false, loading: Loading }),
+  "holo-cards": dynamic(() => import("./pieces/holo-cards/piece").then((mod) => arrive(mod.default)), { ssr: false, loading: Loading }),
+  "pull-cord": dynamic(() => import("./pieces/pull-cord/piece").then((mod) => arrive(mod.default)), { ssr: false, loading: Loading }),
+  "year-rings": dynamic(() => import("./pieces/year-rings/piece").then((mod) => arrive(mod.default)), { ssr: false, loading: Loading }),
+  "liquid-tabs": dynamic(() => import("./pieces/liquid-tabs/piece").then((mod) => arrive(mod.default)), { ssr: false, loading: Loading }),
+  island: dynamic(() => import("./pieces/island/piece").then((mod) => arrive(mod.default)), { ssr: false, loading: Loading }),
+  "magnetic-dock": dynamic(() => import("./pieces/magnetic-dock/piece").then((mod) => arrive(mod.default)), { ssr: false, loading: Loading }),
+  "text-morph": dynamic(() => import("./pieces/text-morph/piece").then((mod) => arrive(mod.default)), { ssr: false, loading: Loading }),
+  disintegrate: dynamic(() => import("./pieces/disintegrate/piece").then((mod) => arrive(mod.default)), { ssr: false, loading: Loading }),
+  "elastic-scrubber": dynamic(() => import("./pieces/elastic-scrubber/piece").then((mod) => arrive(mod.default)), { ssr: false, loading: Loading }),
+  "commit-city": dynamic(() => import("./pieces/commit-city/piece").then((mod) => arrive(mod.default)), { ssr: false, loading: Loading }),
   macropad: dynamic(() => import("./pieces/macropad/piece").then((mod) => arrive(mod.default)), { ssr: false, loading: Loading }),
   "liquid-glass": dynamic(() => import("./pieces/liquid-glass/piece").then((mod) => arrive(mod.default)), { ssr: false, loading: Loading }),
-  "agent-run": dynamic(() => import("./pieces/agent-run/piece").then((mod) => arrive(mod.default)), { ssr: false, loading: Loading }),
-  "commit-city": dynamic(() => import("./pieces/commit-city/piece").then((mod) => arrive(mod.default)), { ssr: false, loading: Loading }),
   turntable: dynamic(() => import("./pieces/turntable/piece").then((mod) => arrive(mod.default)), { ssr: false, loading: Loading }),
   dusk: dynamic(() => import("./pieces/dusk/piece").then((mod) => arrive(mod.default)), { ssr: false, loading: Loading }),
+  "split-flap": dynamic(() => import("./pieces/split-flap/piece").then((mod) => arrive(mod.default)), { ssr: false, loading: Loading }),
+  seal: dynamic(() => import("./pieces/seal/piece").then((mod) => arrive(mod.default)), { ssr: false, loading: Loading }),
+  "agent-run": dynamic(() => import("./pieces/agent-run/piece").then((mod) => arrive(mod.default)), { ssr: false, loading: Loading }),
 };
 
 class PieceBoundary extends Component<{ title: string; mode: PieceMode; children: ReactNode }, { failed: boolean }> {

@@ -12,7 +12,7 @@ export const meta: PieceMeta = {
     "Turns settle into each quarter on a spring with a soft wooden detent click, and pointing at a building plays a small note pitched by its height, so a sweep across the city plays the year back. Sound starts after your first click, tap or key press and follows the lab's mute.",
   ],
   uses: ["Canvas 2D", "Isometric projection", "Web Audio", "GitHub data"],
-  category: "generative",
+  category: "data",
   inspiredBy: "GitHub's contribution graph and architects' massing models",
   // 204 × 140
   tile: { aspect: 204 / 140 },
