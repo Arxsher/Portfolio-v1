@@ -24,16 +24,21 @@
 //   dash  a skip (a click, a tap or a key): a quick dash home (ZIP). Or, if
 //         the header mark scrolls out of view mid-flight: a dash up and off
 //         the screen, fading out (FADE).
-// On landing the star sits exactly where the header mark is, at its size
-// and colour; the mark takes over the gaze, and in the same frame the
-// overlay goes away and the mark is shown, so nothing pops. Turning on
+//   land  the landing (a squash and a rebound), sampled at contact and
+//         played as one Web Animation of the star's transform and opacity,
+//         so it runs on the compositor: the reveal starting in that same
+//         frame (a style pass over the whole page, every block's animation)
+//         can't make it stutter. The header mark is faded in underneath
+//         (a compositor animation started at the same moment, so the order
+//         holds even if the main thread is late), takes over the gaze, and
+//         the star fades out on top of it; then the overlay goes. Turning on
 // reduced motion ends it at once. If the header mark is off-screen when
 // the flight would start (the page opened scrolled down), the intro is
 // skipped and the session flag cleared, so it plays on the next visit.
 //
 // The page stays veiled (components/star-reveal.ts) until the star touches
-// down on the mark (REVEAL_LEAD before contact), then the reveal grows out
-// of the mark while the star does its landing hops. A skip reveals the
+// down on the mark, then the reveal spreads out from the mark while the
+// star settles. A skip reveals the
 // page as the dash starts; every other way out (the end, a scrolled-away
 // mark, reduced motion, an error, the WATCHDOG_S watchdog, an unmount)
 // lifts the veil too, so the page can never stay hidden.
@@ -51,8 +56,10 @@ import {
   DONE_EVENT,
   FADE,
   FAILSAFE_S,
+  HANDOFF,
   INTRO_ATTR,
   INTRO_KEY,
+  LAND,
   NO_BREATH,
   VEIL_ATTR,
   ZIP,
@@ -101,15 +108,9 @@ const QUIET_MAX = 1.2;
 const HOLD_MIN = 0.12;
 /** While it keeps waiting, it blinks again this long after the last one. */
 const BLINK_EVERY = 1.8;
-/** The page is revealed this long before the star touches down, so the
-    first frames of the reveal meet the impact. */
-const REVEAL_LEAD = 0.05;
-/** The reveal's circle (a clip-path, which browsers animate on the main
-    thread) is only used when the last ROUGH_FRAMES frames all came within
-    ROUGH_GAP: on a struggling page a stall would freeze it half-way, while
-    the rest of the reveal (opacity and transform) runs on the compositor. */
-const ROUGH_FRAMES = 12;
-const ROUGH_GAP = 0.05;
+/** The header mark fades in under the star over this long, just before
+    the star fades out (HANDOFF) on top of it. */
+const UNDER = 0.08;
 /** Ends the intro (and lifts the veil) if it is somehow still running this
     long after hydration; the longest real one is about 5s (a hold that
     waits out QUIET_MAX, then a long flight). Hidden-tab time is not
@@ -123,7 +124,7 @@ const MODIFIERS = new Set(["Shift", "Control", "Alt", "Meta", "AltGraph", "CapsL
     effects) from a real unmount. */
 let generation = 0;
 
-type Mode = "wait" | "hold" | "fly" | "dash" | "done";
+type Mode = "wait" | "hold" | "fly" | "land" | "dash" | "done";
 
 export function StarFlight() {
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -172,8 +173,11 @@ export function StarFlight() {
     let homeBox: DOMRect | null = null;
     let revealing: Promise<void> | null = null;
     let watchdog = 0;
-    /** Recent frame gaps (s), newest last. */
-    const gaps: number[] = [];
+    /** The landing and the header mark's fade-in (Web Animations), and
+        where the mark was when the landing was sampled. */
+    let landing: Animation | null = null;
+    let homeIn: Animation | null = null;
+    let landedAt = { x: 0, y: 0 };
 
     const findHome = () => {
       if (!home || !home.isConnected) home = document.querySelector("[data-star-home]");
@@ -243,8 +247,7 @@ export function StarFlight() {
           origin = { x: box.left + box.width / 2, y: box.top + box.height / 2, size: box.width };
         }
       } catch {}
-      const smooth = gaps.length >= ROUGH_FRAMES && gaps.every((gap) => gap < ROUGH_GAP);
-      revealing = liftVeil(origin, !reducedQuery.matches, smooth);
+      revealing = liftVeil(origin, !reducedQuery.matches);
     };
 
     /** The CSS breathing, as it stands right now. */
@@ -273,7 +276,7 @@ export function StarFlight() {
 
     /** The pose `lag` seconds before now. */
     const poseAt = (live: Scene, lag = 0): Pose => {
-      if (mode === "fly" && plan) {
+      if ((mode === "fly" || mode === "land") && plan) {
         return t - lag < 0 ? rest(live.sx, live.sy, big) : introPose(plan, t - lag, live, breath);
       }
       if (mode === "dash" && dash) {
@@ -317,13 +320,50 @@ export function StarFlight() {
       reveal();
     };
 
+    /**
+     * Touch-down: sample the landing (at 60 Hz) and hand it to the
+     * compositor, fade the smear out, fade the header mark in underneath
+     * for the hand-off, and reveal the page, all in this one frame.
+     */
+    const land = (live: Scene) => {
+      if (!plan) return;
+      const contact = touchdown(plan);
+      t = contact;
+      mode = "land";
+      landedAt = { x: live.tx, y: live.ty };
+      const count = Math.max(2, Math.round(LAND * 60));
+      const frames: Keyframe[] = [];
+      for (let i = 0; i <= count; i++) {
+        // the last sample just short of the end (past it the pose is at rest)
+        const q = Math.min((LAND * i) / count, LAND - 1e-4);
+        const at = introPose(plan, contact + q, live, breath);
+        frames.push({ offset: i / count, transform: poseMatrix(at, big), opacity: at.opacity });
+      }
+      landing = star.animate(frames, { duration: LAND * 1000, easing: "linear", fill: "forwards" });
+      if (ghostsShown) {
+        ghosts.forEach((ghost) =>
+          ghost.animate([{ opacity: ghost.style.opacity || "0" }, { opacity: 0 }], { duration: 90, fill: "forwards" }),
+        );
+        ghostsShown = false;
+      }
+      const mark = findHome();
+      if (mark instanceof HTMLElement || mark instanceof SVGElement) {
+        homeIn = mark.animate([{ opacity: 0 }, { opacity: 1 }], {
+          duration: UNDER * 1000,
+          delay: (LAND - HANDOFF - UNDER) * 1000,
+          fill: "both",
+        });
+      }
+      reveal();
+    };
+
     const skip = () => {
       if (mode === "wait") {
         takeOver();
         mode = "hold";
       }
       if (mode === "hold" || (mode === "fly" && plan && t < touchdown(plan))) startDash(false);
-      else if (mode === "fly") end();
+      else if (mode === "fly" || mode === "land") end();
     };
 
     const writeGhosts = (live: Scene) => {
@@ -331,8 +371,7 @@ export function StarFlight() {
       const moving = mode === "fly" || mode === "dash";
       const before = moving ? poseAt(live, FRAME) : pose;
       const bodies = Math.hypot(pose.x - before.x, pose.y - before.y) / Math.max(1, pose.size);
-      // Only past ~0.2 bodies a frame (the flight and dashes, not the
-      // landing hops), full by 0.4.
+      // Only past ~0.2 bodies a frame (the flight and dashes), full by 0.4.
       const strength = Math.min(1, Math.max(0, (bodies - 0.18) / 0.22)) * pose.opacity;
       if (strength <= 0) {
         if (ghostsShown) ghosts.forEach((ghost) => (ghost.style.opacity = "0"));
@@ -353,10 +392,6 @@ export function StarFlight() {
       const gap = last ? Math.max(0, (now - last) / 1000) : 0;
       last = now;
       const dt = Math.min(gap, 1);
-      if (gap > 0) {
-        gaps.push(gap);
-        if (gaps.length > ROUGH_FRAMES) gaps.shift();
-      }
 
       // 1. Read.
       const live = scene();
@@ -382,12 +417,24 @@ export function StarFlight() {
         if (held >= readyAt && (quiet >= QUIET_FRAMES || held >= readyAt + QUIET_MAX)) launch(live);
       } else if (mode === "fly" && plan) {
         t += dt;
-        if (t >= introLength(plan)) {
+        if (!homeVisible(live.vh) && t < touchdown(plan)) startDash(true);
+        else if (t >= touchdown(plan)) land(live);
+      } else if (mode === "land" && plan) {
+        t += dt;
+        // the mark gets the star's gaze as it shows underneath
+        if (t - dt < introLength(plan) - HANDOFF - UNDER && t >= introLength(plan) - HANDOFF - UNDER) {
+          try {
+            eyesOf(findHome())?.take(eyes);
+          } catch {}
+        }
+        if (t >= introLength(plan) || landing?.playState === "finished") {
           end();
           return;
         }
-        if (!homeVisible(live.vh) && t < touchdown(plan)) startDash(true);
-        else if (t >= touchdown(plan) - REVEAL_LEAD) reveal();
+        // the page scrolled under the landing: carry the star along
+        const dx = live.tx - landedAt.x;
+        const dy = live.ty - landedAt.y;
+        wrap.style.translate = Math.abs(dx) + Math.abs(dy) > 0.5 ? `${dx.toFixed(1)}px ${dy.toFixed(1)}px` : "";
       }
       // (A dash started just above moves on in this same frame.)
       if (mode === "dash" && dash) {
@@ -408,7 +455,7 @@ export function StarFlight() {
         svg.style.animation = "none";
         stopBreathing = false;
       }
-      if (mode !== "wait" && pose) {
+      if (mode !== "wait" && mode !== "land" && pose) {
         star.style.transform = poseMatrix(pose, big);
         star.style.opacity = pose.opacity < 1 ? pose.opacity.toFixed(3) : "";
         writeGhosts(live);
@@ -466,6 +513,9 @@ export function StarFlight() {
         eyesOf(findHome())?.take(eyes);
       } catch {}
       root.removeAttribute(INTRO_ATTR);
+      // the mark is shown by CSS from here on; its fade-in can go
+      homeIn?.cancel();
+      homeIn = null;
       reveal();
       try {
         detach();

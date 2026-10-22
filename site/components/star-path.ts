@@ -9,7 +9,9 @@
 //                is over (and the page has hydrated and runs smoothly)
 //   wind   0.16  anticipation: crouches (squash), leans back, glances up
 //   fly   ~1.15  the flight home (its length depends on the screen)
-//   land   0.40  touch-down: squash, two small hops, the size settles
+//   land   0.50  touch-down: one soft squash and a small rebound that
+//                rings down; over its last HANDOFF it fades onto the header
+//                mark, already shown underneath
 //
 // Flight path
 // -----------
@@ -51,9 +53,11 @@
 //   stretch  along the velocity by body lengths per second (up to ~1.45×),
 //            the cross axis thinned to keep the area: a cartoon smear;
 //   gaze     the eyes look where it is flying.
-// Landing: a 30% squash on contact, a hop of half its size and a smaller
-// one, a 20% size overshoot that settles, and every term back to exactly
-// zero at the end, so the swap to the real mark can't pop.
+// Landing: a soft squash on contact that springs back through a slight
+// stretch as it rebounds a fifth of its size, then settles, with every term
+// back to exactly zero before the hand-off: the real mark is faded in
+// under it, then the star fades out on top, so nothing can pop. It is pure
+// and sampled ahead, so the flight can play it as a compositor animation.
 
 export type Scene = {
   /** Overlay size (the viewport). */
@@ -120,7 +124,10 @@ export const BLINK_LEN = 0.23;
 /** A beat of looking at the visitor after the blink before launching. */
 export const AFTER_BLINK = 0.14;
 export const WIND = 0.16;
-export const LAND = 0.4;
+export const LAND = 0.5;
+/** The last part of the landing, over which the star fades out onto the
+    header mark (shown underneath just before). */
+export const HANDOFF = 0.12;
 /** A skip dashes home in this long. */
 export const ZIP = 0.16;
 /** When the mark scrolls away mid-flight: dash up and fade in this long. */
@@ -543,58 +550,35 @@ function flightPose(plan: Plan, t: number, live: Scene): Pose {
   };
 }
 
-// Landing timeline (s after contact): contact, hop, contact, hop, rest.
-const CONTACT_1 = 0.045;
-const HOP_1 = 0.15;
-const CONTACT_2 = 0.03;
-const HOP_2 = 0.085;
-const HOPS = [
-  { start: CONTACT_1, length: HOP_1, height: 0.5 },
-  { start: CONTACT_1 + HOP_1 + CONTACT_2, length: HOP_2, height: 0.16 },
-];
-const CONTACTS = [
-  { start: 0, length: CONTACT_1, depth: 0.3 },
-  { start: CONTACT_1 + HOP_1, length: CONTACT_2, depth: 0.12 },
-];
-
-/** Height above the mark (in mark sizes) and vertical deformation (<0
-    squash, >0 stretch) q seconds after contact, before smoothing. */
-function bounce(q: number): { lift: number; form: number } {
-  for (const hop of HOPS) {
-    const p = (q - hop.start) / hop.length;
-    if (p > 0 && p < 1) {
-      const rise = (4 * hop.height * (1 - 2 * p)) / hop.length; // sizes per second
-      return { lift: 4 * hop.height * p * (1 - p), form: 0.2 * Math.tanh(Math.abs(rise) / 14) };
-    }
-  }
-  for (const contact of CONTACTS) {
-    const p = (q - contact.start) / contact.length;
-    if (p >= 0 && p <= 1) return { lift: 0, form: -contact.depth * Math.sin(Math.PI * p) };
-  }
-  return { lift: 0, form: 0 };
+/** The landing's vertical form (<0 squash, >0 stretch) and rebound height
+    (in mark sizes), q seconds after contact: a damped spring that starts
+    squashing at once, and a lift that floats up and down with no corners. */
+function settle(q: number): { lift: number; form: number } {
+  const form = -0.3 * Math.exp(-q / 0.09) * Math.sin((2 * Math.PI * q) / 0.2);
+  const u = clamp((q - 0.07) / 0.2, 0, 1);
+  const lift = 0.26 * Math.sin(Math.PI * smooth(u));
+  return { lift, form };
 }
 
 function landPose(plan: Plan, q: number, live: Scene): Pose {
   const small = plan.scene.small;
-  const lift = bounce(q).lift;
-  // The deformation, box-filtered over ±12ms so contact and take-off blend.
-  let form = 0;
-  for (const tap of [-0.012, -0.006, 0, 0.006, 0.012]) form += bounce(Math.max(0, q + tap)).form / 5;
-  const fade = 1 - smooth(q / LAND);
-  const pop = 0.33 * Math.exp(-q / 0.09) * Math.sin((2 * Math.PI * q) / 0.2) * fade;
+  const { lift, form: raw } = settle(q);
+  // everything at rest before the hand-off begins
+  const calm = 1 - smooth(q / (LAND - HANDOFF));
+  const form = raw * calm;
   const formed: Mat =
     form < 0 ? squash(VERTICAL, 1 + form, 1 - 0.67 * form) : squash(VERTICAL, 1 + form, 1 / (1 + form) ** 0.6);
-  // Hand over from the flight's last squash and tilt in the first 30ms.
+  // Hand over from the flight's last stretch and tilt.
   const last = plan.count - 1;
   const flown: Mat = [plan.s0[last], plan.s1[last], plan.s2[last]];
   return {
     x: live.tx,
-    y: live.ty - lift * small,
-    size: small * (1 + pop),
-    angle: normalize(plan.angle[last]) * (1 - smooth(q / 0.1)),
-    squash: mix(flown, formed, smooth(q / 0.03)),
+    y: live.ty - lift * calm * small,
+    size: small,
+    angle: normalize(plan.angle[last]) * (1 - smooth(q / 0.12)),
+    squash: mix(flown, formed, smooth(q / 0.045)),
     look: null,
-    opacity: 1,
+    opacity: 1 - smooth((q - (LAND - HANDOFF)) / HANDOFF),
   };
 }
 

@@ -9,33 +9,22 @@
 // nothing moves when the veil goes, and the content stays in the DOM.
 // <main> is aria-busy meanwhile.
 //
-// The reveal (`liftVeil`), as the star touches down on the mark:
-//   circle   every top-level layer (the page column, the dock, …) is
-//            clipped to one circle that grows from the mark past the
-//            farthest corner of the screen (CIRCLE_MS: a steady spread
-//            out of the impact that eases off towards the far corner);
-//   cascade  each block on screen (the header, the page's sections, the
-//            footer, the dock; a tall block is split into its parts, so a
-//            list cascades row by row) fades in and rises RISE px as the
-//            circle's edge reaches it: the header first, then the
-//            profile, the intro and on down the screen. Whatever is below
-//            the fold is simply there.
-// Every block starts fading just as the edge meets it, so where the edge
-// crosses content, that content is still nearly transparent: the hard
-// clip reads as a soft wave.
-// Transform, opacity and clip-path only, with the Web Animations API
-// (nothing is written to the elements' own styles, and everything is gone
-// when it ends). All of it starts in one task, so the first frame already
-// has every block at its start. The header only fades (it holds the mark
-// the star is landing on, which must not move), and so does any block with
-// a transform of its own.
+// The reveal (`liftVeil`), as the star touches down on the mark: a soft
+// wave out of the impact. Each block on screen (the header's parts, the
+// page's sections, the footer, the dock; a tall block is split into its
+// parts, so a list cascades row by row) fades in and rises RISE px as an
+// imaginary circle growing from the mark (WAVE_MS, easing off towards the
+// far corner) reaches it: the header first, then the profile, the intro
+// and on down the screen. Whatever is below the fold is simply there.
 //
-// The circle is a clip-path, which browsers animate on the main thread: a
-// stall would freeze it half-way with content cut off. So it is only drawn
-// when the caller has seen the page run smoothly (`circle`); without it the
-// cascade alone (on the compositor) still spreads out from the mark.
-// Without an origin (the mark is off-screen) the layers simply fade in;
-// with reduced motion the veil just goes.
+// Opacity and transform only, with the Web Animations API, so all of it
+// runs on the compositor (nothing is written to the elements' own styles,
+// and everything is gone when it ends). All of it starts in one task, so
+// the first frame already has every block at its start. The mark itself
+// is left out (the star hands over to it; components/star-flight.tsx), and
+// the rest of the header only fades, as does any block with a transform of
+// its own. Without an origin (the mark is off-screen) the layers simply
+// fade in; with reduced motion the veil just goes.
 
 import { FAILSAFE_S, VEIL_ATTR } from "@/components/star-path";
 
@@ -44,24 +33,23 @@ export type RevealOrigin = { x: number; y: number; size: number };
 
 type Bezier = [number, number, number, number];
 
-/** The circle's growth. */
-const CIRCLE_MS = 900;
-const CIRCLE_EASE: Bezier = [0.4, 0.3, 0.3, 1];
-/** Each block's fade: it starts gently, so content the edge is crossing is
-    still faint. */
-const FADE_IN_MS = 560;
-const FADE_IN_EASE = "cubic-bezier(0.35, 0, 0.25, 1)";
+/** The wave's growth (when each block's turn comes). */
+const WAVE_MS = 900;
+const WAVE_EASE: Bezier = [0.4, 0.3, 0.3, 1];
+/** Each block's fade: it starts gently and lands softly. */
+const FADE_IN_MS = 640;
+const FADE_IN_EASE = "cubic-bezier(0.33, 0, 0.2, 1)";
 /** …and its rise, slower and with the site's quint-style ease-out, so it
     is still settling as the block comes into view. */
-const RISE = 10;
-const RISE_MS = 760;
+const RISE = 8;
+const RISE_MS = 840;
 const RISE_EASE = "cubic-bezier(0.23, 1, 0.32, 1)";
-/** A block starts when the edge is this far across it (from its nearest
+/** A block starts when the wave is this far across it (from its nearest
     to its farthest point on screen), a beat early (LEAD_MS), and never
     waits longer than MAX_DELAY_MS. */
 const ACROSS = 0.3;
 const LEAD_MS = 60;
-const MAX_DELAY_MS = 440;
+const MAX_DELAY_MS = 480;
 /** A block taller than this with a few parts cascades part by part (up to
     SPLIT_DEPTH levels down). */
 const SPLIT_HEIGHT = 140;
@@ -73,7 +61,6 @@ const FADE_MS = 320;
 const SKIP = new Set(["SCRIPT", "STYLE", "LINK", "META", "NOSCRIPT", "TEMPLATE"]);
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
-const ease = ([x1, y1, x2, y2]: Bezier) => `cubic-bezier(${x1}, ${y1}, ${x2}, ${y2})`;
 
 /** The fraction of the duration at which a cubic-bezier ease reaches
     `progress` (0…1; the curve's y must be monotone). */
@@ -151,6 +138,16 @@ function refine(block: Element, depth: number, out: Element[]) {
   out.push(block);
 }
 
+/** The parts of the block holding the header mark, all but the mark itself
+    (the star hands over to it, so it must neither fade nor move). */
+function around(block: Element, home: Element, out: Element[]) {
+  for (const child of content(block)) {
+    if (child === home) continue;
+    if (child.contains(home)) around(child, home, out);
+    else out.push(child);
+  }
+}
+
 const onScreen = (box: DOMRect, vw: number, vh: number) =>
   box.width > 0 && box.height > 0 && box.bottom > 0 && box.top < vh && box.right > 0 && box.left < vw;
 
@@ -174,7 +171,7 @@ function fade(): Promise<void> {
   return settle(animations, FADE_MS);
 }
 
-function unveil(origin: RevealOrigin, circle: boolean): Promise<void> {
+function unveil(origin: RevealOrigin): Promise<void> {
   const vw = document.documentElement.clientWidth || window.innerWidth;
   const vh = window.innerHeight;
   const main = document.getElementById("main");
@@ -193,26 +190,17 @@ function unveil(origin: RevealOrigin, circle: boolean): Promise<void> {
   for (const layer of layers()) {
     const box = layer.getBoundingClientRect();
     if (!onScreen(box, vw, vh)) continue;
-    if (circle) {
-      // In the layer's own box (its offset size over its drawn size undoes
-      // a scale of its own, should it have one).
-      const kx = layer.offsetWidth && box.width ? layer.offsetWidth / box.width : 1;
-      const ky = layer.offsetHeight && box.height ? layer.offsetHeight / box.height : 1;
-      const at = `at ${((origin.x - box.left) * kx).toFixed(1)}px ${((origin.y - box.top) * ky).toFixed(1)}px`;
-      plans.push({
-        el: layer,
-        keyframes: [
-          { clipPath: `circle(${near.toFixed(1)}px ${at})` },
-          { clipPath: `circle(${far.toFixed(1)}px ${at})` },
-        ],
-        options: { duration: CIRCLE_MS, easing: ease(CIRCLE_EASE) },
-      });
-    }
 
     const blocks: Element[] = [];
+    /** The header's parts: they fade beside the mark but don't rise. */
+    const still = new Set<Element>();
     for (const block of blocksOf(layer, main)) {
-      if (home && block.contains(home)) blocks.push(block);
-      else refine(block, 0, blocks);
+      if (home && block.contains(home)) {
+        const parts: Element[] = [];
+        around(block, home, parts);
+        parts.forEach((part) => still.add(part));
+        blocks.push(...parts);
+      } else refine(block, 0, blocks);
     }
     for (const block of blocks) {
       const rect = block.getBoundingClientRect();
@@ -220,7 +208,7 @@ function unveil(origin: RevealOrigin, circle: boolean): Promise<void> {
       const style = getComputedStyle(block);
       const opacity = parseFloat(style.opacity);
       if (!(opacity > 0) || style.visibility !== "visible") continue;
-      // When the circle's edge is ACROSS of the way over the block's
+      // When the wave's edge is ACROSS of the way over the block's
       // on-screen part.
       const left = Math.max(rect.left, 0) - origin.x;
       const right = Math.min(rect.right, vw) - origin.x;
@@ -229,8 +217,8 @@ function unveil(origin: RevealOrigin, circle: boolean): Promise<void> {
       const nearest = Math.hypot(Math.max(left, 0, -right), Math.max(top, 0, -bottom));
       const farthest = Math.hypot(Math.max(-left, right), Math.max(-top, bottom));
       const reach = clamp((nearest + (farthest - nearest) * ACROSS - near) / (far - near), 0, 1);
-      const landing = !!home && block.contains(home);
-      const delay = landing ? 0 : Math.round(clamp(CIRCLE_MS * timeAt(CIRCLE_EASE, reach) - LEAD_MS, 0, MAX_DELAY_MS));
+      const landing = still.has(block);
+      const delay = Math.round(clamp(WAVE_MS * timeAt(WAVE_EASE, reach) - LEAD_MS, 0, MAX_DELAY_MS));
       plans.push({
         el: block,
         keyframes: [{ opacity: 0 }, { opacity }],
@@ -246,16 +234,15 @@ function unveil(origin: RevealOrigin, circle: boolean): Promise<void> {
     }
   }
   const animations = plans.map(({ el, keyframes, options }) => el.animate(keyframes, options));
-  return settle(animations, Math.max(CIRCLE_MS, MAX_DELAY_MS + RISE_MS));
+  return settle(animations, MAX_DELAY_MS + RISE_MS);
 }
 
 /**
  * Lifts the veil (no-op when there is none) and plays the reveal from
- * `origin` (null: a plain fade), with the circle when `circle` is set.
- * Resolves once the reveal is over. Never throws: whatever happens, the
- * page is shown.
+ * `origin` (null: a plain fade). Resolves once the reveal is over. Never
+ * throws: whatever happens, the page is shown.
  */
-export function liftVeil(origin: RevealOrigin | null, motion = true, circle = true): Promise<void> {
+export function liftVeil(origin: RevealOrigin | null, motion = true): Promise<void> {
   const root = document.documentElement;
   const state = root.getAttribute(VEIL_ATTR);
   if (state === null) return Promise.resolve();
@@ -269,7 +256,7 @@ export function liftVeil(origin: RevealOrigin | null, motion = true, circle = tr
     return Promise.resolve();
   }
   try {
-    return state === "live" && origin ? unveil(origin, circle) : fade();
+    return state === "live" && origin ? unveil(origin) : fade();
   } catch {
     return Promise.resolve();
   }
