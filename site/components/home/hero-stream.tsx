@@ -1,29 +1,48 @@
 "use client";
 
-// The home hero, streamed in by scrolling.
+// The home hero, in three beats, all while the page holds still:
 //
-// The page opens on a short version in the middle of the screen: the
-// profile and the first paragraph, with a pulsing dot where the text stops.
-// Scrolling doesn't move it; it writes the rest of the intro in, word by
-// word, the way an assistant streams an answer (each unit fades up out of a
-// blur as it lands, the dot riding ahead of it), until the whole intro and
-// the action row are there. Then the pin lets go and the section scrolls up
-// into its place, uncovering the lab beneath.
+//   1. It opens on the short version, centred on the screen: the profile
+//      and the first paragraph, with a pulsing dot where the text stops.
+//   2. The first scroll carries it up to its place under the header (where
+//      the hero always sat), nothing else changing.
+//   3. Once it's there, the rest of the intro is written in after the first
+//      paragraph, word by word, the way an assistant streams an answer: each
+//      word rises out of a blur as it lands, the dot riding ahead, with a
+//      breath between paragraphs, and the action row last. Scrolling feeds
+//      the stream, but it never runs faster than RATE, so it stays readable
+//      however hard you scroll; if you scroll on before it's done, it
+//      finishes as the hero moves away.
 //
-// Layout: a track as tall as the screen plus the streaming distance,
-// pulled up under the header so it starts at the top of the page; in it a
-// sticky, screen-tall box (it ignores the pointer, so the header stays
-// clickable) holding the content. The content sits where the short version
-// is centred, and only rises if the text grows past the bottom of the
-// screen, keeping the newest words in view.
+// Then the pin lets go and the hero (and the header, held at the top
+// meanwhile, see .header-dock in globals.css) scroll up together,
+// uncovering the lab beneath.
+//
+// Layout: a track as tall as the screen plus the pinned distance, pulled
+// up under the header so it starts at the top of the page; in it a sticky,
+// screen-tall box (it ignores the pointer, so the header stays clickable)
+// holding the content, which the script positions with `top`.
 //
 // The units are the `data-w` elements of components/home/intro.tsx in
-// reading order; those past the frontier have `data-hide` (display: none,
-// see globals.css). Paragraphs and the action row show once their first
-// unit does. Keyboard focus moving into the page completes the stream.
+// reading order; those not yet written have `data-hide` (display: none,
+// see globals.css). Paragraphs show with their first unit. Tabbing into
+// the page writes it all at once (hidden links can't take focus). Opening
+// the page already scrolled past the hero shows it whole.
 // Reduced motion (and no JavaScript): the whole intro, no pin.
 
 import { useEffect, useRef, type ReactNode } from "react";
+
+/** The pinned distance is split: carrying the hero up, then the stream. */
+const MOVE_SHARE = 0.28;
+/** Of the stream's distance, the part that feeds it (the rest is a held beat). */
+const FEED_SHARE = 0.78;
+/** The fastest the text is written, in units (words, links, chips) per second. */
+const RATE = 11;
+/** Extra cost of the first unit of a paragraph (a breath) and of the action row. */
+const PARAGRAPH_COST = 4;
+const ACTIONS_COST = 6;
+
+const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
 
 export function HeroStream({ children }: { children: ReactNode }) {
   const trackRef = useRef<HTMLDivElement>(null);
@@ -42,14 +61,26 @@ export function HeroStream({ children }: { children: ReactNode }) {
     const units = Array.from(content.querySelectorAll<HTMLElement>("[data-w]"));
     const paras = Array.from(content.querySelectorAll<HTMLElement>("[data-para]"));
     const caret = content.querySelector<HTMLElement>(".stream-caret");
-    /** Units shown from the start (the first paragraph). */
-    const first = units.findIndex((unit) => unit.hasAttribute("data-hide"));
-    const start = first < 0 ? units.length : first;
+    const firstHidden = units.findIndex((unit) => unit.hasAttribute("data-hide"));
+    const start = firstHidden < 0 ? units.length : firstHidden;
+
+    // what each unit costs to write: a breath before a paragraph, a longer one before the actions
+    const leads = new Set(paras.map((para) => para.querySelector("[data-w]")));
+    const cumulative: number[] = [];
+    let total = 0;
+    for (let i = start; i < units.length; i++) {
+      const unit = units[i];
+      total += unit.hasAttribute("data-actions") ? ACTIONS_COST : leads.has(unit) ? PARAGRAPH_COST : 1;
+      cumulative.push(total);
+    }
+
     let shown = start;
-    let done = false;
+    let written = 0; // cost written so far
+    let started = false;
     let raf = 0;
-    /** Height of the short version, for centring it. */
+    let last = 0;
     let shortHeight = 0;
+    let finalTop = 0;
 
     const setShown = (count: number, animate: boolean) => {
       count = Math.max(start, Math.min(units.length, count));
@@ -58,94 +89,135 @@ export function HeroStream({ children }: { children: ReactNode }) {
         for (let i = shown; i < count; i++) {
           const unit = units[i];
           unit.removeAttribute("data-hide");
-          if (animate) {
-            unit.removeAttribute("data-in");
-            // restart the arrival for a unit shown again
-            void unit.offsetWidth;
-            unit.setAttribute("data-in", "");
-          }
+          if (animate) unit.setAttribute("data-in", "");
         }
       } else {
-        for (let i = count; i < shown; i++) units[i].setAttribute("data-hide", "");
+        for (let i = count; i < shown; i++) {
+          units[i].setAttribute("data-hide", "");
+          units[i].removeAttribute("data-in");
+        }
       }
       shown = count;
-      // a paragraph shows once its first unit does
       for (const para of paras) {
         const lead = para.querySelector("[data-w]");
         if (lead && !lead.hasAttribute("data-hide")) para.removeAttribute("data-hide");
         else para.setAttribute("data-hide", "");
       }
-      // the dot rides after the last word shown, inside the text
-      const last = units[shown - 1];
-      done = shown >= units.length;
+      const lastUnit = units[shown - 1];
+      const done = shown >= units.length;
       if (caret) {
-        if (!done && last && !last.hasAttribute("data-actions")) last.after(caret);
+        if (!done && lastUnit && !lastUnit.hasAttribute("data-actions")) lastUnit.after(caret);
         caret.toggleAttribute("data-gone", done);
       }
     };
 
-    const reveal = () => setShown(units.length, false);
+    const writeAll = () => {
+      started = true;
+      written = total;
+      setShown(units.length, false);
+    };
 
     if (reduced.matches) {
-      reveal();
+      writeAll();
       return;
     }
 
-    // Pull the track up under the header, so it starts at the top of the page.
+    /** The pinned distances (px): carrying it up, then the stream. */
+    const distances = () => {
+      const pin = Math.max(1, track.offsetHeight - box.clientHeight);
+      const move = pin * MOVE_SHARE;
+      return { pin, move, feed: (pin - move) * FEED_SHARE };
+    };
+
+    // Pull the track up under the header, so it starts at the top of the page;
+    // where it would have started is where the hero sits once it's in place.
     const pull = () => {
       track.style.marginTop = "0px";
-      const top = track.getBoundingClientRect().top + window.scrollY;
-      track.style.marginTop = `${-top}px`;
+      finalTop = track.getBoundingClientRect().top + window.scrollY;
+      track.style.marginTop = `${-finalTop}px`;
     };
 
     const measure = () => {
-      // the short version's height, read with everything past it hidden
       const keep = shown;
       setShown(start, false);
       shortHeight = content.offsetHeight;
       setShown(keep, false);
     };
 
-    const render = () => {
+    const frame = (now: number) => {
       raf = 0;
+      const dt = last ? Math.min(0.1, (now - last) / 1000) : 0;
+      last = now;
       const V = box.clientHeight;
-      const streamLength = Math.max(1, track.offsetHeight - V);
-      const p = Math.min(1, Math.max(0, -track.getBoundingClientRect().top / streamLength));
-      setShown(start + Math.round(p * (units.length - start)), true);
-      // centred while short; rising only to keep the newest words in view
-      const h = content.offsetHeight;
+      const { pin, move, feed } = distances();
+      const s = -track.getBoundingClientRect().top;
+
+      // 1–2: centred, then carried up to its place
       const centred = (V - shortHeight) / 2;
-      const top = Math.min(centred, V - h - 28);
+      let top: number;
+      if (!started) {
+        const b = Math.min(1, Math.max(0, s / move));
+        top = centred + (finalTop - centred) * ease(b);
+        if (b >= 1) started = true;
+        if (hint) hint.style.opacity = `${Math.max(0, 1 - b * 3)}`;
+      } else {
+        top = finalTop;
+        if (hint) hint.style.opacity = "0";
+      }
+
+      // 3: the stream, fed by the scroll, never faster than RATE
+      let streaming = false;
+      if (started) {
+        const fed = Math.min(1, Math.max(0, (s - move) / feed));
+        const goal = s >= pin ? total : fed * total;
+        if (goal > written) {
+          written = Math.min(goal, written + RATE * dt);
+          streaming = written < goal;
+        }
+        let count = start;
+        while (count - start < cumulative.length && cumulative[count - start] <= written + 1e-6) count++;
+        setShown(count, true);
+      }
+
+      // rise only to keep the newest words in view
+      const h = content.offsetHeight;
+      top = Math.min(top, V - h - 28);
       content.style.top = `${top.toFixed(1)}px`;
-      if (hint) hint.style.opacity = `${Math.max(0, 1 - p * 6)}`;
+      // the scroll effect leaves it alone while it's pinned
+      content.toggleAttribute("data-fx-hold", s < pin);
+
+      if (streaming) raf = requestAnimationFrame(frame);
+      else last = 0;
     };
     const schedule = () => {
-      if (!raf) raf = requestAnimationFrame(render);
+      if (!raf) raf = requestAnimationFrame(frame);
     };
 
-    // take over from the CSS centring, in place
     pull();
     measure();
+    // opened already past the hero (a reload, a link to #work): show it whole
+    if (window.scrollY > distances().move) writeAll();
     content.setAttribute("data-placed", "");
-    render();
+    frame(performance.now());
 
     const onResize = () => {
       pull();
       measure();
       schedule();
     };
-    // Tabbing into the page: show it all (hidden links can't take focus).
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Tab" && !done) reveal();
+      if (event.key === "Tab" && shown < units.length) {
+        writeAll();
+        schedule();
+      }
     };
     window.addEventListener("scroll", schedule, { passive: true });
     window.addEventListener("resize", onResize);
     window.addEventListener("keydown", onKey);
-    const fonts = document.fonts;
-    fonts?.ready.then(onResize).catch(() => {});
+    document.fonts?.ready.then(onResize).catch(() => {});
     const onMotion = () => {
       if (!reduced.matches) return;
-      reveal();
+      writeAll();
       track.style.marginTop = "";
       content.style.top = "";
       content.removeAttribute("data-placed");

@@ -744,9 +744,15 @@ html[data-theme-changing] *::after {
 /* Home: the hero that streams in as you scroll, and the lab block that pins
    while the scroll steps through its pieces (components/home/hero-stream.tsx,
    components/home/intro-lab.tsx). The track heights are the pinned
-   distances; the scripts read them back. */
+   distances; the scripts read them back. While the hero is pinned the
+   header is held at the top too: it sits in a dock as tall as itself plus
+   the pinned distance (cancelled by a negative margin), so it is sticky for
+   exactly that long. */
+.site-column {
+  --hero-pin: 160svh;
+}
 .hero-track {
-  height: calc(100svh + max(520px, 110svh));
+  height: calc(100svh + var(--hero-pin));
   margin-top: -60px;
 }
 .hero-box {
@@ -760,6 +766,30 @@ html[data-theme-changing] *::after {
 .hero-content[data-placed] {
   transform: none;
 }
+.header-dock {
+  position: relative;
+  z-index: 20;
+  pointer-events: none;
+}
+.header-dock > * {
+  pointer-events: auto;
+}
+@media (prefers-reduced-motion: no-preference) {
+  /* a spacer, not padding: a sticky element only travels within its
+     parent's content box */
+  .site-column:has(.hero-track) .header-dock::after {
+    content: "";
+    display: block;
+    height: var(--hero-pin);
+  }
+  .site-column:has(.hero-track) .header-dock {
+    margin-bottom: calc(-1 * var(--hero-pin));
+  }
+  .site-column:has(.hero-track) .header-dock > header {
+    position: sticky;
+    top: 24px;
+  }
+}
 /* Tucked up under the end of the hero's track, so the lab block arrives just
    as the hero lets go (its pinned box is mostly empty below the block). */
 .lab-track {
@@ -771,14 +801,27 @@ html[data-theme-changing] *::after {
     display: none;
   }
 }
+/* Words are blocks of their own, so they can rise and un-blur as they land. */
+[data-stream] span[data-w],
+[data-stream] a[data-w]:not([class*="inline-flex"]) {
+  display: inline-block;
+}
 [data-stream] [data-in] {
-  animation: stream-in 0.34s var(--ease-out) both;
+  animation: stream-in 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 @keyframes stream-in {
-  from {
+  0% {
     opacity: 0;
-    filter: blur(6px);
-    translate: 0 3px;
+    filter: blur(12px);
+    translate: 0 0.45em;
+  }
+  45% {
+    opacity: 0.85;
+  }
+  100% {
+    opacity: 1;
+    filter: blur(0);
+    translate: 0 0;
   }
 }
 /* The dot that rides ahead of the streaming text. */

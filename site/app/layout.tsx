@@ -93,7 +93,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         {/* The 628px content column (676px with its 24px gutters); lab pages
             widen it (see "Wide pages" in globals.css). */}
         <div className="site-column mx-auto flex w-full max-w-content flex-1 flex-col px-6 pt-6">
-          <Header handle={site.handle} pages={pageTitles} />
+          {/* The dock holds the header at the top while the home hero is
+              pinned (globals.css); elsewhere it is just the header. */}
+          <div className="header-dock">
+            <Header handle={site.handle} pages={pageTitles} />
+          </div>
           <main id="main" tabIndex={-1} className="flex flex-col outline-none">
             {children}
           </main>
