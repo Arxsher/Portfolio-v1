@@ -1,6 +1,13 @@
 // Home hero, part 3: the intro paragraphs from site.intro and the row of
 // actions under them (Say hi, Book a call, social links).
 //
+// The home hero streams this in as you scroll (components/home/hero-stream.tsx),
+// so every word, link and chip is its own unit (`data-w`), in reading order.
+// The first paragraph is there from the start; every later unit, paragraph
+// (`data-para`) and the action row are rendered with `data-hide`, which the
+// stream lifts one by one (and CSS ignores without JavaScript or with reduced
+// motion, so the full intro is always there then).
+//
 // Intro segments (see content/site.ts):
 //   { text }                 plain copy in the secondary colour
 //   { strong }               emphasis, in the foreground colour
@@ -8,7 +15,7 @@
 //   { chip, icon, href }     a small inline pill with an icon (github | sparkle | folder)
 
 import Link from "next/link";
-import type { ComponentType, ReactNode } from "react";
+import { Fragment, type ComponentType, type ReactNode } from "react";
 import { CommandButton } from "@/components/home/hero-client";
 import { Calendar, Folder, GitHub, Mail, SocialIcons, Sparkle, type IconProps } from "@/components/icons";
 import { site } from "@/content/site";
@@ -47,6 +54,24 @@ const socialIcons: Record<string, ComponentType<IconProps>> = { ...SocialIcons, 
 
 type Segment = (typeof site.intro)[number][number];
 
+/** Hands out unit indexes in reading order; units past `shown` start hidden. */
+type Stream = { next: number; shown: number };
+
+const hide = (stream: Stream) => (stream.next++ >= stream.shown ? { "data-hide": "" } : {});
+
+/** A run of copy as one unit per word (the spaces stay plain text between them). */
+function words(text: string, stream: Stream): ReactNode[] {
+  return text.split(/(\s+)/).map((part, index) =>
+    part === "" || /^\s+$/.test(part) ? (
+      part
+    ) : (
+      <span key={index} data-w="" {...hide(stream)}>
+        {part}
+      </span>
+    ),
+  );
+}
+
 const chipIcons: Record<string, ComponentType<IconProps>> = {
   github: GitHub,
   sparkle: Sparkle,
@@ -65,7 +90,7 @@ function linkProps(href: string) {
 const chipClass =
   "mx-0.5 inline-flex cursor-pointer items-center gap-1.5 rounded-[8px] bg-well px-1.5 py-0.5 align-middle text-[15px]/[1.3] text-primary [translate:0_-1px] transition-[scale,background-color] duration-150 ease-out hover:bg-well-hover active:scale-[0.96] focus-visible:outline-offset-1";
 
-function renderSegment(segment: Segment, key: number): ReactNode {
+function renderSegment(segment: Segment, key: number, stream: Stream): ReactNode {
   if ("chip" in segment) {
     const Icon = chipIcons[segment.icon];
     const content = (
@@ -78,13 +103,13 @@ function renderSegment(segment: Segment, key: number): ReactNode {
     // sites stay plain links.
     if (segment.href.startsWith("/")) {
       return (
-        <Link key={key} href={segment.href} className={chipClass}>
+        <Link key={key} href={segment.href} className={chipClass} data-w="" {...hide(stream)}>
           {content}
         </Link>
       );
     }
     return (
-      <a key={key} href={segment.href} {...linkProps(segment.href)} className={chipClass}>
+      <a key={key} href={segment.href} {...linkProps(segment.href)} className={chipClass} data-w="" {...hide(stream)}>
         {content}
       </a>
     );
@@ -92,30 +117,41 @@ function renderSegment(segment: Segment, key: number): ReactNode {
   if ("strong" in segment) {
     if ("href" in segment && segment.href) {
       return (
-        <a key={key} href={segment.href} {...linkProps(segment.href)} className="link rounded-[2px]">
+        <a key={key} href={segment.href} {...linkProps(segment.href)} className="link rounded-[2px]" data-w="" {...hide(stream)}>
           {segment.strong}
         </a>
       );
     }
     return (
       <span key={key} className="text-primary">
-        {segment.strong}
+        {words(segment.strong, stream)}
       </span>
     );
   }
-  return segment.text;
+  return <Fragment key={key}>{words(segment.text, stream)}</Fragment>;
+}
+
+/** Units in the first paragraph: what the hero shows before it streams. */
+function firstParagraphUnits(): number {
+  const counter: Stream = { next: 0, shown: Infinity };
+  site.intro[0]?.forEach((segment, key) => renderSegment(segment, key, counter));
+  return counter.next;
 }
 
 export function Intro() {
+  const stream: Stream = { next: 0, shown: firstParagraphUnits() };
   return (
     <>
       <section className="mt-6 flex max-w-[600px] flex-col gap-4 text-[16px]/[1.65] text-pretty text-secondary">
         {site.intro.map((paragraph, index) => (
-          <p key={index}>{paragraph.map(renderSegment)}</p>
+          <p key={index} data-para="" {...(index > 0 ? { "data-hide": "" } : {})}>
+            {paragraph.map((segment, key) => renderSegment(segment, key, stream))}
+            {index === 0 ? <span aria-hidden="true" className="stream-caret" /> : null}
+          </p>
         ))}
       </section>
 
-      <div className="mt-6 flex flex-wrap items-center gap-x-2 gap-y-2">
+      <div data-w="" data-actions="" data-hide="" className="mt-6 flex flex-wrap items-center gap-x-2 gap-y-2">
         {/* The shared 16-grid glyphs are drawn a touch larger than the
             reference's, so they render at 13px inside a 14px slot (the
             0.5px margins keep the button widths at 87 / 117px). */}

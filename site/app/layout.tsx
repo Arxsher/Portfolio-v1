@@ -6,6 +6,8 @@ import { Footer } from "@/components/footer";
 import { Header } from "@/components/header";
 import { pieces } from "@/components/lab/registry";
 import { ScrollTop } from "@/components/scroll-top";
+import { PullReload } from "@/components/pull-reload";
+import { ScrollFx } from "@/components/scroll-fx";
 import { StarIntro, StarIntroScript } from "@/components/star-intro";
 import { projects, site } from "@/content/site";
 import { themeScript } from "@/lib/theme-script";
@@ -76,6 +78,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         {/* Decides whether the first-load star intro plays and, if so,
             veils the page before first paint (components/star-intro.tsx). */}
         <StarIntroScript />
+        {/* Marks that scripts run, so the home hero can start short (its
+            hidden words show in full without JavaScript). */}
+        <script dangerouslySetInnerHTML={{ __html: "document.documentElement.dataset.js=''" }} />
       </head>
       <body className="flex min-h-full flex-col">
         <StarIntro />
@@ -98,6 +103,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <div aria-hidden="true" className="h-24 shrink-0" />
         <CommandBar />
         <ScrollTop />
+        <ScrollFx />
+        <PullReload />
       </body>
     </html>
   );

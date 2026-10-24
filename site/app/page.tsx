@@ -1,5 +1,6 @@
 import { GitHubGraph } from "@/components/home/github";
 import { Guestbook } from "@/components/home/guestbook";
+import { HeroStream } from "@/components/home/hero-stream";
 import { Intro } from "@/components/home/intro";
 import { IntroLab } from "@/components/home/intro-lab";
 import { Lab } from "@/components/home/lab";
@@ -29,8 +30,10 @@ export default function Home() {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(person).replace(/</g, "\\u003c") }}
       />
-      <Profile />
-      <Intro />
+      <HeroStream>
+        <Profile />
+        <Intro />
+      </HeroStream>
       <IntroLab />
       <Work />
       <Lab />

@@ -740,3 +740,101 @@ html[data-theme-changing] *::after {
     animation-delay: 0s !important;
   }
 }
+
+/* Home: the hero that streams in as you scroll, and the lab block that pins
+   while the scroll steps through its pieces (components/home/hero-stream.tsx,
+   components/home/intro-lab.tsx). The track heights are the pinned
+   distances; the scripts read them back. */
+.hero-track {
+  height: calc(100svh + max(520px, 110svh));
+  margin-top: -60px;
+}
+.hero-box {
+  perspective: 900px;
+}
+.hero-content {
+  top: 50%;
+  transform: translateY(-50%);
+}
+/* placed by the script (it sets `top`); the centring is no longer needed */
+.hero-content[data-placed] {
+  transform: none;
+}
+/* Tucked up under the end of the hero's track, so the lab block arrives just
+   as the hero lets go (its pinned box is mostly empty below the block). */
+.lab-track {
+  height: calc(100svh + 3.6 * 55svh);
+  margin-top: min(0px, calc(170px - 50svh));
+}
+@media (prefers-reduced-motion: no-preference) {
+  html[data-js] [data-stream] [data-hide] {
+    display: none;
+  }
+}
+[data-stream] [data-in] {
+  animation: stream-in 0.34s var(--ease-out) both;
+}
+@keyframes stream-in {
+  from {
+    opacity: 0;
+    filter: blur(6px);
+    translate: 0 3px;
+  }
+}
+/* The dot that rides ahead of the streaming text. */
+.stream-caret {
+  display: inline-block;
+  width: 0.5em;
+  height: 0.5em;
+  margin-inline-start: 0.35em;
+  border-radius: 999px;
+  background: var(--foreground);
+  vertical-align: 0.02em;
+  animation: caret-pulse 1.1s ease-in-out infinite;
+  transition:
+    opacity 0.3s var(--ease-out),
+    scale 0.3s var(--ease-out);
+}
+.stream-caret[data-gone] {
+  opacity: 0;
+  scale: 0.4;
+}
+@keyframes caret-pulse {
+  50% {
+    opacity: 0.35;
+    scale: 0.8;
+  }
+}
+@keyframes hint-bob {
+  50% {
+    translate: 0 3px;
+  }
+}
+html:not([data-js]) .stream-caret,
+html:not([data-js]) .hero-hint {
+  display: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero-track,
+  .lab-track {
+    height: auto;
+    margin-top: 0 !important;
+  }
+  .hero-box,
+  .lab-box {
+    position: static;
+    display: block;
+    height: auto;
+  }
+  .hero-content {
+    position: static;
+    transform: none;
+  }
+  .hero-hint,
+  .stream-caret {
+    display: none;
+  }
+  .lab-block {
+    margin-top: 2.5rem;
+  }
+}

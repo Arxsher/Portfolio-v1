@@ -95,8 +95,6 @@ export const site = {
     },
   ],
 
-  // Shown in the footer. Remove if you'd rather not credit the inspiration.
-  credit: { label: "Design inspired by anishfn", href: "https://www.anishfn.ink/" },
 } as const;
 
 export { projects, contributions };
