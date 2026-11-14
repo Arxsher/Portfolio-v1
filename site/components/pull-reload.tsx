@@ -19,7 +19,10 @@
 // spectrum falls away, the page's blocks fall back into the distance in a
 // blur, and the page reloads. Let go before and it all springs back.
 //
-// The gesture only starts at scrollY 0, on one finger moving down, and not
+// A pull is one finger moving down with the page at the top: one that
+// lands there, or one already scrolling the page up that carries on past
+// the top (the page doesn't bounce or show the browser's own refresh there,
+// see globals.css). Not
 // inside anything that handles touches itself (a lab stage, a dialog, a form
 // field, a scrolling panel, anything with touch-action: none); it calls
 // preventDefault on those moves, which keeps the browser's own pull to
@@ -33,8 +36,8 @@ import { haptic } from "@/lib/haptics";
 
 /** Pull progress at which letting go reloads. */
 const THRESHOLD = 0.4;
-/** Progress per screen height of finger travel (the threshold at about 0.42 of the screen). */
-const RATE = 0.95;
+/** Progress per screen height of finger travel (the threshold at about a fifth of the screen). */
+const RATE = 2;
 const BOOM_MS = 800;
 const GLOW = 384;
 const SPECTRUM =
@@ -156,7 +159,9 @@ export function PullReload() {
       if (!raf) raf = requestAnimationFrame(render);
     };
 
+    let settleRaf = 0;
     const settle = () => {
+      cancelAnimationFrame(settleRaf);
       const fromP = progress;
       const fromD = drag;
       const t0 = performance.now();
@@ -166,14 +171,15 @@ export function PullReload() {
         progress = fromP * (1 - k);
         drag = fromD * (1 - k);
         render();
-        if (t < 1) requestAnimationFrame(tick);
+        if (t < 1) settleRaf = requestAnimationFrame(tick);
         else {
+          settleRaf = 0;
           progress = 0;
           drag = 0;
           render();
         }
       };
-      requestAnimationFrame(tick);
+      settleRaf = requestAnimationFrame(tick);
     };
 
     const boom = () => {
@@ -234,45 +240,80 @@ export function PullReload() {
       glideRaf = requestAnimationFrame(step);
     };
 
+    /** A touch being watched; startY is where its pull is zero (null until it can pull). */
+    let watching = false;
+    let lastY = 0;
+    /** The pull's moves can be cancelled (it began at the top): the page is ours to scroll. */
+    let owned = false;
+
     const onStart = (event: TouchEvent) => {
       cancelAnimationFrame(glideRaf);
       glideRaf = 0;
+      watching = false;
       startY = null;
       pulling = false;
       scrolling = false;
       trail = [];
-      if (busy || event.touches.length !== 1 || window.scrollY > 0) return;
+      if (busy || event.touches.length !== 1) return;
       if (root.hasAttribute("data-star-intro") || root.hasAttribute("data-intro-veil")) return;
       if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
       if (ownsTouch(event.target)) return;
-      startY = event.touches[0].clientY;
-      armed = false;
+      const y = event.touches[0].clientY;
+      watching = true;
+      lastY = y;
       size();
+      if (settleRaf && drag > 0) {
+        // caught while springing back: carry on from where it is
+        cancelAnimationFrame(settleRaf);
+        settleRaf = 0;
+        startY = y - 6 - drag;
+        pulling = true;
+        owned = true;
+        return;
+      }
+      armed = false;
+      if (window.scrollY <= 1) startY = y;
     };
 
     const onMove = (event: TouchEvent) => {
-      if (startY === null || busy) return;
-      const dy = event.touches[0].clientY - startY;
+      if (!watching || busy) return;
+      const y = event.touches[0].clientY;
       if (!pulling) {
-        if (dy > 6 && window.scrollY <= 0) pulling = true;
-        else if (dy < -6) {
-          startY = null;
+        if (startY === null) {
+          // scrolling the page up: it can pull once the page is at the top
+          if (window.scrollY <= 1 && y > lastY) startY = lastY;
+          lastY = y;
+          if (startY === null) return;
+        }
+        const dy = y - startY;
+        if (dy > 6 && window.scrollY <= 1) {
+          pulling = true;
+          owned = event.cancelable;
+        } else {
+          if (dy < -6) startY = null;
+          lastY = y;
           return;
-        } else return;
+        }
       }
-      if (event.cancelable) event.preventDefault();
+      const dy = y - startY!;
+      if (owned && event.cancelable) event.preventDefault();
       const now = performance.now();
-      trail.push({ t: now, y: event.touches[0].clientY });
+      trail.push({ t: now, y });
       while (trail.length > 2 && now - trail[0].t > 100) trail.shift();
       if (dy < 0) {
-        // back up past the start: drop the pull, scroll the page under the finger
-        if (!scrolling) {
-          scrolling = true;
-          drag = 0;
-          progress = 0;
-          armed = false;
-          schedule();
+        drag = 0;
+        progress = 0;
+        armed = false;
+        schedule();
+        if (!owned) {
+          // the browser is scrolling this touch: let it, and watch for the top again
+          pulling = false;
+          startY = null;
+          lastY = y;
+          return;
         }
+        // back up past the start: the pull is dropped, the page scrolls under the finger
+        scrolling = true;
         window.scrollTo(0, -dy);
         return;
       }
@@ -291,7 +332,8 @@ export function PullReload() {
     };
 
     const onEnd = () => {
-      if (startY === null) return;
+      if (!watching) return;
+      watching = false;
       startY = null;
       if (!pulling) return;
       pulling = false;
@@ -314,6 +356,7 @@ export function PullReload() {
     return () => {
       cancelAnimationFrame(raf);
       cancelAnimationFrame(glideRaf);
+      cancelAnimationFrame(settleRaf);
       window.removeEventListener("touchstart", onStart);
       window.removeEventListener("touchmove", onMove);
       window.removeEventListener("touchend", onEnd);

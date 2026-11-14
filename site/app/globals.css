@@ -741,6 +741,14 @@ html[data-theme-changing] *::after {
   }
 }
 
+/* Touch screens: no bounce or browser refresh at the ends of the page; the
+   site's own pull to reload takes the top (components/pull-reload.tsx). */
+@media (pointer: coarse) and (prefers-reduced-motion: no-preference) {
+  html {
+    overscroll-behavior-y: none;
+  }
+}
+
 /* Home: the hero that streams in as you scroll, and the lab block that pins
    while the scroll steps through its pieces (components/home/hero-stream.tsx,
    components/home/intro-lab.tsx). The track heights are the pinned
