@@ -27,7 +27,7 @@ import { useGuestbookClient, useGuestbookCount } from "./data";
 import { Odometer } from "./odometer";
 import { SignaturePad, type SignaturePadHandle } from "./signature-pad";
 import { PlaneGlyph, usePaletteName, useReducedMotion } from "./sky";
-import { flatPaperCss } from "./planes/draw";
+import { flatPaperBackground, flatPaperCss } from "./planes/draw";
 import { paperIndexFor, planeLook, readPageTokens } from "./planes/look";
 import { formatPlaneDate } from "./planes/sky";
 import { primePaperSound } from "./planes/sound";
@@ -121,7 +121,8 @@ export function GuestbookSignForm({
       "--paper-soft": look.inkSoft,
       "--paper-muted": look.inkMuted,
       "--paper-line": `color-mix(in oklab, ${ink} 16%, transparent)`,
-      background: "var(--paper)",
+      // the same sheet the folding table draws: its grain, and the light's slope across it
+      background: typeof document === "undefined" ? "var(--paper)" : flatPaperBackground(look, look.papers[0]),
       boxShadow: `3px 10px 14px -2px ${look.shadow}, 0 0 0 1px color-mix(in oklab, ${ink} 7%, transparent)`,
     } as React.CSSProperties;
   }, [look]);

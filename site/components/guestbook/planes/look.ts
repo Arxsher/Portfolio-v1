@@ -31,6 +31,23 @@ export type PlaneLook = {
   /** Fold lines and the cut edge, as alpha of the ink. */
   crease: number;
   edge: number;
+  // The close-up material (draw.ts), all 0 = off:
+  /** How much lighter and darker a face runs from its lit end to its far end. */
+  sheen: number;
+  /** Strength of the sheet's grain. */
+  grain: number;
+  /** Light caught by cut edges facing it (alpha of white). */
+  rim: number;
+  /** A folded edge: the light on a ridge (alpha of white), the dark in a valley (alpha of ink). */
+  ridge: number;
+  valley: number;
+  /** A crease on a sheet opened flat: its shaded and its lit side. */
+  embossDark: number;
+  embossLight: number;
+  /** The shadow a flap throws on the paper under it (alpha of black). */
+  flapShadow: number;
+  /** How much the ink shows through the back of the sheet. */
+  showThrough: number;
   /** Ink on paper (#rrggbb). */
   ink: string;
   inkSoft: string;
@@ -89,6 +106,15 @@ const BASE: PlaneLook = {
   warmth: 0.35,
   crease: 0.1,
   edge: 0.16,
+  sheen: 0.028,
+  grain: 0.8,
+  rim: 0.9,
+  ridge: 0.7,
+  valley: 0.2,
+  embossDark: 0.1,
+  embossLight: 0.6,
+  flapShadow: 0.2,
+  showThrough: 0.05,
   ink: "#1d1d1f",
   inkSoft: "#3a3a3c",
   inkMuted: "#86868b",
@@ -155,6 +181,15 @@ export function planeLook(palette: string, tokens?: PageTokens): PlaneLook {
     look.warmth = warm ? 0.2 : 0.3;
     look.crease = 0.12;
     look.edge = 0.2;
+    look.sheen = 0.04;
+    look.grain = 0.9;
+    look.rim = 0.5;
+    look.ridge = 0.38;
+    look.valley = 0.26;
+    look.embossDark = 0.12;
+    look.embossLight = 0.2;
+    look.flapShadow = 0.34;
+    look.showThrough = 0.06;
     look.ink = warm ? "#24160f" : "#1c1c1e";
     look.inkSoft = warm ? "#3e2c22" : "#38383a";
     look.inkMuted = warm ? "#7d6a58" : "#76767a";

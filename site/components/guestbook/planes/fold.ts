@@ -58,6 +58,8 @@ export type Region = {
   hinges: Hinge[];
   /** Per edge (from vertex i to i+1): true where it is the sheet's cut edge. */
   outer: boolean[];
+  /** Per edge: the fold (index into ops) whose crease it is, or −1 on the cut edge. */
+  crease: Int8Array;
   cx: number;
   cy: number;
   /** Three vertex indices spanning the largest triangle (for texture mapping). */
@@ -270,10 +272,49 @@ export function buildSheet(width: number, height: number, keel = 0.11): Sheet {
       half: region.half,
       hinges: region.hinges,
       outer: poly.map((point, i) => onEdge(point, poly[(i + 1) % count])),
+      crease: new Int8Array(count).fill(-1),
       cx,
       cy,
       tri,
     };
+  });
+
+  // Which fold made each inner edge: the first fold that turns only one of
+  // the two pieces meeting there, about a line that runs along the edge.
+  // (A later fold's line can lie along an earlier crease on a piece it
+  // turns, so "any fold line along this edge" is not enough.)
+  const near = (ax: number, ay: number, bx: number, by: number) => Math.abs(ax - bx) < 1e-5 && Math.abs(ay - by) < 1e-5;
+  const along = (hinge: Hinge, x0: number, y0: number, x1: number, y1: number) => {
+    const dx = hinge.bx - hinge.ax;
+    const dy = hinge.by - hinge.ay;
+    const len = Math.hypot(dx, dy) || 1;
+    const off = (x: number, y: number) => Math.abs(dx * (y - hinge.ay) - dy * (x - hinge.ax)) / len;
+    return off(x0, y0) < 1e-4 && off(x1, y1) < 1e-4;
+  };
+  regions.forEach((region, r) => {
+    for (let k = 0; k < region.count; k++) {
+      if (region.outer[k]) continue;
+      const k2 = (k + 1) % region.count;
+      const x0 = region.poly[k * 2];
+      const y0 = region.poly[k * 2 + 1];
+      const x1 = region.poly[k2 * 2];
+      const y1 = region.poly[k2 * 2 + 1];
+      // the piece on the other side of this edge
+      const across = regions.find(
+        (other, o) =>
+          o !== r &&
+          Array.from({ length: other.count }, (_, i) => i).some((i) => {
+            const i2 = (i + 1) % other.count;
+            return near(other.poly[i * 2], other.poly[i * 2 + 1], x1, y1) && near(other.poly[i2 * 2], other.poly[i2 * 2 + 1], x0, y0);
+          }),
+      );
+      const theirs = across?.hinges ?? [];
+      const hinge = [...region.hinges, ...theirs]
+        .filter((h) => region.hinges.some((mine) => mine.op === h.op) !== theirs.some((other) => other.op === h.op))
+        .filter((h) => along(h, x0, y0, x1, y1))
+        .sort((a, b) => a.op - b.op)[0];
+      if (hinge) region.crease[k] = hinge.op;
+    }
   });
 
   const sheet: Sheet = { width, height, ops, regions, folded: Float64Array.from(DART_ANGLES) };

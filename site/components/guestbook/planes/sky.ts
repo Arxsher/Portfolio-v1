@@ -27,10 +27,14 @@
 // small timeline retargets them in turn: glide first, then the wings open,
 // the keel opens, and the two corner folds open, each a beat after the last
 // with a soft overshoot (flat folds are clamped so paper never passes
-// through paper). The path to the middle is a quadratic arc, the
-// orientation a slerp from its flight attitude to flat, the scale a log
-// blend, and the text fades in once the sheet is mostly open. Releasing
-// replays the same timeline backwards from wherever the springs are.
+// through paper), and of each pair of corner and edge flaps one leads the
+// other, the way hands open a sheet. Paper that has been folded doesn't lie
+// quite flat again: every fold rests a few degrees short of open (REST), so
+// the opened note keeps its creases and catches the light in facets. The
+// path to the middle is a quadratic arc, the orientation a slerp from its
+// flight attitude to flat, the scale a log blend, and the text fades in
+// once the sheet is mostly open. Releasing replays the same timeline
+// backwards from wherever the springs are.
 //
 // Reduced motion. No cruising, bobbing or wobble: planes rest in their
 // lanes, spread across the visible width (never parked off the edge), and
@@ -41,7 +45,9 @@
 // band, eases it back inside so its ring and name tag show in full.
 //
 // The loop only runs while the band is on screen and the tab is visible;
-// with reduced motion it also stops once every spring is at rest.
+// with reduced motion it also stops once every spring is at rest. An open
+// note that has come to rest is painted once and kept as a picture, so
+// reading it costs nothing while the other planes drift on behind it.
 
 import type { GuestbookEntry } from "@/lib/guestbook";
 import { anglesFrom, buildSheet, type Sheet } from "./fold";
@@ -113,6 +119,20 @@ type SkyPlane = {
 
 const TRAIL = 14;
 const TRAIL_EVERY = 0.11;
+/** How far each fold stays bent in an opened note (share of its folded angle): about 4–6°. */
+const REST = { a: 0.035, b: 0.03, c: 0.07, d: 0.055 } as const;
+/** Of two flaps folded as a pair, how much of the motion the second waits out. */
+const LAG = 0.16;
+
+/**
+ * One flap of a pair, from the pair's shared value (rest … 1): `late` is
+ * the one that follows the other when folding (and leads when opening).
+ */
+function flap(value: number, rest: number, late: boolean): number {
+  const u = (value - rest) / (1 - rest);
+  const own = late ? clamp((u - LAG) / (1 - LAG), 0, 1) : clamp(u / (1 - LAG), -0.05, 1);
+  return rest + (1 - rest) * own;
+}
 const DEG = 180 / Math.PI;
 
 export function formatPlaneDate(iso: string): string {
@@ -163,6 +183,10 @@ export class PlaneSky {
   private ghost = false;
   private ghostScratch: PlaneScratch | null = null;
   private ghostParams: PlaneParams | null = null;
+  /** The open note at rest, painted once: its picture and where it goes (CSS px). */
+  private still: { canvas: HTMLCanvasElement; key: string; x: number; y: number } | null = null;
+  private stillScratch: PlaneScratch | null = null;
+  private lookVersion = 0;
 
   constructor(canvas: HTMLCanvasElement, kind: SkyKind, callbacks: SkyCallbacks = {}) {
     this.canvas = canvas;
@@ -200,6 +224,7 @@ export class PlaneSky {
 
   setLook(look: PlaneLook) {
     this.look = look;
+    this.lookVersion++;
     // sprites carry the ink colour
     for (const plane of this.planes) plane.sprite = undefined;
     this.wake();
@@ -459,11 +484,11 @@ export class PlaneSky {
       const t = this.time;
       plane.glide.to(1, 0.78, 0.86);
       plane.timers.push(
-        { at: t + 0.22, run: () => plane.foldD.to(0, 0.5, 0.7) },
-        { at: t + 0.36, run: () => plane.foldC.to(0, 0.58, 0.72) },
-        { at: t + 0.58, run: () => plane.foldB.to(0, 0.5, 0.74) },
-        { at: t + 0.74, run: () => plane.foldA.to(0, 0.5, 0.74) },
-        { at: t + 0.7, run: () => plane.text.to(1, 0.45, 1) },
+        { at: t + 0.22, run: () => plane.foldD.to(REST.d, 0.5, 0.7) },
+        { at: t + 0.36, run: () => plane.foldC.to(REST.c, 0.58, 0.72) },
+        { at: t + 0.58, run: () => plane.foldB.to(REST.b, 0.56, 0.84) },
+        { at: t + 0.76, run: () => plane.foldA.to(REST.a, 0.56, 0.84) },
+        { at: t + 0.74, run: () => plane.text.to(1, 0.45, 1) },
       );
     }
     this.callbacks.onOpen?.(id);
@@ -557,8 +582,8 @@ export class PlaneSky {
       step(plane.text);
       step(plane.fade);
       // Never let the corner folds pass through the paper under them.
-      plane.foldA.value = clamp(plane.foldA.value, -0.06, 1);
-      plane.foldB.value = clamp(plane.foldB.value, -0.06, 1);
+      plane.foldA.value = clamp(plane.foldA.value, -0.03, 1);
+      plane.foldB.value = clamp(plane.foldB.value, -0.03, 1);
 
       const caught = plane.id === this.openId || plane.glide.value > 0.001 || plane.fade.value > 0.001;
       plane.trailClock += dt;
@@ -648,11 +673,16 @@ export class PlaneSky {
         ctx,
         dpr,
         plane.scratch,
-        lerp(2 * k, 4, lifted),
-        lerp((9 + 9 * near) * k, 16, lifted),
-        lerp(4 + 4 * k, 18, lifted),
+        lerp(2 * k, 5, lifted),
+        lerp((9 + 9 * near) * k, 20, lifted),
+        lerp(4 + 4 * k, 24, lifted),
         look.shadow,
       );
+      if (lifted > 0.05) {
+        // a caught note also sits on the sky: a tight shadow right under it
+        ctx.globalAlpha = alpha * clamp(lifted, 0, 1) * 0.7;
+        drawShadow(ctx, dpr, plane.scratch, 1, 3, 5, look.shadow);
+      }
     }
     ctx.globalAlpha = 1;
 
@@ -671,7 +701,7 @@ export class PlaneSky {
       }
       drawPlane(ctx, dpr, plane.params, plane.scratch);
     }
-    if (lifted) drawPlane(ctx, dpr, lifted.params, lifted.scratch);
+    if (lifted) this.drawLifted(ctx, lifted);
 
     // 5. reduced motion: the open note fades in over the middle
     if (this.reduced) this.drawReducedNotes(ctx);
@@ -680,6 +710,55 @@ export class PlaneSky {
     this.drawTag(ctx);
 
     if (this.ghost) this.drawGhost(ctx);
+  }
+
+  /** The caught plane: live while it moves, from its picture once it is an open note at rest. */
+  private drawLifted(ctx: CanvasRenderingContext2D, plane: SkyPlane) {
+    const p = plane.params;
+    const rests = (spring: Spring) => spring.resting;
+    const settled =
+      plane.id === this.openId &&
+      !this.reduced &&
+      plane.timers.length === 0 &&
+      [plane.glide, plane.foldA, plane.foldB, plane.foldC, plane.foldD, plane.text, plane.appear].every(rests);
+    if (!settled) {
+      if (this.still) this.still.key = "";
+      drawPlane(ctx, this.dpr, p, plane.scratch);
+      return;
+    }
+    const { dpr } = this;
+    const key = `${plane.id}|${this.width}|${this.height}|${dpr}|${this.lookVersion}`;
+    let still = this.still;
+    if (!still || still.key !== key) {
+      const s = plane.scratch;
+      const pad = 3;
+      const x = Math.floor(s.minX) - pad;
+      const y = Math.floor(s.minY) - pad;
+      const w = Math.ceil(s.maxX) + pad - x;
+      const h = Math.ceil(s.maxY) + pad - y;
+      const canvas = still?.canvas ?? document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(w * dpr));
+      canvas.height = Math.max(1, Math.round(h * dpr));
+      const picture = canvas.getContext("2d");
+      if (!picture) {
+        drawPlane(ctx, dpr, p, plane.scratch);
+        return;
+      }
+      // the same plane, projected with the picture's corner as the origin
+      this.stillScratch ??= new PlaneScratch(this.sheet);
+      p.x -= x;
+      p.y -= y;
+      projectPlane(p, this.stillScratch);
+      drawPlane(picture, dpr, p, this.stillScratch);
+      p.x += x;
+      p.y += y;
+      still = this.still = { canvas, key, x, y };
+    }
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = p.alpha ?? 1;
+    ctx.drawImage(still.canvas, Math.round(still.x * dpr), Math.round(still.y * dpr));
+    ctx.restore();
   }
 
   private drawGhost(ctx: CanvasRenderingContext2D) {
@@ -724,7 +803,17 @@ export class PlaneSky {
     const b = plane.foldB.value;
     const c = plane.foldC.value;
     const d = plane.foldD.value;
-    anglesFrom(this.sheet, a, b, c, d, plane.angles);
+    // the corner and edge flaps come in pairs, one a beat behind the other
+    const folded = this.sheet.folded;
+    const angles = plane.angles;
+    angles[0] = folded[0] * flap(a, REST.a, false);
+    angles[1] = folded[1] * flap(a, REST.a, true);
+    angles[2] = folded[2] * flap(b, REST.b, false);
+    angles[3] = folded[3] * flap(b, REST.b, true);
+    angles[4] = folded[4] * c;
+    angles[5] = folded[5] * c;
+    angles[6] = folded[6] * d;
+    angles[7] = folded[7] * d;
 
     let x = plane.fx;
     let y = plane.fy;
@@ -746,9 +835,9 @@ export class PlaneSky {
     }
     quatToRigid(q, p.rot);
     // Turn about the plane's middle while folded, the sheet's middle when flat.
-    const folded = clamp(c, 0, 1);
-    p.pivotX = PLANE_PIVOT.x * folded;
-    p.pivotZ = PLANE_PIVOT.z * folded;
+    const closed = clamp(c, 0, 1);
+    p.pivotX = PLANE_PIVOT.x * closed;
+    p.pivotZ = PLANE_PIVOT.z * closed;
     p.x = x;
     p.y = y;
     p.scale = scale;
@@ -856,6 +945,7 @@ export class PlaneSky {
       params.alpha = f;
       params.content = plane.fullContent;
       plane.textAlpha = 1;
+      anglesFrom(this.sheet, REST.a, REST.b, REST.c, REST.d, this.reducedAngles);
       projectPlane(params, this.reducedScratch);
       ctx.globalAlpha = f;
       drawShadow(ctx, this.dpr, this.reducedScratch, 4, 16, 18, this.look.shadow);

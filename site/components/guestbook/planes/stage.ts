@@ -3,13 +3,18 @@
 //
 // Motion model
 // ------------
-// Four fold springs (A corners, B edges, C keel, D wings; 0 flat … 1
-// folded) and a pose spring (0 = the sheet facing you, 1 = the plane in
-// three-quarter view) are retargeted by a small timeline, each step a beat
-// after the last with a soft overshoot, a paper crinkle on each. Flat folds
-// are clamped so paper never passes through paper. Unfolding (back to
-// editing) replays it backwards from wherever the springs are, so either
-// can interrupt the other.
+// One spring per fold (the two corners A, the two edges B, the keel's two
+// halves C, the two wings D; 0 flat … 1 folded) and a pose spring (0 = the
+// sheet facing you, 1 = the plane in three-quarter view) are retargeted by
+// a small timeline, the way hands do it: one corner, then the other; one
+// edge, then the other; the sheet closes in half as it turns to show
+// itself; the wings come down one just after the other and flutter. A paper
+// crinkle on each. The corner and edge flaps come over without a bounce
+// (paper lands, it doesn't spring) and are clamped so paper never passes
+// through paper. A fresh sheet has no creases: each one appears as its fold
+// is made, and is pressed out again when it is unfolded. Unfolding (back
+// to editing) replays the folds backwards from wherever the springs are,
+// so either can interrupt the other.
 //
 // Throwing. While held, the plane's position follows the pointer through a
 // stiff spring, it pitches with the vertical speed and banks with the
@@ -24,8 +29,8 @@
 // finished plane, and a throw shrinks and fades the plane into depth
 // where it is.
 
-import { anglesFrom, buildSheet, type Sheet } from "./fold";
-import { PlaneScratch, drawPlane, drawShadow, flatPaperCss, projectPlane, type PlaneContent, type PlaneParams } from "./draw";
+import { buildSheet, type Sheet } from "./fold";
+import { PlaneScratch, drawPlane, drawShadow, fillFlatPaper, projectPlane, type PlaneContent, type PlaneParams } from "./draw";
 import { launchFlight } from "./flight";
 import { planeLook, type PlaneLook, type RGB } from "./look";
 import { clamp, lerp, quatSlerp, quatToRigid, rigid, smoothstep, Spring, type Quat } from "./math";
@@ -87,10 +92,20 @@ export class FoldStage {
   private destroyed = false;
   phase: StagePhase = "idle";
 
-  private foldA = new Spring(0, 0.42, 0.62);
-  private foldB = new Spring(0, 0.42, 0.62);
-  private foldC = new Spring(0, 0.55, 0.66);
-  private foldD = new Spring(0, 0.45, 0.55);
+  /** One per fold, in the sheet's order: A top, A bottom, B top, B bottom, C top, C bottom, D top, D bottom. */
+  private folds = [
+    new Spring(0, 0.56, 0.9),
+    new Spring(0, 0.56, 0.9),
+    new Spring(0, 0.56, 0.9),
+    new Spring(0, 0.56, 0.9),
+    new Spring(0, 0.6, 0.7),
+    new Spring(0, 0.6, 0.7),
+    new Spring(0, 0.44, 0.55),
+    new Spring(0, 0.44, 0.55),
+  ];
+  private foldNow = new Float64Array(8);
+  /** How formed each crease is (it appears as its fold is made). */
+  private formed = new Float64Array(8);
   private pose = new Spring(0, 0.9, 0.82);
   private tint = new Spring(0, 0.8, 1);
   private presence = new Spring(0, 0.3, 1);
@@ -126,6 +141,7 @@ export class FoldStage {
       look: this.look,
       content: null,
       creases: 1,
+      formed: this.formed,
     };
   }
 
@@ -190,7 +206,7 @@ export class FoldStage {
   }
 
   private readyScale() {
-    return Math.min((this.width * 0.64) / PLANE_LENGTH, (this.height * 1.1) / PLANE_LENGTH, 0.85);
+    return Math.min((this.width * 0.76) / PLANE_LENGTH, (this.height * 1.25) / PLANE_LENGTH, 0.9);
   }
 
   private rest() {
@@ -204,7 +220,7 @@ export class FoldStage {
   /** Show the flat sheet (no animation) — the moment the form hands over. */
   showFlat() {
     this.timers = [];
-    for (const spring of [this.foldA, this.foldB, this.foldC, this.foldD, this.pose, this.tint, this.crossfade]) spring.snap(0);
+    for (const spring of [...this.folds, this.pose, this.tint, this.crossfade]) spring.snap(0);
     this.presence.snap(1);
     const rest = this.rest();
     this.px.snap(rest.x);
@@ -241,22 +257,31 @@ export class FoldStage {
       this.morph.snap(0).to(1, 0.34, 0.92);
       delay = 0.5;
     }
+    const f = this.folds;
     const step = (at: number, run: () => void, sound = 1) =>
       this.timers.push({
         at: t + delay + at,
         run: () => {
           run();
-          foldSound(sound);
+          if (sound > 0) foldSound(sound);
         },
       });
-    step(0, () => this.foldA.to(1, 0.42, 0.6));
-    step(0.45, () => this.foldB.to(1, 0.42, 0.6));
-    step(0.9, () => {
-      this.foldC.to(1, 0.56, 0.66);
-      this.pose.to(1, 0.95, 0.8);
+    // the corners, one then the other
+    step(0, () => f[0].to(1, 0.56, 0.9), 0.9);
+    step(0.18, () => f[1].to(1, 0.56, 0.9), 0.8);
+    // the slanted edges, the same way
+    step(0.58, () => f[2].to(1, 0.56, 0.9), 1);
+    step(0.76, () => f[3].to(1, 0.56, 0.9), 0.9);
+    // in half along the middle, turning to show itself
+    step(1.22, () => {
+      f[4].to(1, 0.6, 0.7);
+      f[5].to(1, 0.6, 0.7);
+      this.pose.to(1, 1, 0.82);
     }, 1.2);
-    step(1.37, () => this.foldD.to(1, 0.42, 0.52), 0.8);
-    this.timers.push({ at: t + delay + 2, run: () => this.setPhase("ready") });
+    // the wings, one just after the other
+    step(1.76, () => f[6].to(1, 0.44, 0.55), 0.8);
+    step(1.85, () => f[7].to(1, 0.44, 0.55), 0);
+    this.timers.push({ at: t + delay + 2.5, run: () => this.setPhase("ready") });
     this.wake();
   }
 
@@ -276,12 +301,16 @@ export class FoldStage {
       this.wake();
       return;
     }
-    this.foldD.to(0, 0.42, 0.75);
+    const f = this.folds;
+    f[6].to(0, 0.42, 0.78);
+    f[7].to(0, 0.42, 0.78);
     this.timers.push(
-      { at: t + 0.12, run: () => { this.foldC.to(0, 0.5, 0.78); this.pose.to(0, 0.8, 0.9); foldSound(0.7); } },
-      { at: t + 0.42, run: () => { this.foldB.to(0, 0.42, 0.8); foldSound(0.6); } },
-      { at: t + 0.62, run: () => this.foldA.to(0, 0.42, 0.8) },
-      { at: t + 1.25, run: () => this.setPhase("flat") },
+      { at: t + 0.12, run: () => { f[4].to(0, 0.5, 0.8); f[5].to(0, 0.5, 0.8); this.pose.to(0, 0.8, 0.9); foldSound(0.7); } },
+      { at: t + 0.42, run: () => { f[3].to(0, 0.44, 0.9); foldSound(0.6); } },
+      { at: t + 0.52, run: () => f[2].to(0, 0.44, 0.9) },
+      { at: t + 0.68, run: () => f[1].to(0, 0.44, 0.9) },
+      { at: t + 0.78, run: () => f[0].to(0, 0.44, 0.9) },
+      { at: t + 1.4, run: () => this.setPhase("flat") },
     );
     this.wake();
   }
@@ -290,7 +319,7 @@ export class FoldStage {
   comeBack() {
     this.timers = [];
     this.hold = null;
-    for (const spring of [this.foldA, this.foldB, this.foldC, this.foldD, this.pose, this.tint, this.crossfade]) spring.snap(1);
+    for (const spring of [...this.folds, this.pose, this.tint, this.crossfade]) spring.snap(1);
     const rest = this.rest();
     this.px.snap(rest.x - this.width * 0.35);
     this.py.snap(rest.y + 20);
@@ -454,12 +483,12 @@ export class FoldStage {
       }
     }
     let busy = this.timers.length > 0;
-    for (const spring of [this.foldA, this.foldB, this.foldC, this.foldD, this.pose, this.tint, this.presence, this.crossfade, this.morph, this.px, this.py]) {
+    for (const spring of [...this.folds, this.pose, this.tint, this.presence, this.crossfade, this.morph, this.px, this.py]) {
       spring.step(dt);
       if (!spring.resting) busy = true;
     }
-    this.foldA.value = clamp(this.foldA.value, -0.06, 1);
-    this.foldB.value = clamp(this.foldB.value, -0.06, 1);
+    // the flaps that fold over flat stop at the paper under them
+    for (let i = 0; i < 4; i++) this.folds[i].value = clamp(this.folds[i].value, -0.04, 1);
     // The finished plane idles (bobs) while it waits.
     if (!this.reduced && (this.phase === "ready" || this.phase === "held" || this.phase === "folding")) busy = true;
     return busy;
@@ -482,19 +511,20 @@ export class FoldStage {
     if (this.reduced) {
       // cross-fade: the sheet, then the finished plane
       const f = clamp(this.crossfade.value, 0, 1);
-      if (f < 0.999) this.drawState(ctx, 0, 0, 0, 0, 0, presence * (1 - f));
-      if (f > 0.001) this.drawState(ctx, 1, 1, 1, 1, 1, presence * f);
+      if (f < 0.999) this.drawState(ctx, FLAT, 0, presence * (1 - f));
+      if (f > 0.001) this.drawState(ctx, FOLDED, 1, presence * f);
       return;
     }
     const m = this.morph.value;
     if (this.morphFrom && m < 0.999) {
       this.drawMorph(ctx, this.morphFrom, m, presence);
       const contentIn = smoothstep(0.55, 1, m);
-      if (contentIn > 0.001) this.drawState(ctx, 0, 0, 0, 0, 0, presence * contentIn);
+      if (contentIn > 0.001) this.drawState(ctx, FLAT, 0, presence * contentIn);
       return;
     }
     this.morphFrom = null;
-    this.drawState(ctx, this.foldA.value, this.foldB.value, this.foldC.value, this.foldD.value, this.pose.value, presence);
+    for (let i = 0; i < 8; i++) this.foldNow[i] = this.folds[i].value;
+    this.drawState(ctx, this.foldNow, this.pose.value, presence);
   }
 
   /** Blank paper easing from the form's sheet to the note's shape. */
@@ -517,14 +547,12 @@ export class FoldStage {
     ctx.shadowBlur = 14 * dpr;
     ctx.shadowOffsetX = 3 * dpr;
     ctx.shadowOffsetY = 10 * dpr;
-    ctx.fillStyle = flatPaperCss(this.look, this.look.papers[0]);
-    ctx.beginPath();
-    ctx.roundRect(x, y, rw, rh, r);
-    ctx.fill();
+    fillFlatPaper(ctx, this.look, this.look.papers[0], x, y, rw, rh, r);
     ctx.restore();
   }
 
-  private drawState(ctx: CanvasRenderingContext2D, a: number, b: number, c: number, d: number, pose: number, alpha: number) {
+  /** `folds`: how far each of the eight folds is made, 0 flat … 1 folded. */
+  private drawState(ctx: CanvasRenderingContext2D, folds: ArrayLike<number>, pose: number, alpha: number) {
     const p = this.params;
     const t = this.time;
     const e = clamp(pose, 0, 1.05);
@@ -538,19 +566,27 @@ export class FoldStage {
     const vy = still ? 0 : this.py.velocity;
     const pitch = 9 + (still ? 0 : Math.cos(t * 1.7) * 3) + (held ? clamp(-vy * 0.03, -32, 32) : 0);
     const roll = held ? clamp(vx * 0.012, -25, 25) : still ? 0 : Math.sin(t * 1.1) * 3;
-    const ready = flightQuat(22, -24, pitch, roll);
+    // seen from above and a little ahead, banked toward you: the wings, the
+    // keel and the doodle all show
+    const ready = flightQuat(48, -34, pitch + 2, roll - 8);
     quatSlerp(NOTE_QUAT, ready, smoothstep(0, 1, e), this.quat);
     quatToRigid(this.quat, p.rot);
 
-    anglesFrom(this.sheet, a, b, c, d, this.angles);
-    const folded = clamp(c, 0, 1);
+    let most = 0;
+    for (let i = 0; i < 8; i++) {
+      this.angles[i] = this.sheet.folded[i] * folds[i];
+      // a crease is there once its fold has begun
+      this.formed[i] = smoothstep(0.015, 0.16, folds[i]);
+      if (folds[i] > most) most = folds[i];
+    }
+    const folded = clamp((folds[4] + folds[5]) / 2, 0, 1);
     p.pivotX = PLANE_PIVOT.x * folded;
     p.pivotZ = PLANE_PIVOT.z * folded;
     p.x = this.px.value;
     p.y = this.py.value + bob;
     p.scale = Math.exp(lerp(Math.log(this.flatScale()), Math.log(this.readyScale()), clamp(e, 0, 1)));
     p.focal = lerp(1600, 1000, clamp(e, 0, 1));
-    p.creases = clamp(1 - Math.max(a, b, c, d) * 1.5, 0, 1);
+    p.creases = clamp(1 - most * 1.5, 0, 1);
     p.look = this.look;
     p.paper = this.paperNow();
     p.content = this.content;
@@ -563,3 +599,6 @@ export class FoldStage {
     drawPlane(ctx, this.dpr, p, this.scratch);
   }
 }
+
+const FLAT = new Float64Array(8);
+const FOLDED = new Float64Array(8).fill(1);
