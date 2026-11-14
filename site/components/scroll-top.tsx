@@ -1,9 +1,10 @@
 "use client";
 
 // Round "back to top" button, bottom right. It appears once the visitor is
-// one and a half screens down and pops in/out with a blur + scale. On
-// phones it sits above the floating dock; from `sm` it moves into the
-// corner.
+// one and a half screens down (not counting the scroll the home hero spends
+// pinned in place, where the page hasn't moved yet) and pops in/out with a
+// blur + scale. On phones it sits above the floating dock; from `sm` it
+// moves into the corner.
 
 import { useEffect, useState } from "react";
 import { ChevronUp } from "@/components/icons";
@@ -17,7 +18,9 @@ export function ScrollTop() {
     let frame = 0;
     const update = () => {
       frame = 0;
-      setVisible(window.scrollY > window.innerHeight * THRESHOLD);
+      const hero = document.querySelector<HTMLElement>(".hero-track");
+      const pinned = hero ? Math.max(0, hero.offsetHeight - window.innerHeight) : 0;
+      setVisible(window.scrollY > pinned + window.innerHeight * THRESHOLD);
     };
     const schedule = () => {
       if (!frame) frame = requestAnimationFrame(update);

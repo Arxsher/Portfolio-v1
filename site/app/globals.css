@@ -744,12 +744,14 @@ html[data-theme-changing] *::after {
 /* Home: the hero that streams in as you scroll, and the lab block that pins
    while the scroll steps through its pieces (components/home/hero-stream.tsx,
    components/home/intro-lab.tsx). The track heights are the pinned
-   distances; the scripts read them back. While the hero is pinned the
-   header is held at the top too: it sits in a dock as tall as itself plus
-   the pinned distance (cancelled by a negative margin), so it is sticky for
-   exactly that long. */
+   distances; the scripts read them back. The hero's is 55% of a screen
+   (carrying it up to its place, and a held beat at the end) plus the scroll
+   that writes its text, which is a fixed length whatever the screen: about
+   28px a word. While the hero is pinned the header is held at the top too:
+   it sits in a dock as tall as itself plus the pinned distance (cancelled
+   by a negative margin), so it is sticky for exactly that long. */
 .site-column {
-  --hero-pin: 160svh;
+  --hero-pin: calc(55svh + 2200px);
 }
 .hero-track {
   height: calc(100svh + var(--hero-pin));
@@ -796,32 +798,16 @@ html[data-theme-changing] *::after {
   height: calc(100svh + 3.6 * 55svh);
   margin-top: min(0px, calc(170px - 50svh));
 }
-@media (prefers-reduced-motion: no-preference) {
-  html[data-js] [data-stream] [data-hide] {
-    display: none;
-  }
-}
-/* Words are blocks of their own, so they can rise and un-blur as they land. */
+/* Words are blocks of their own, so they can rise and un-blur as the scroll
+   writes them (the script sets how far along each one is). */
 [data-stream] span[data-w],
 [data-stream] a[data-w]:not([class*="inline-flex"]) {
   display: inline-block;
 }
-[data-stream] [data-in] {
-  animation: stream-in 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) both;
-}
-@keyframes stream-in {
-  0% {
-    opacity: 0;
-    filter: blur(12px);
-    translate: 0 0.45em;
-  }
-  45% {
-    opacity: 0.85;
-  }
-  100% {
-    opacity: 1;
-    filter: blur(0);
-    translate: 0 0;
+/* after the rule above, which is as specific: unwritten links stay hidden too */
+@media (prefers-reduced-motion: no-preference) {
+  html[data-js] [data-stream] [data-hide] {
+    display: none;
   }
 }
 /* The dot that rides ahead of the streaming text. */
@@ -838,9 +824,18 @@ html[data-theme-changing] *::after {
     opacity 0.3s var(--ease-out),
     scale 0.3s var(--ease-out);
 }
+/* gone: faded out, then taking no room at the end of the line */
 .stream-caret[data-gone] {
+  width: 0;
+  margin-inline-start: 0;
   opacity: 0;
   scale: 0.4;
+  animation: none;
+  transition:
+    opacity 0.3s var(--ease-out),
+    scale 0.3s var(--ease-out),
+    width 0s 0.3s,
+    margin 0s 0.3s;
 }
 @keyframes caret-pulse {
   50% {
