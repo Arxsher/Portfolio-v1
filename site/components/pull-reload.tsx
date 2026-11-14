@@ -23,7 +23,10 @@
 // inside anything that handles touches itself (a lab stage, a dialog, a form
 // field, a scrolling panel, anything with touch-action: none); it calls
 // preventDefault on those moves, which keeps the browser's own pull to
-// refresh and rubber band out of it. Not while the first-load intro plays.
+// refresh and rubber band out of it, so the touch can't scroll natively any
+// more: if the finger goes back up past where the pull began, the page is
+// scrolled by hand under it, and glides on when it lifts. Not while the
+// first-load intro plays.
 
 import { useEffect, useRef } from "react";
 import { haptic } from "@/lib/haptics";
@@ -85,6 +88,10 @@ export function PullReload() {
 
     let startY: number | null = null;
     let pulling = false;
+    /** The pulling finger has gone back up past where it began: it scrolls the page. */
+    let scrolling = false;
+    let trail: Array<{ t: number; y: number }> = [];
+    let glideRaf = 0;
     let progress = 0;
     let drag = 0;
     let armed = false;
@@ -210,9 +217,30 @@ export function PullReload() {
       window.setTimeout(() => location.reload(), BOOM_MS);
     };
 
+    /** Carry the page on at the speed the finger left with (px per ms, + = down the page). */
+    const glide = (velocity: number) => {
+      if (Math.abs(velocity) < 0.1) return;
+      let at = window.scrollY;
+      let last = performance.now();
+      const step = (now: number) => {
+        const dt = Math.min(32, now - last);
+        last = now;
+        at += velocity * dt;
+        velocity *= 0.997 ** dt;
+        window.scrollTo(0, at);
+        const end = document.documentElement.scrollHeight - window.innerHeight;
+        glideRaf = Math.abs(velocity) > 0.03 && at > 0 && at < end ? requestAnimationFrame(step) : 0;
+      };
+      glideRaf = requestAnimationFrame(step);
+    };
+
     const onStart = (event: TouchEvent) => {
+      cancelAnimationFrame(glideRaf);
+      glideRaf = 0;
       startY = null;
       pulling = false;
+      scrolling = false;
+      trail = [];
       if (busy || event.touches.length !== 1 || window.scrollY > 0) return;
       if (root.hasAttribute("data-star-intro") || root.hasAttribute("data-intro-veil")) return;
       if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
@@ -233,6 +261,25 @@ export function PullReload() {
         } else return;
       }
       if (event.cancelable) event.preventDefault();
+      const now = performance.now();
+      trail.push({ t: now, y: event.touches[0].clientY });
+      while (trail.length > 2 && now - trail[0].t > 100) trail.shift();
+      if (dy < 0) {
+        // back up past the start: drop the pull, scroll the page under the finger
+        if (!scrolling) {
+          scrolling = true;
+          drag = 0;
+          progress = 0;
+          armed = false;
+          schedule();
+        }
+        window.scrollTo(0, -dy);
+        return;
+      }
+      if (scrolling) {
+        scrolling = false;
+        window.scrollTo(0, 0);
+      }
       drag = Math.max(0, dy - 6);
       progress = (drag / window.innerHeight) * RATE;
       const past = progress >= THRESHOLD;
@@ -248,6 +295,13 @@ export function PullReload() {
       startY = null;
       if (!pulling) return;
       pulling = false;
+      if (scrolling) {
+        scrolling = false;
+        const first = trail[0];
+        const last = trail[trail.length - 1];
+        if (first && last && last.t > first.t && performance.now() - last.t < 80) glide(-(last.y - first.y) / (last.t - first.t));
+        return;
+      }
       if (progress >= THRESHOLD) boom();
       else settle();
     };
@@ -259,6 +313,7 @@ export function PullReload() {
     window.addEventListener("resize", size);
     return () => {
       cancelAnimationFrame(raf);
+      cancelAnimationFrame(glideRaf);
       window.removeEventListener("touchstart", onStart);
       window.removeEventListener("touchmove", onMove);
       window.removeEventListener("touchend", onEnd);
