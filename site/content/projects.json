@@ -1,0 +1,576 @@
+[
+  {
+    "slug": "aegilabs",
+    "name": "AegiLabs",
+    "tagline": "AI agents for workflow automation",
+    "category": "ai-agents",
+    "date": "August 2026",
+    "status": "Verified",
+    "body": [
+      "AegiLabs is a full product site and app for an AI-agent automation platform: agents that are designed, deployed, and monitored for support, sales, reporting, and internal ops.",
+      "Visitors land on an animated marketing page with a custom ASCII 3D renderer written from scratch on a canvas. Signed-up users configure their own agent through an onboarding flow, then manage and chat with it from a dashboard.",
+      "The agent sandbox streams responses from Llama 3.3 70B on Groq, with a system prompt built dynamically from each user's saved agent config: role, connected tools, and autonomy level."
+    ],
+    "tags": [
+      "nextjs-16",
+      "ai-agents",
+      "groq",
+      "supabase",
+      "clerk"
+    ],
+    "features": [
+      {
+        "title": "Marketing Site",
+        "text": "15 isolated landing sections, including a hand-written ASCII 3D canvas renderer."
+      },
+      {
+        "title": "Authentication",
+        "text": "Clerk SSO with protected routes, degrading gracefully when keys are absent."
+      },
+      {
+        "title": "Onboarding",
+        "text": "Agent name, use case, tools, model preference, and autonomy level, saved via server actions."
+      },
+      {
+        "title": "Chat Sandbox",
+        "text": "Streaming agent chat on Groq through the Vercel AI SDK."
+      },
+      {
+        "title": "Database",
+        "text": "Supabase Postgres with row-level security."
+      }
+    ],
+    "architecture": [
+      {
+        "label": "Framework",
+        "value": "Next.js 16 (App Router) + React 19"
+      },
+      {
+        "label": "Styling",
+        "value": "Tailwind CSS v4 + shadcn/ui"
+      },
+      {
+        "label": "AI",
+        "value": "Vercel AI SDK + Groq (llama-3.3-70b-versatile)"
+      },
+      {
+        "label": "Data",
+        "value": "Supabase (Postgres + RLS)"
+      },
+      {
+        "label": "Visuals",
+        "value": "react-three-fiber + custom canvas ASCII renderer"
+      }
+    ],
+    "links": {
+      "github": "https://github.com/Arxsher/AegiLabs",
+      "live": "https://aegilabs-website.vercel.app/"
+    }
+  },
+  {
+    "slug": "liquid-glass",
+    "name": "Liquid Glass",
+    "tagline": "A liquid glass website, coming soon",
+    "category": "wip",
+    "date": "In progress",
+    "status": "In Progress",
+    "body": [
+      "A work in progress: a website built around the liquid glass look.",
+      "It's still being built. The live link will land here as soon as it ships."
+    ],
+    "tags": [
+      "liquid-glass",
+      "ui",
+      "wip"
+    ],
+    "features": [],
+    "architecture": [],
+    "links": {}
+  },
+  {
+    "slug": "laya",
+    "name": "Laya",
+    "tagline": "Autonomous BTC trading bot",
+    "category": "wip",
+    "date": "In progress",
+    "status": "In Progress",
+    "body": [
+      "A work in progress: Laya is an autonomous trading bot running on an OKX demo account, with paper money and real market data.",
+      "Its live dashboard shows every decision it makes (long, hold, or short, with confidence), its trades, and its performance. Every number is real and comes straight from the bot's own run logs. Nothing is mocked.",
+      "The whole loop runs on free tiers, with no server: a fine-tuned decision model, a run log synced by GitHub Actions every 15 minutes, and a static dashboard."
+    ],
+    "tags": [
+      "trading",
+      "ml",
+      "github-actions",
+      "wip"
+    ],
+    "features": [
+      {
+        "title": "Decision Feed",
+        "text": "Every LONG / HOLD / SHORT call with its confidence."
+      },
+      {
+        "title": "Live Market",
+        "text": "BTC price and charts from public exchange APIs."
+      },
+      {
+        "title": "Analytics",
+        "text": "Decision mix, confidence stream, model card, and a fee-aware backtest."
+      },
+      {
+        "title": "Portfolio",
+        "text": "Balance, realized P&L, and full trade history."
+      }
+    ],
+    "architecture": [
+      {
+        "label": "Model",
+        "value": "Fine-tuned decision model on 1m BTC candles"
+      },
+      {
+        "label": "Pipeline",
+        "value": "GitHub Actions sync every 15 minutes"
+      },
+      {
+        "label": "Data",
+        "value": "Binance public API with Coinbase fallback"
+      }
+    ],
+    "links": {
+      "github": "https://github.com/Arxsher/laya-dashboard"
+    }
+  },
+  {
+    "slug": "archexcellence",
+    "name": "ArchExcellence",
+    "tagline": "Architectural management platform",
+    "category": "freelance",
+    "date": "January 2026",
+    "status": "Verified",
+    "body": [
+      "ArchExcellence is a high-end freelance project built for an architectural firm in Casablanca. The goal was to transform a traditional portfolio into an interactive management hub for premium villa and renovation projects.",
+      "The system handles the entire project lifecycle—from the initial client submission through to detailed request routing. I architected the platform using Laravel to leverage its robust routing and security features, ensuring that sensitive blueprints and client data remain protected.",
+      "A key focus was the 'Premium Aesthetic.' The UI was designed to reflect the quality of the architecture itself, using clean lines, generous white space, and optimized high-resolution asset delivery to create a feeling of technical luxury.",
+      "This project highlights my ability to take a client's business vision and translate it into a performant, industrial-grade digital tool."
+    ],
+    "tags": [
+      "php",
+      "laravel",
+      "mysql",
+      "architecture",
+      "freelance"
+    ],
+    "features": [
+      {
+        "title": "Automated Multi-step Project Submission Flow",
+        "text": ""
+      },
+      {
+        "title": "Dynamic Request Routing for Villas and Renovations",
+        "text": ""
+      },
+      {
+        "title": "Optimized Asset Management for architectural renders",
+        "text": ""
+      },
+      {
+        "title": "Custom SEO engine with OpenGraph and Twitter meta sync",
+        "text": ""
+      },
+      {
+        "title": "High-availability MySQL project and lead database",
+        "text": ""
+      },
+      {
+        "title": "Responsive admin-facing dashboard for project tracking",
+        "text": ""
+      }
+    ],
+    "architecture": [
+      {
+        "label": "Engine",
+        "value": "PHP/Laravel 10+ for secure request handling"
+      },
+      {
+        "label": "Storage",
+        "value": "MySQL with high-integrity lead relational mapping"
+      },
+      {
+        "label": "SEO",
+        "value": "Specialized meta-engine for social sharing preview"
+      },
+      {
+        "label": "Frontend",
+        "value": "Blade + Tailwind for surgical UI precision"
+      },
+      {
+        "label": "Performance",
+        "value": "Optimized Vite build for rapid site loading"
+      }
+    ],
+    "links": {
+      "live": "https://ab-anassbenlechgar.com/"
+    }
+  },
+  {
+    "slug": "sealed",
+    "name": "sealed.",
+    "tagline": "Anonymous confessions locked behind an AI guard",
+    "category": "social",
+    "date": "August 2026",
+    "status": "Verified",
+    "body": [
+      "sealed. is a social game: anonymous confessions that arrive locked. An AI guard holds the message, and the recipient gets a handful of yes/no questions to crack what it says.",
+      "Words unlock as the questions get close, and one final guess decides everything. The sender chooses whether the confession auto-opens after 24 hours or stays sealed forever."
+    ],
+    "tags": [
+      "nextjs-16",
+      "ai",
+      "game",
+      "social"
+    ],
+    "features": [
+      {
+        "title": "Vaults",
+        "text": "Create a vault and share your link on your story. Friends need no account."
+      },
+      {
+        "title": "AI Guards",
+        "text": "Pick a lock and a guard persona, then press and hold to seal."
+      },
+      {
+        "title": "Interrogation",
+        "text": "Every question costs ammo, and close questions make words pop open."
+      },
+      {
+        "title": "Final Guess",
+        "text": "Crack it or lose it."
+      }
+    ],
+    "architecture": [
+      {
+        "label": "Framework",
+        "value": "Next.js 16 (App Router) + Tailwind v4"
+      },
+      {
+        "label": "Storage",
+        "value": "Upstash Redis in production"
+      },
+      {
+        "label": "AI",
+        "value": "Provider-agnostic guard (Anthropic / Groq / Gemini)"
+      }
+    ],
+    "links": {}
+  },
+  {
+    "slug": "skillsy",
+    "name": "Skillsy",
+    "tagline": "Skill discovery and growth platform",
+    "category": "platform",
+    "date": "October 2025",
+    "status": "Verified",
+    "body": [
+      "Skillsy was born from the need for a localized, developer-centric community space. It's a full-stack ecosystem designed to bridge the gap between learning and collaboration, focused on the specific needs of the tech scene in Morocco.",
+      "The architecture follows a strict MVC (Model-View-Controller) pattern using native PHP. This was a deliberate choice to master the fundamentals of web routing and state persistence without the abstraction of modern frameworks. I built the authentication system from the ground up, including secure password hashing and session management.",
+      "To ensure maximum accessibility, I deployed Skillsy as both a responsive web platform and a native Android application. This required managing cross-platform UI consistency and ensuring the backend could handle diverse client requests over SSL.",
+      "The project serves as a technical foundation for my future work in large-scale social systems."
+    ],
+    "tags": [
+      "php",
+      "mysql",
+      "tailwind-css",
+      "android-apk",
+      "mvc"
+    ],
+    "features": [
+      {
+        "title": "Custom User Authentication & Persistent Sessions",
+        "text": ""
+      },
+      {
+        "title": "Native MVC",
+        "text": ""
+      }
+    ],
+    "architecture": [
+      {
+        "label": "Backend",
+        "value": "PHP 7.4+ with native MVC implementation"
+      },
+      {
+        "label": "Database",
+        "value": "MySQL with optimized indexing for user lookup"
+      },
+      {
+        "label": "Styling",
+        "value": "Tailwind CSS for high-stiffness industrial UI"
+      },
+      {
+        "label": "Mobile",
+        "value": "Native Android wrapper with WebView bridging"
+      },
+      {
+        "label": "Environment",
+        "value": "XAMPP local dev to high-availability web hosting"
+      }
+    ],
+    "links": {
+      "github": "https://github.com/Arxsher/Skillsy",
+      "live": "https://skillsy.wuaze.com/"
+    }
+  },
+  {
+    "slug": "spotify-wrapped",
+    "name": "Spotify Wrapped",
+    "tagline": "Full-stack listener data analyzer",
+    "category": "fullstack",
+    "date": "December 2025",
+    "status": "Verified",
+    "body": [
+      "Spotify Analytics is a technical deep-dive into the listener's musical identity. It moves beyond standard wrappers by providing a real-time, persistent dashboard that tracks evolution in musical taste.",
+      "The core challenge was orchestrating the high-frequency data streams from the Spotify Web API without hitting rate limits. I implemented a custom caching layer and context-based state management to ensure that once data is fetched, the UI remains snappy and responsive.",
+      "I built this during a focused push to explore 'Agentic Workflows.' Vesper, my autonomous partner, assisted in optimizing the data engine while I architected the 'Industrial Dark' design language that defines the app's soul.",
+      "The result is a high-stiffness analytical tool that bridges the gap between raw API data and meaningful user insight."
+    ],
+    "tags": [
+      "react-19",
+      "vite",
+      "spotify-api",
+      "context-api",
+      "framer-motion"
+    ],
+    "features": [
+      {
+        "title": "User Profile Dashboard",
+        "text": "View your Spotify profile information with a personalized welcome greeting."
+      },
+      {
+        "title": "Listening Statistics",
+        "text": "Track your streams, minutes listened, unique artists, and new discoveries."
+      },
+      {
+        "title": "Top Artists & Tracks",
+        "text": "Explore your most-played music with visual grid layouts."
+      },
+      {
+        "title": "Dynamic Genre Breakdown",
+        "text": "Visualize your music preferences with a real-time genre distribution engine."
+      },
+      {
+        "title": "Monthly Listening Trends",
+        "text": "Interactive charts showing how your habits change over time."
+      },
+      {
+        "title": "Recently Played",
+        "text": "Browse your listening history with full history support."
+      },
+      {
+        "title": "Agentic Integration",
+        "text": "Built in collaboration with Vesper, an autonomous AI agent."
+      }
+    ],
+    "architecture": [
+      {
+        "label": "Frontend",
+        "value": "React 19 + Vite for sub-millisecond HMR"
+      },
+      {
+        "label": "State",
+        "value": "Advanced Context API for cross-component data sync"
+      },
+      {
+        "label": "Animations",
+        "value": "GSAP + Framer Motion for physical UI response"
+      },
+      {
+        "label": "Styling",
+        "value": "Pure CSS Variables for radical theme switching"
+      },
+      {
+        "label": "API",
+        "value": "RESTful Spotify Web API integration with OAuth2 flow"
+      }
+    ],
+    "links": {
+      "github": "https://github.com/Arxsher/spotify-wrapped",
+      "live": "https://arxsher.github.io/spotify-wrapped/"
+    }
+  },
+  {
+    "slug": "comet-chat",
+    "name": "Comet Chat",
+    "tagline": "Real-time communication platform",
+    "category": "realtime",
+    "date": "August 2025",
+    "status": "Verified",
+    "body": [
+      "Comet is a conceptual real-time chat platform inspired by Talkomatic — rebuilt for the web age.",
+      "The vision: eliminate the gap between thought and expression. No send button. No waiting. Every keystroke appears instantly.",
+      "This frontend exploration focused on crafting a sleek, immersive experience that feels as fast as thinking."
+    ],
+    "tags": [
+      "real-time",
+      "chat",
+      "ux-research",
+      "frontend",
+      "concept"
+    ],
+    "features": [
+      {
+        "title": "Instant keystroke broadcast architecture",
+        "text": ""
+      },
+      {
+        "title": "Room-based conversation model",
+        "text": ""
+      },
+      {
+        "title": "Sleek animated landing experience",
+        "text": ""
+      },
+      {
+        "title": "Responsive mobile-first design",
+        "text": ""
+      }
+    ],
+    "architecture": [
+      {
+        "label": "$ Concept",
+        "value": "Vanilla frontend showcase"
+      },
+      {
+        "label": "$ Stack",
+        "value": "HTML, CSS, JavaScript"
+      },
+      {
+        "label": "$ Focus",
+        "value": "UI/UX research for instant messaging"
+      },
+      {
+        "label": "$ Next",
+        "value": "WebSocket backend implementation"
+      }
+    ],
+    "links": {
+      "github": "https://github.com/Arxsher/comet"
+    }
+  },
+  {
+    "slug": "hologesture",
+    "name": "HoloGesture",
+    "tagline": "Advanced hand-tracking interface",
+    "category": "experimental",
+    "date": "July 2025",
+    "status": "Verified",
+    "body": [
+      "HoloGesture is an experimental research project focusing on high-precision hand-tracking and gesture recognition for web interfaces.",
+      "The goal was to move beyond traditional mouse and touch interaction, using computer vision to translate physical hand movements into digital commands in real-time.",
+      "This project pushed my understanding of spatial UI/UX and the performance constraints of running ML models directly in the browser environment."
+    ],
+    "tags": [
+      "computer-vision",
+      "ml",
+      "gestures",
+      "interface",
+      "experimental"
+    ],
+    "features": [
+      {
+        "title": "Real-time Hand Tracking & Keypoint Detection",
+        "text": ""
+      },
+      {
+        "title": "Gesture-to-Command Mapping Engine",
+        "text": ""
+      },
+      {
+        "title": "Zero-latency UI Response Pipeline",
+        "text": ""
+      },
+      {
+        "title": "Experimental Spatial Interaction Model",
+        "text": ""
+      }
+    ],
+    "architecture": [
+      {
+        "label": "Model",
+        "value": "MediaPipe / TensorFlow.js orchestration"
+      },
+      {
+        "label": "Frontend",
+        "value": "React for fluid interface updates"
+      },
+      {
+        "label": "Compute",
+        "value": "Hardware-accelerated browser-side ML"
+      },
+      {
+        "label": "Status",
+        "value": "Private technical research build"
+      }
+    ],
+    "links": {}
+  },
+  {
+    "slug": "edenmorph",
+    "name": "EdenMorph",
+    "tagline": "Creative space for animations",
+    "category": "creative",
+    "date": "September 2025",
+    "status": "Verified",
+    "body": [
+      "EdenMorph is a creative coding exploration that brings mathematical beauty to life through interactive canvas animations.",
+      "Using parametric equations to render a beating heart that responds to user interaction, this project bridges the gap between cold math and organic motion.",
+      "Every particle follows a mathematically defined path while responding to touch and mouse input in real-time — creating a dialogue between the user and the machine."
+    ],
+    "tags": [
+      "creative-coding",
+      "canvas",
+      "math",
+      "animations",
+      "interactive"
+    ],
+    "features": [
+      {
+        "title": "Parametric heart curve rendering",
+        "text": ""
+      },
+      {
+        "title": "Real-time mouse/touch particle interaction",
+        "text": ""
+      },
+      {
+        "title": "Responsive canvas scaling",
+        "text": ""
+      },
+      {
+        "title": "Smooth 60fps animation pipeline",
+        "text": ""
+      }
+    ],
+    "architecture": [
+      {
+        "label": "$ Render",
+        "value": "HTML5 Canvas 2D API"
+      },
+      {
+        "label": "$ Math",
+        "value": "Parametric polar equations"
+      },
+      {
+        "label": "$ Input",
+        "value": "Touch & mouse event handling"
+      },
+      {
+        "label": "$ Perf",
+        "value": "requestAnimationFrame optimization"
+      }
+    ],
+    "links": {
+      "github": "https://github.com/Arxsher/edenmorph"
+    }
+  }
+]

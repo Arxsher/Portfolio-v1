@@ -1,0 +1,886 @@
+@import "tailwindcss";
+
+/* Class-based dark mode: <html class="dark"> is set by the no-flash script
+   in app/layout.tsx and by lib/theme.ts. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ------------------------------------------------------------------------ */
+/* Design tokens                                                            */
+/* The colour, shadow and size values were measured from the reference      */
+/* site's computed styles (so they match it on purpose). The token names    */
+/* are this site's own:                                                     */
+/*   tile   resting fill of cards, pills and panels     (bg-tile)           */
+/*   float  floating things: dock, popovers, scroll-top (bg-float)          */
+/*   well   small inset fills: kbd, chips, quiet hovers (bg-well)           */
+/*   wash   faint hover tint over the page              (bg-wash)           */
+/*   line-* hairlines and dashed borders; edge-* 1px ring shadows           */
+/*   ink / on-ink  the solid button and its label       (bg-ink text-on-ink)*/
+/*   lift-* elevation shadows                    (shadow-lift, shadow-float)*/
+/* ------------------------------------------------------------------------ */
+
+:root {
+  --column-width: 676px;
+
+  /* page + text */
+  --background: #fbfbfb;
+  --foreground: #171717; /* headings, names, strong text */
+  --body: #6e6e6e; /* running body copy */
+  --secondary: #6b6b6b; /* subtitles, section labels, icon buttons */
+  --tertiary: #6e6e6e; /* counts, captions, footer, placeholders */
+
+  /* fills */
+  --tile: #f2f2f2; /* cards, status pill, graph panel */
+  --tile-hover: #ebebeb;
+  --float: #ffffff; /* floating dock, popovers, scroll-top */
+  --well: #ececec; /* kbd, inline chips, hover fill of quiet buttons */
+  --well-hover: #e4e4e4;
+  --wash: rgb(0 0 0 / 0.0385);
+
+  /* lines */
+  --border: rgb(0 0 0 / 0.066);
+  --line-firm: rgb(0 0 0 / 0.15);
+  --line-dash: rgb(0 0 0 / 0.132);
+  --edge: rgb(0 0 0 / 0.09);
+  --edge-firm: rgb(0 0 0 / 0.14);
+
+  /* solid button */
+  --ink: #171717;
+  --on-ink: #fbfbfb;
+
+  /* accents */
+  --status: #16a34a; /* "available" dot */
+  --verified: #1d9bf0; /* verified badge (same in both themes) */
+  --accent: #1d9bf0;
+  --accent-wash: rgb(29 155 240 / 0.12);
+  --danger: #dc2626;
+
+  /* contribution graph: the foreground colour at five strengths */
+  --graph-0: color-mix(in oklab, var(--foreground) 7%, transparent);
+  --graph-1: color-mix(in oklab, var(--foreground) 22%, transparent);
+  --graph-2: color-mix(in oklab, var(--foreground) 42%, transparent);
+  --graph-3: color-mix(in oklab, var(--foreground) 68%, transparent);
+  --graph-4: var(--foreground);
+
+  /* guestbook quote-mark accents */
+  --quote-purple: #8250df;
+  --quote-amber: #b7791f;
+  --quote-red: #cf4f43;
+  --quote-blue: #0969da;
+  --quote-green: #1a7f37;
+
+  /* elevation */
+  --lift: 0 0 0 1px rgb(0 0 0 / 0.06), 0 1px 2px -1px rgb(0 0 0 / 0.06), 0 2px 4px 0 rgb(0 0 0 / 0.04);
+  --lift-hover: 0 0 0 1px rgb(0 0 0 / 0.08), 0 1px 3px -1px rgb(0 0 0 / 0.08), 0 4px 8px -2px rgb(0 0 0 / 0.06);
+  --lift-float: 0 0 0 1px rgb(0 0 0 / 0.06), 0 4px 8px -2px rgb(0 0 0 / 0.06), 0 12px 24px -4px rgb(0 0 0 / 0.08);
+
+  --selection: color-mix(in oklab, var(--foreground) 13%, transparent);
+  --scrollbar: color-mix(in oklab, var(--foreground) 22%, transparent);
+
+  /* focus rings and underlined links (the `focus-ring`, `btn` and `link`
+     utilities); the foreground colour unless a palette says otherwise */
+  --ring: var(--foreground);
+  --link: var(--foreground);
+}
+
+/* Dark mode comes in two palettes, picked from the theme menu in the
+   header (lib/theme.ts). Both keep `class="dark"` on <html>, so every
+   `dark:` style still applies; `data-palette` on <html> says which one.
+   `.dark` on its own is AMOLED, the default dark palette (so it is also
+   what shows if `data-palette` is missing); Red Dragon is the option. */
+
+/* AMOLED: true black for OLED screens, after Monkeytype's monochrome
+   "shadow" theme (bg #000, main #eee, subAlt #171717). Near-black tiles,
+   #eee text with greys below it, white for what is live. As in light mode,
+   floats sit above wells (lightness 4 / 8 / 13 for tile, well, float), so
+   a floating thumb stands out on a well track. */
+.dark {
+  --background: #000000;
+  --foreground: #eeeeee; /* 18:1 */
+  --body: #a6a6a6; /* 8.6:1 */
+  --secondary: #999999; /* 7.4:1 */
+  --tertiary: #8f8f8f; /* 6.5:1 (4.9:1 on float, 5.2:1 on well-hover) */
+
+  --tile: #0d0d0d;
+  --tile-hover: #171717;
+  --float: #222222;
+  --well: #171717;
+  --well-hover: #1e1e1e;
+  --wash: rgb(255 255 255 / 0.05);
+
+  --border: rgb(255 255 255 / 0.08);
+  --line-firm: rgb(255 255 255 / 0.13);
+  --line-dash: rgb(255 255 255 / 0.2);
+  --edge: rgb(255 255 255 / 0.08);
+  --edge-firm: rgb(255 255 255 / 0.13);
+
+  --ink: #eeeeee;
+  --on-ink: #000000;
+
+  --status: #3fcf6e;
+  --verified: #1d9bf0;
+  --accent: #ffffff;
+  --accent-wash: rgb(255 255 255 / 0.12);
+  --danger: #f2575c;
+  --ring: #ffffff;
+  --link: #ffffff;
+
+  --graph-0: color-mix(in oklab, var(--foreground) 8%, transparent);
+  --graph-1: color-mix(in oklab, var(--foreground) 24%, transparent);
+  --graph-2: color-mix(in oklab, var(--foreground) 44%, transparent);
+  --graph-3: color-mix(in oklab, var(--foreground) 70%, transparent);
+  --graph-4: var(--foreground);
+
+  --quote-purple: #a58cf0;
+  --quote-amber: #e3b341;
+  --quote-red: #ec8a7f;
+  --quote-blue: #6cb6ff;
+  --quote-green: #56d364;
+
+  --lift: 0 0 0 1px rgb(255 255 255 / 0.08);
+  --lift-hover: 0 0 0 1px rgb(255 255 255 / 0.13);
+  --lift-float: 0 0 0 1px rgb(255 255 255 / 0.1), 0 16px 40px -12px rgb(0 0 0 / 0.9);
+
+  --selection: rgb(255 255 255 / 0.22);
+  --scrollbar: rgb(255 255 255 / 0.22);
+}
+
+/* Red Dragon: colours from Monkeytype's "red_dragon" theme (bg #1a0b0c,
+   main #ff3a32, sub #e2a528, subAlt #0e0506). Gold carries the text,
+   dimming from headings to captions (all >= 4.5:1 on every fill below);
+   red marks what is live: links, focus, the status dot, the solid button.
+   Tiles sink below the maroon page like Monkeytype's subAlt; wells rise a
+   step above it and floats a step above the wells (lightness ~2 / 4 / 8 /
+   13), so a well shows on a tile and a floating thumb on a well track. */
+.dark[data-palette="red-dragon"] {
+  --background: #1a0b0c;
+  --foreground: #e2a528; /* 8.8:1 on the page */
+  --body: #bc9553; /* 6.9:1 */
+  --secondary: #af894d; /* 5.9:1 (5.0:1 on float) */
+  --tertiary: #a88349; /* 5.5:1 (4.6:1 on float, 4.8:1 on well-hover) */
+
+  --tile: #0e0506;
+  --tile-hover: #080303;
+  --float: #331a1b;
+  --well: #271113;
+  --well-hover: #2f1618;
+  --wash: rgb(226 165 40 / 0.05);
+
+  --border: rgb(226 165 40 / 0.1);
+  --line-firm: rgb(226 165 40 / 0.17);
+  --line-dash: rgb(226 165 40 / 0.24);
+  --edge: rgb(226 165 40 / 0.09);
+  --edge-firm: rgb(226 165 40 / 0.16);
+
+  --ink: #ff3a32;
+  --on-ink: #0e0506; /* 5.7:1 on the red */
+
+  --status: #ff3a32;
+  --verified: #ff3a32;
+  --accent: #ff3a32;
+  --accent-wash: rgb(255 58 50 / 0.14);
+  --danger: #ff6f9a; /* rose, apart from the red accent; 6.1:1 on float */
+  --ring: #ff3a32;
+  --link: #ff3a32; /* 5.4:1 (4.5:1 on float) */
+
+  /* contribution graph: maroon to red to gold */
+  --graph-0: rgb(226 165 40 / 0.07);
+  --graph-1: #5a1714;
+  --graph-2: #a5241e;
+  --graph-3: #ff3a32;
+  --graph-4: #e2a528;
+
+  --quote-purple: #d58ab5;
+  --quote-amber: #e2a528;
+  --quote-red: #ff6a61;
+  --quote-blue: #e0b46a;
+  --quote-green: #c9b458;
+
+  --lift: 0 0 0 1px rgb(226 165 40 / 0.09);
+  --lift-hover: 0 0 0 1px rgb(226 165 40 / 0.15);
+  --lift-float: 0 0 0 1px rgb(226 165 40 / 0.13), 0 16px 40px -12px rgb(0 0 0 / 0.75);
+
+  --selection: rgb(255 58 50 / 0.28); /* body text 4.8:1 on it */
+  --scrollbar: rgb(226 165 40 / 0.24);
+}
+
+/* Tailwind names. Use e.g. `bg-background text-primary`, `bg-tile`
+   (alias `bg-card`), `text-muted`, `text-subtle`, `bg-well`,
+   `border-border`, `shadow-float`, `ease-out`. Aliases point at the same
+   variables. */
+@theme inline {
+  --font-sans: var(--font-geist-sans), "Geist", system-ui, arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-primary: var(--foreground);
+  --color-body: var(--body);
+  --color-muted: var(--body);
+  --color-secondary: var(--secondary);
+  --color-tertiary: var(--tertiary);
+  --color-subtle: var(--tertiary);
+
+  --color-tile: var(--tile);
+  --color-tile-hover: var(--tile-hover);
+  --color-card: var(--tile);
+  --color-card-hover: var(--tile-hover);
+  --color-float: var(--float);
+  --color-well: var(--well);
+  --color-well-hover: var(--well-hover);
+  --color-kbd: var(--well);
+  --color-wash: var(--wash);
+
+  --color-border: var(--border);
+  --color-line-firm: var(--line-firm);
+  --color-line-dash: var(--line-dash);
+  --color-edge: var(--edge);
+  --color-edge-firm: var(--edge-firm);
+
+  --color-ink: var(--ink);
+  --color-on-ink: var(--on-ink);
+
+  --color-status: var(--status);
+  --color-green: var(--status);
+  --color-verified: var(--verified);
+  --color-accent: var(--accent);
+  --color-accent-wash: var(--accent-wash);
+  --color-danger: var(--danger);
+  --color-ring: var(--ring);
+  --color-link: var(--link);
+
+  --color-graph-0: var(--graph-0);
+  --color-graph-1: var(--graph-1);
+  --color-graph-2: var(--graph-2);
+  --color-graph-3: var(--graph-3);
+  --color-graph-4: var(--graph-4);
+
+  --color-quote-purple: var(--quote-purple);
+  --color-quote-amber: var(--quote-amber);
+  --color-quote-red: var(--quote-red);
+  --color-quote-blue: var(--quote-blue);
+  --color-quote-green: var(--quote-green);
+
+  --shadow-lift: var(--lift);
+  --shadow-lift-hover: var(--lift-hover);
+  --shadow-float: var(--lift-float);
+
+  --container-content: var(--column-width);
+}
+
+@theme static {
+  /* `ease-out` is a quint-style curve: fast start, long soft landing. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  /* used by icon swaps and small state changes */
+  --ease-swap: cubic-bezier(0.2, 0, 0, 1);
+  --ease-spring: cubic-bezier(0.34, 1.36, 0.64, 1);
+
+  --radius-pill: 12px;
+  --radius-chip: 10px;
+  --radius-card: 18px;
+  --radius-panel: 24px;
+
+  --animate-fade-in: fade-in 0.2s var(--ease-out) both;
+  --animate-blur-in: blur-in 0.32s var(--ease-out) both;
+  --animate-pop-in: pop-in 0.28s var(--ease-out) both;
+  --animate-still-in: still-in 0.36s var(--ease-out) both;
+  --animate-sheen: sheen 1.8s linear infinite;
+  --animate-twinkle: twinkle 6s ease-in-out infinite;
+  --animate-bar: bar-bounce 0.9s ease-in-out infinite;
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+  /* soft text/label entrance: a hint of blur and a 2px rise */
+  @keyframes blur-in {
+    from {
+      opacity: 0;
+      filter: blur(3px);
+      translate: 0 2px;
+    }
+  }
+  /* small floating controls (scroll-top, kbd hints) */
+  @keyframes pop-in {
+    from {
+      opacity: 0;
+      filter: blur(4px);
+      scale: 0.85;
+    }
+  }
+  /* images once they have loaded */
+  @keyframes still-in {
+    from {
+      opacity: 0;
+      filter: blur(6px);
+      scale: 0.98;
+    }
+  }
+  @keyframes sheen {
+    from {
+      background-position: 100vw 0;
+    }
+    to {
+      background-position: -100vw 0;
+    }
+  }
+  /* contribution cells: set --cell-from on the element (defaults to .5) */
+  @keyframes twinkle {
+    0%,
+    100% {
+      opacity: var(--cell-from, 0.5);
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+  @keyframes bar-bounce {
+    0%,
+    100% {
+      transform: scaleY(0.4);
+    }
+    50% {
+      transform: scaleY(1);
+    }
+  }
+}
+
+/* ------------------------------------------------------------------------ */
+/* Base                                                                     */
+/* ------------------------------------------------------------------------ */
+
+@layer base {
+  *,
+  ::before,
+  ::after,
+  ::backdrop {
+    border-color: var(--border);
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    -webkit-tap-highlight-color: transparent;
+    color-scheme: light;
+    scrollbar-color: var(--scrollbar) transparent;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--body);
+    font-family: var(--font-sans);
+    font-size: 16px;
+    line-height: 1.6;
+  }
+
+  ::selection {
+    background-color: var(--selection);
+    color: var(--foreground);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  em,
+  i {
+    font-style: italic;
+  }
+
+  kbd {
+    font-family: var(--font-sans);
+  }
+
+  /* anchor jumps (#lab, #work …) leave a little air above the section */
+  [id] {
+    scroll-margin-top: 24px;
+  }
+}
+
+/* Tailwind's `outline-none focus-visible:outline-2` pairing needs the
+   outline style restored while the element is focus-visible. Unlayered so
+   it wins over the utility that set it to none. */
+:focus-visible {
+  --tw-outline-style: solid;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Shared component utilities                                               */
+/* ------------------------------------------------------------------------ */
+
+/* Buttons: <button class="btn btn-solid">, `btn btn-soft`, `btn btn-icon`. */
+@utility btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 34px;
+  padding-inline: 14px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  outline: none;
+  user-select: none;
+  transition-property: scale, background-color, color, opacity;
+  transition-duration: 150ms;
+  transition-timing-function: var(--ease-out);
+  &:active {
+    scale: 0.96;
+  }
+  &:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  &:disabled {
+    cursor: default;
+    opacity: 0.5;
+    scale: 1;
+  }
+}
+@utility btn-solid {
+  background-color: var(--ink);
+  color: var(--on-ink);
+  &:hover:not(:disabled) {
+    background-color: color-mix(in oklab, var(--ink) 88%, var(--on-ink));
+  }
+}
+@utility btn-soft {
+  background-color: var(--tile);
+  color: var(--foreground);
+  &:hover:not(:disabled) {
+    background-color: var(--tile-hover);
+  }
+}
+@utility btn-icon {
+  width: 34px;
+  padding-inline: 0;
+  justify-content: center;
+  color: var(--secondary);
+  &:hover {
+    color: var(--foreground);
+  }
+  @media (pointer: coarse) {
+    width: 40px;
+    height: 40px;
+  }
+}
+
+/* Focus ring for links and custom controls: nothing until the element is
+   focus-visible, then a 2px ring in the foreground colour, 2px out
+   (`focus-ring`) or 4px out for full-width rows (`focus-ring-far`). */
+@utility focus-ring {
+  outline: none;
+  &:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+}
+@utility focus-ring-far {
+  outline: none;
+  &:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 4px;
+  }
+}
+
+/* Page headings on the inner pages (Work, Writing, Guestbook, 404). */
+@utility page-title {
+  color: var(--foreground);
+  font-size: 30px;
+  line-height: 1.15;
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+}
+@utility page-lede {
+  max-width: 56ch;
+  font-size: 16px;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+
+/* A name that underlines when its row is hovered (add
+   group-hover:decoration-current on the row's text). */
+@utility hover-underline {
+  text-decoration-line: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 3px;
+  transition: text-decoration-color 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Keyboard hint chip, e.g. the "/" in the footer. */
+@utility kbd {
+  border-radius: 6px;
+  background-color: var(--well);
+  padding: 0.125rem 0.375rem;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--secondary);
+}
+
+/* Underlined text link (prose, small inline links). */
+@utility link {
+  color: var(--link);
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  text-decoration-color: color-mix(in oklab, var(--link) 35%, transparent);
+  transition: text-decoration-color 150ms ease-out;
+  &:hover {
+    text-decoration-color: currentColor;
+  }
+}
+
+/* Loading shimmer for image hosts: add `skeleton` to the wrapper while the
+   image inside is loading. */
+@utility skeleton {
+  background-image: linear-gradient(
+    100deg,
+    transparent 35%,
+    color-mix(in oklab, var(--foreground) 4.5%, transparent) 50%,
+    transparent 65%
+  );
+  background-repeat: no-repeat;
+  background-size: 100vw 100%;
+  background-attachment: fixed;
+  animation: var(--animate-sheen);
+  @media (prefers-reduced-motion: reduce) {
+    background-image: none;
+    animation: none;
+  }
+}
+
+/* Two icons stacked in one cell that cross-fade: give the hidden one
+   data-hidden="true" (see the theme toggle in components/header.tsx). */
+@utility icon-swap {
+  display: grid;
+  place-items: center;
+  & > * {
+    grid-area: 1 / 1;
+    transition:
+      opacity 300ms var(--ease-swap),
+      scale 300ms var(--ease-swap),
+      filter 300ms var(--ease-swap);
+  }
+  & > [data-hidden="true"] {
+    opacity: 0;
+    filter: blur(4px);
+    scale: 0.25;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    & > * {
+      transition: opacity 150ms ease-out;
+    }
+    & > [data-hidden="true"] {
+      filter: none;
+      scale: 1;
+    }
+  }
+}
+
+/* Theme toggle icons (components/header.tsx): the sun shows in light, the
+   moon in dark; the incoming one pops in from a blurred quarter size. */
+.theme-icon {
+  grid-area: 1 / 1;
+  display: flex;
+  transition:
+    opacity 300ms var(--ease-swap),
+    scale 300ms var(--ease-swap),
+    filter 300ms var(--ease-swap);
+}
+.theme-icon[data-icon="moon"],
+.dark .theme-icon[data-icon="sun"] {
+  opacity: 0;
+  filter: blur(4px);
+  scale: 0.25;
+}
+.dark .theme-icon[data-icon="moon"] {
+  opacity: 1;
+  filter: none;
+  scale: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .theme-icon,
+  .dark .theme-icon {
+    transition: opacity 150ms ease-out;
+    filter: none !important;
+    scale: 1 !important;
+  }
+}
+
+/* Hide scrollbars on horizontal scrollers (graph, chips). */
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* ------------------------------------------------------------------------ */
+/* Wide pages                                                               */
+/* ------------------------------------------------------------------------ */
+
+/* The lab (/lab/ and /lab/<slug>/) uses a wide column, 1185px of content
+   like the reference lab, while every other page keeps the 628px one. A
+   page opts in by rendering an element with `data-wide-page`; the column
+   wrapper in app/layout.tsx (.site-column) widens around it, header and
+   footer included. Pure CSS, so the static HTML is already right. */
+.site-column:has([data-wide-page]) {
+  --column-width: 1233px;
+}
+
+/* ------------------------------------------------------------------------ */
+/* View transitions                                                         */
+/* ------------------------------------------------------------------------ */
+
+/* Page navigation (app/template.tsx wraps each page in a React
+   <ViewTransition> with the "page" class). The rest of the document swaps
+   instantly; only the page body leaves and arrives. */
+::view-transition {
+  pointer-events: none;
+}
+::view-transition-old(root) {
+  display: none;
+}
+::view-transition-new(root) {
+  animation: none;
+}
+::view-transition-group(.page) {
+  animation: none;
+}
+::view-transition-old(.page) {
+  animation: 140ms var(--ease-out) both page-leave;
+}
+::view-transition-new(.page) {
+  animation: 260ms var(--ease-out) 40ms both page-arrive;
+}
+@keyframes page-leave {
+  to {
+    opacity: 0;
+    filter: blur(2px);
+  }
+}
+@keyframes page-arrive {
+  from {
+    opacity: 0;
+    filter: blur(4px);
+    translate: 0 10px;
+  }
+}
+
+/* Fixed chrome keeps its place above the animating page. Give the floating
+   dock `view-transition-name: site-dock`; the scroll-top button uses
+   `site-top`. */
+::view-transition-group(site-dock),
+::view-transition-group(site-top) {
+  z-index: 100;
+  animation: none;
+}
+::view-transition-old(site-dock),
+::view-transition-old(site-top) {
+  display: none;
+}
+::view-transition-new(site-dock),
+::view-transition-new(site-top) {
+  animation: none;
+}
+
+/* Theme switch (lib/theme.ts): the new theme fades in over the old one as
+   a single full-page snapshot. */
+html[data-theme-switch] * {
+  view-transition-name: none !important;
+}
+html[data-theme-switch]::view-transition-old(root) {
+  display: block;
+  animation: none;
+  mix-blend-mode: normal;
+}
+html[data-theme-switch]::view-transition-new(root) {
+  animation: 220ms ease-out both theme-arrive;
+  mix-blend-mode: normal;
+}
+@keyframes theme-arrive {
+  from {
+    opacity: 0;
+  }
+}
+
+/* While the theme class flips, colour transitions are suspended so nothing
+   lags behind. Elements marked data-keep-transition (the toggle icons)
+   still animate. */
+html[data-theme-changing] *:not([data-keep-transition]),
+html[data-theme-changing] *::before,
+html[data-theme-changing] *::after {
+  transition: none !important;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Reduced motion                                                           */
+/* ------------------------------------------------------------------------ */
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto !important;
+  }
+  *,
+  ::before,
+  ::after {
+    animation-duration: 1ms !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
+  }
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation-duration: 0s !important;
+    animation-delay: 0s !important;
+  }
+}
+
+/* Touch screens: no bounce or browser refresh at the ends of the page; the
+   site's own pull to reload takes the top (components/pull-reload.tsx). */
+@media (pointer: coarse) and (prefers-reduced-motion: no-preference) {
+  html {
+    overscroll-behavior-y: none;
+  }
+}
+
+/* Home: the hero that streams in as you scroll, and the lab block that pins
+   while the scroll steps through its pieces (components/home/hero-stream.tsx,
+   components/home/intro-lab.tsx). The track heights are the pinned
+   distances; the scripts read them back. The hero's is 55% of a screen
+   (carrying it up to its place, and a held beat at the end) plus the scroll
+   that writes its text, which is a fixed length whatever the screen: about
+   28px a word. While the hero is pinned the header is held at the top too:
+   it sits in a dock as tall as itself plus the pinned distance (cancelled
+   by a negative margin), so it is sticky for exactly that long. */
+.site-column {
+  --hero-pin: calc(55svh + 2200px);
+}
+.hero-track {
+  height: calc(100svh + var(--hero-pin));
+  margin-top: -60px;
+}
+.hero-box {
+  perspective: 900px;
+}
+.hero-content {
+  top: 50%;
+  transform: translateY(-50%);
+}
+/* placed by the script (it sets `top`); the centring is no longer needed */
+.hero-content[data-placed] {
+  transform: none;
+}
+.header-dock {
+  position: relative;
+  z-index: 20;
+  pointer-events: none;
+}
+.header-dock > * {
+  pointer-events: auto;
+}
+@media (prefers-reduced-motion: no-preference) {
+  /* a spacer, not padding: a sticky element only travels within its
+     parent's content box */
+  .site-column:has(.hero-track) .header-dock::after {
+    content: "";
+    display: block;
+    height: var(--hero-pin);
+  }
+  .site-column:has(.hero-track) .header-dock {
+    margin-bottom: calc(-1 * var(--hero-pin));
+  }
+  .site-column:has(.hero-track) .header-dock > header {
+    position: sticky;
+    top: 24px;
+  }
+}
+/* Tucked up under the end of the hero's track, so the lab block arrives just
+   as the hero lets go (its pinned box is mostly empty below the block). */
+.lab-track {
+  height: calc(100svh + 3.6 * 55svh);
+  margin-top: min(0px, calc(170px - 50svh));
+}
+/* Words are blocks of their own, so they can rise and un-blur as the scroll
+   writes them (the script sets how far along each one is). */
+[data-stream] span[data-w],
+[data-stream] a[data-w]:not([class*="inline-flex"]) {
+  display: inline-block;
+}
+/* after the rule above, which is as specific: unwritten links stay hidden too */
+@media (prefers-reduced-motion: no-preference) {
+  html[data-js] [data-stream] [data-hide] {
+    display: none;
+  }
+}
+/* The dot that rides ahead of the streaming text. */
+.stream-caret {
+  display: inline-block;
+  width: 0.5em;
+  height: 0.5em;
+  margin-inline-start: 0.35em;
+  border-radius: 999px;
+  background: var(--foreground);
+  vertical-align: 0.02em;
+  animation: caret-pulse 1.1s ease-in-out infinite;
+  transition:
+    opacity 0.3s var(--ease-out),
+    scale 0.3s var(--ease-out);
+}
+/* gone: faded out, then taking no room at the end of the line */
+.stream-caret[data-gone] {
+  width: 0;
+  margin-inline-start: 0;
+  opacity: 0;
+  scale: 0.4;
+  animation: none;
+  transition:
+    opacity 0.3s var(--ease-out),
+    scale 0.3s var(--ease-out),
+    width 0s 0.3s,
+    margin 0s 0.3s;
+}
+@keyframes caret-pulse {
+  50% {
+    opacity: 0.35;
+    scale: 0.8;
+  }
+}
+@keyframes hint-bob {
+  50% {
+    translate: 0 3px;
+  }
+}
+html:not([data-js]) .stream-caret,
+html:not([data-js]) .hero-hint {
+  display: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero-track,
+  .lab-track {
+    height: auto;
+    margin-top: 0 !important;
+  }
+  .hero-box,
+  .lab-box {
+    position: static;
+    display: block;
+    height: auto;
+  }
+  .hero-content {
+    position: static;
+    transform: none;
+  }
+  .hero-hint,
+  .stream-caret {
+    display: none;
+  }
+  .lab-block {
+    margin-top: 2.5rem;
+  }
+}
